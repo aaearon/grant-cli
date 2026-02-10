@@ -11,6 +11,7 @@ import (
 	"github.com/aaearon/sca-cli/internal/ui"
 	"github.com/cyberark/idsec-sdk-golang/pkg/auth"
 	sdk_models "github.com/cyberark/idsec-sdk-golang/pkg/models"
+	auth_models "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
 	"github.com/cyberark/idsec-sdk-golang/pkg/profiles"
 	"github.com/spf13/cobra"
 )
@@ -57,8 +58,21 @@ Examples:
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 
+			// Load profile
+			loader := profiles.DefaultProfilesLoader()
+			profile, err := (*loader).LoadProfile("sca-cli")
+			if err != nil {
+				return fmt.Errorf("failed to load profile: %w", err)
+			}
+
 			// Create ISP authenticator
 			ispAuth := auth.NewIdsecISPAuth(true)
+
+			// Authenticate to get token (required before creating SCA service)
+			_, err = ispAuth.Authenticate(profile, nil, &auth_models.IdsecSecret{Secret: ""}, false, true)
+			if err != nil {
+				return fmt.Errorf("authentication failed: %w", err)
+			}
 
 			// Create SCA service
 			scaService, err := sca.NewSCAAccessService(ispAuth)

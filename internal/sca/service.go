@@ -79,8 +79,8 @@ func (s *SCAAccessService) refreshAuth(client *common.IdsecClient) error {
 	return isp.RefreshClient(client, s.ispAuth)
 }
 
-// GetServiceConfig returns the service configuration.
-func (s *SCAAccessService) GetServiceConfig() services.IdsecServiceConfig {
+// ServiceConfig returns the service configuration.
+func (s *SCAAccessService) ServiceConfig() services.IdsecServiceConfig {
 	return ServiceConfig()
 }
 

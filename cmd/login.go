@@ -78,8 +78,8 @@ func runLogin(cmd *cobra.Command, ispAuth auth.IdsecAuth) error {
 		}
 	}
 
-	// Authenticate
-	token, err := ispAuth.Authenticate(profile, nil, nil, false, true)
+	// Authenticate (pass empty secret for interactive auth)
+	token, err := ispAuth.Authenticate(profile, nil, &auth_models.IdsecSecret{Secret: ""}, false, true)
 	if err != nil {
 		return fmt.Errorf("authentication failed: %w", err)
 	}
@@ -125,8 +125,8 @@ func runLoginWithAuth(cmd *cobra.Command, auth authenticator) error {
 		}
 	}
 
-	// Authenticate
-	token, err := auth.Authenticate(profile, nil, nil, false, true)
+	// Authenticate (pass empty secret for interactive auth)
+	token, err := auth.Authenticate(profile, nil, &auth_models.IdsecSecret{Secret: ""}, false, true)
 	if err != nil {
 		return fmt.Errorf("authentication failed: %w", err)
 	}

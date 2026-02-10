@@ -11,6 +11,7 @@ import (
 	sca_models "github.com/aaearon/sca-cli/internal/sca/models"
 	"github.com/cyberark/idsec-sdk-golang/pkg/auth"
 	"github.com/cyberark/idsec-sdk-golang/pkg/models"
+	auth_models "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
 	"github.com/cyberark/idsec-sdk-golang/pkg/profiles"
 	"github.com/spf13/cobra"
 )
@@ -35,6 +36,12 @@ func NewStatusCommand() *cobra.Command {
 
 			// Create ISP auth
 			ispAuth := auth.NewIdsecISPAuth(true)
+
+			// Authenticate to get token (required before creating SCA service)
+			_, err = ispAuth.Authenticate(profile, nil, &auth_models.IdsecSecret{Secret: ""}, false, true)
+			if err != nil {
+				return fmt.Errorf("authentication failed: %w", err)
+			}
 
 			// Create SCA service
 			svc, err := sca.NewSCAAccessService(ispAuth)
