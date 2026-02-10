@@ -1,6 +1,6 @@
 # sca-cli — Functional Design Specification
 
-**Version:** 2.3 (Draft)
+**Version:** 2.4 (Draft)
 **Author:** Tim Schindler
 **Date:** 2026-02-10
 **License:** MIT
@@ -32,6 +32,7 @@ The tool will be released as open-source.
 - Interactive role selection with fuzzy search/filter (when no flag is provided)
 - Direct role selection via CLI flag (`--role`, `--target`)
 - Role favorites/aliases stored in a local config file
+- Cloud provider selection via `--provider` / `-p` flag (default: `azure`; v1 validates azure only but the flag is present for v2 forward-compatibility)
 - Azure cloud provider only
 
 ### 3.2 Out of Scope (v1)
@@ -318,6 +319,8 @@ Fetching eligible Azure targets...
   Your az CLI session now has the elevated permissions.
 ```
 
+The `--provider` flag defaults to the `default_provider` config value (`azure` in v1). It can be overridden explicitly: `sca-cli elevate --provider azure`. In v1, only `azure` is accepted; other values produce an error with a message indicating future support.
+
 ### 6.4 Direct Role Selection (with flags)
 
 ```
@@ -334,36 +337,53 @@ $ sca-cli elevate --favorite prod-contrib
 ✓ Elevated to Contributor on Prod-EastUS
 ```
 
+When `--favorite` is used, the provider is resolved from the favorite's stored `provider` field. If `--provider` is also specified, it must match the favorite's provider or an error is returned.
+
 ### 6.6 Check Session Status
 
 ```
 $ sca-cli status
 Authenticated as: tim@iosharp.com
 
-Active SCA sessions:
+Azure sessions:
   Contributor on Prod-EastUS — expires at 16:32 UTC (1h 12m remaining)
   Owner on Dev-WestEU — expires at 15:45 UTC (25m remaining)
 ```
+
+Output is grouped by provider. In v1 only "Azure sessions" appears. The `--provider` flag filters to a single provider: `sca-cli status --provider azure`. In v2, multiple provider groups will be displayed when sessions span providers.
 
 ## 7. CLI Command Structure
 
 ```
 sca-cli
-├── configure          # First-time setup / edit config
-├── login              # Authenticate to CyberArk Identity (interactive only)
-├── logout             # Clear cached tokens from keyring
-├── elevate            # Elevate Azure permissions (core command)
-│   ├── --target, -t   # Target name (subscription, resource group)
-│   ├── --role, -r     # Role name
-│   ├── --favorite, -f # Use a saved favorite alias
-│   └── --duration, -d # Requested session duration (if policy allows)
-├── favorites          # Manage role favorites
-│   ├── add            # Save a target+role as a named favorite
-│   ├── list           # List saved favorites
-│   └── remove         # Delete a favorite
-├── status             # Show current auth state and active SCA sessions
-└── version            # Print version info
+├── configure              # First-time setup / edit config
+├── login                  # Authenticate to CyberArk Identity (interactive only)
+├── logout                 # Clear cached tokens from keyring
+├── elevate                # Elevate cloud permissions (core command)
+│   ├── --provider, -p     # Cloud provider: azure (default from config; v1: azure only)
+│   ├── --target, -t       # Target name (subscription, resource group)
+│   ├── --role, -r         # Role name
+│   ├── --favorite, -f     # Use a saved favorite alias
+│   └── --duration, -d     # Requested session duration (if policy allows)
+├── favorites              # Manage role favorites
+│   ├── add                # Save a provider+target+role as a named favorite
+│   │   └── --provider, -p # Cloud provider for the favorite (default from config)
+│   ├── list               # List saved favorites
+│   └── remove             # Delete a favorite
+├── status                 # Show current auth state and active SCA sessions
+│   └── --provider, -p     # Filter sessions to a single provider (default: all)
+└── version                # Print version info
 ```
+
+### 7.1 Design Decision: Flags Over Subcommands
+
+The cloud provider is specified via a `--provider` flag, **not** as a subcommand namespace (e.g., `sca-cli azure elevate` or `sca-cli aws elevate`). This decision is intentional:
+
+1. **The action is identical across providers.** The user's intent is always "elevate my access." The SCA API confirms this — `POST /api/access/elevate` is a single endpoint with `csp` as a field in the request body, not separate endpoints per provider. The CLI mirrors the API.
+2. **Subcommands create ambiguity for cross-provider operations.** `status` displays sessions across all providers. With subcommands, it's unclear whether users run `sca-cli azure status` and `sca-cli aws status` separately, or whether a top-level `sca-cli status` also exists.
+3. **Favorites resolve their own provider.** `sca-cli elevate --favorite prod-contrib` doesn't need a provider flag — the favorite stores it. With subcommands, `sca-cli azure elevate --favorite prod-contrib` would be redundant.
+4. **Config default works naturally.** `default_provider: azure` in config means `sca-cli elevate` targets Azure implicitly. With subcommands, the default concept doesn't map cleanly.
+5. **`sca-cli` is not a cloud provider CLI.** `az`, `aws`, and `gcloud` own the provider-specific namespaces. `sca-cli` is a CyberArk tool — the cloud provider is a parameter of the elevation action, not a namespace.
 
 ## 8. Configuration
 
@@ -381,17 +401,24 @@ Location: `~/.sca-cli/config.yaml`
 # Reference to the idsec SDK profile name
 profile: sca-cli
 
-# Default cloud provider (v1: azure only)
-provider: azure
+# Default cloud provider — used when --provider is not specified
+# v1: only "azure" is supported; other values are rejected at runtime
+default_provider: azure
 
 favorites:
   prod-contrib:
+    provider: azure           # explicit provider per favorite
     target: "Prod-EastUS"
     role: "Contributor"
   dev-owner:
+    provider: azure
     target: "Dev-WestEU"
     role: "Owner"
 ```
+
+**`default_provider`** (renamed from `provider` in v2.3): Named `default_provider` rather than `provider` to communicate that it is a default, not a constraint — it can be overridden per-command via `--provider`. In v1 only `azure` is valid. In v2, this allows users to set their primary cloud (e.g., `default_provider: aws`) while still elevating to other providers on demand.
+
+**`provider` field in favorites**: Each favorite stores its cloud provider explicitly. This avoids a v2 schema migration — when AWS/GCP support lands, existing favorites don't need retroactive provider tagging. In v1, `provider` defaults to `azure` if omitted (backward-compatible with any config written before this field existed).
 
 Note: Authentication configuration (tenant URL, username, MFA method) lives in the SDK profile, not in the sca-cli config. This avoids duplication and lets the SDK manage auth state consistently.
 
@@ -484,7 +511,8 @@ This means `sca-cli`'s core value for Azure is replacing the browser-based SCA c
 |----------|----------|
 | No cached token / expired token | Prompt: "Not authenticated. Run `sca-cli login` first." |
 | Token expired but refresh token available | SDK silently refreshes — transparent to user |
-| No eligible targets returned | "No eligible Azure targets found. Check your SCA policies." |
+| No eligible targets returned | "No eligible {provider} targets found. Check your SCA policies." |
+| Unsupported provider (v1) | "Provider '{name}' is not supported in this version. Supported providers: azure." |
 | Elevation denied (policy) | Display the API error message (e.g., approval required, time window) |
 | Network failure | Retry once, then display error with `--verbose` hint |
 | Target/role not found (direct mode) | "Target 'X' or role 'Y' not found. Run `sca-cli elevate` to see available options." |
@@ -606,7 +634,7 @@ This ensures our service works identically to the SDK's built-in services: same 
 
 ## 18. Future Considerations (Post-v1)
 
-- AWS and GCP cloud provider support (AWS may require `sca-cli env` for credential injection since SCA vends temporary access keys for AWS)
+- AWS and GCP cloud provider support — the `--provider` flag and per-favorite provider field are already in place; v2 adds validation for `aws`/`gcp` values and provider-specific post-elevation behavior (AWS may require `sca-cli env` for credential injection since SCA vends temporary access keys)
 - Active session listing and revocation (`sca-cli sessions`)
 - Session TTL countdown and auto-refresh
 - Shell prompt integration (show active role in PS1)
@@ -643,3 +671,4 @@ This ensures our service works identically to the SDK's built-in services: same 
 | 2.1 | 2026-02-10 | Dependency alignment: removed bubbletea (use survey/v2 Select with filter instead); removed go-keyring (use 99designs/keyring via SDK); confirmed zero new Go module dependencies — all libraries reused from idsec-sdk-golang dep tree; added fatih/color for terminal output; noted go-github-selfupdate available for future self-update command |
 | 2.2 | 2026-02-10 | PoC validation against live tenant. Corrected API paths: base URL is `https://{subdomain}.sca.cyberark.cloud/api`, eligibility is `GET /api/access/{CSP}/eligibility` (CSP as path param), elevate is `POST /api/access/elevate`. Resolved all 4 open questions from Section 5.1: ISP JWT works directly (no token exchange), `/oauth2/token/{app_id}` is identity-host-only Basic Auth (not needed for CLI), documented full eligibility and elevate request/response schemas. Added note that JWT `subdomain` claim differs from identity URL subdomain. Added `X-API-Version: 2.0` header requirement. Added `roleInfo` vs `role` field name discrepancy note. |
 | 2.3 | 2026-02-10 | Removed `sca-cli env` command and credential injection. For Azure, SCA elevation activates a JIT role assignment — no Azure credentials are returned. The user's existing `az login` session picks up elevated permissions automatically. Removed Section 11 env var output, `env.go`, `internal/shell/` from project structure. Moved credential injection to future/AWS scope. Updated `status` command to show SCA session expiry (not token expiry). |
+| 2.4 | 2026-02-10 | Multi-cloud forward-compatibility. Added `--provider` / `-p` flag to `elevate`, `favorites add`, and `status` commands (default: `azure` from config). Renamed config key `provider` to `default_provider` to communicate overridability. Added `provider` field to favorites schema. Grouped `status` output by provider. Documented design decision: flags over subcommands (Section 7.1) — the cloud provider is a parameter of the elevation action, not a command namespace. v1 validates `azure` only; v2 enables `aws`/`gcp` with no CLI structural changes. |
