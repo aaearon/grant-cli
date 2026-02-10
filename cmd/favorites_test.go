@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -20,17 +19,17 @@ func TestFavoritesListCommand(t *testing.T) {
 			name: "list with multiple favorites",
 			setupConfig: func(path string) {
 				cfg := config.DefaultConfig()
-				config.AddFavorite(cfg, "dev", config.Favorite{
+				_ = config.AddFavorite(cfg, "dev", config.Favorite{
 					Provider: "azure",
 					Target:   "subscription-123",
 					Role:     "Contributor",
 				})
-				config.AddFavorite(cfg, "prod", config.Favorite{
+				_ = config.AddFavorite(cfg, "prod", config.Favorite{
 					Provider: "azure",
 					Target:   "subscription-456",
 					Role:     "Reader",
 				})
-				config.Save(cfg, path)
+				_ = config.Save(cfg, path)
 			},
 			wantContain: []string{
 				"dev: azure/subscription-123/Contributor",
@@ -42,7 +41,7 @@ func TestFavoritesListCommand(t *testing.T) {
 			name: "list with empty favorites",
 			setupConfig: func(path string) {
 				cfg := config.DefaultConfig()
-				config.Save(cfg, path)
+				_ = config.Save(cfg, path)
 			},
 			wantContain: []string{"No favorites saved"},
 			wantErr:     false,
@@ -60,8 +59,7 @@ func TestFavoritesListCommand(t *testing.T) {
 			// Setup temp config
 			tmpDir := t.TempDir()
 			configPath := filepath.Join(tmpDir, "config.yaml")
-			os.Setenv("GRANT_CONFIG", configPath)
-			defer os.Unsetenv("GRANT_CONFIG")
+			t.Setenv("GRANT_CONFIG", configPath)
 
 			tt.setupConfig(configPath)
 
@@ -98,12 +96,12 @@ func TestFavoritesRemoveCommand(t *testing.T) {
 			name: "remove existing favorite",
 			setupConfig: func(path string) {
 				cfg := config.DefaultConfig()
-				config.AddFavorite(cfg, "dev", config.Favorite{
+				_ = config.AddFavorite(cfg, "dev", config.Favorite{
 					Provider: "azure",
 					Target:   "subscription-123",
 					Role:     "Contributor",
 				})
-				config.Save(cfg, path)
+				_ = config.Save(cfg, path)
 			},
 			args:        []string{"dev"},
 			wantContain: []string{"Removed favorite"},
@@ -113,7 +111,7 @@ func TestFavoritesRemoveCommand(t *testing.T) {
 			name: "remove non-existent favorite",
 			setupConfig: func(path string) {
 				cfg := config.DefaultConfig()
-				config.Save(cfg, path)
+				_ = config.Save(cfg, path)
 			},
 			args:        []string{"nonexistent"},
 			wantContain: []string{"not found"},
@@ -123,7 +121,7 @@ func TestFavoritesRemoveCommand(t *testing.T) {
 			name: "remove without name argument",
 			setupConfig: func(path string) {
 				cfg := config.DefaultConfig()
-				config.Save(cfg, path)
+				_ = config.Save(cfg, path)
 			},
 			args:    []string{},
 			wantErr: true,
@@ -135,8 +133,7 @@ func TestFavoritesRemoveCommand(t *testing.T) {
 			// Setup temp config
 			tmpDir := t.TempDir()
 			configPath := filepath.Join(tmpDir, "config.yaml")
-			os.Setenv("GRANT_CONFIG", configPath)
-			defer os.Unsetenv("GRANT_CONFIG")
+			t.Setenv("GRANT_CONFIG", configPath)
 
 			tt.setupConfig(configPath)
 
@@ -173,7 +170,7 @@ func TestFavoritesAddCommand(t *testing.T) {
 			name: "add without name argument",
 			setupConfig: func(path string) {
 				cfg := config.DefaultConfig()
-				config.Save(cfg, path)
+				_ = config.Save(cfg, path)
 			},
 			args:    []string{},
 			wantErr: true,
@@ -182,12 +179,12 @@ func TestFavoritesAddCommand(t *testing.T) {
 			name: "add duplicate favorite name",
 			setupConfig: func(path string) {
 				cfg := config.DefaultConfig()
-				config.AddFavorite(cfg, "dev", config.Favorite{
+				_ = config.AddFavorite(cfg, "dev", config.Favorite{
 					Provider: "azure",
 					Target:   "subscription-123",
 					Role:     "Contributor",
 				})
-				config.Save(cfg, path)
+				_ = config.Save(cfg, path)
 			},
 			args:    []string{"dev"},
 			wantErr: true, // Should fail with duplicate error
@@ -199,8 +196,7 @@ func TestFavoritesAddCommand(t *testing.T) {
 			// Setup temp config
 			tmpDir := t.TempDir()
 			configPath := filepath.Join(tmpDir, "config.yaml")
-			os.Setenv("GRANT_CONFIG", configPath)
-			defer os.Unsetenv("GRANT_CONFIG")
+			t.Setenv("GRANT_CONFIG", configPath)
 
 			tt.setupConfig(configPath)
 
@@ -225,12 +221,11 @@ func TestFavoritesCommandIntegration(t *testing.T) {
 	// Setup temp config
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.yaml")
-	os.Setenv("GRANT_CONFIG", configPath)
-	defer os.Unsetenv("GRANT_CONFIG")
+	t.Setenv("GRANT_CONFIG", configPath)
 
 	// Initialize config
 	cfg := config.DefaultConfig()
-	config.Save(cfg, configPath)
+	_ = config.Save(cfg, configPath)
 
 	// Test that favorites command is properly registered
 	rootCmd := NewRootCommand()

@@ -184,7 +184,7 @@ func TestLoadConfig_PermissionError(t *testing.T) {
 	if err := os.Chmod(path, 0000); err != nil {
 		t.Fatalf("failed to chmod: %v", err)
 	}
-	t.Cleanup(func() { os.Chmod(path, 0644) })
+	t.Cleanup(func() { _ = os.Chmod(path, 0644) })
 
 	_, err := Load(path)
 	if err == nil {

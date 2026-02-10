@@ -16,11 +16,6 @@ type authenticator interface {
 	Authenticate(profile *models.IdsecProfile, authProfile *auth_models.IdsecAuthProfile, secret *auth_models.IdsecSecret, force bool, refreshAuth bool) (*auth_models.IdsecToken, error)
 }
 
-// profileLoader is the interface for loading profiles
-type profileLoader interface {
-	LoadProfile(string) (*models.IdsecProfile, error)
-}
-
 // NewLoginCommand creates the login command
 func NewLoginCommand() *cobra.Command {
 	return &cobra.Command{

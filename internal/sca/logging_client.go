@@ -2,7 +2,6 @@ package sca
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"time"
 )
@@ -60,7 +59,7 @@ func (c *loggingClient) do(method, route string, fn func() (*http.Response, erro
 func redactHeaders(h http.Header) http.Header {
 	redacted := h.Clone()
 	if redacted.Get("Authorization") != "" {
-		redacted.Set("Authorization", fmt.Sprintf("Bearer [REDACTED]"))
+		redacted.Set("Authorization", "Bearer [REDACTED]")
 	}
 	return redacted
 }

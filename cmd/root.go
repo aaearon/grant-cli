@@ -196,7 +196,7 @@ func runElevateWithDeps(
 		}
 
 		// Check provider mismatch
-		if flags.provider != "" && strings.ToLower(flags.provider) != strings.ToLower(fav.Provider) {
+		if flags.provider != "" && !strings.EqualFold(flags.provider, fav.Provider) {
 			return fmt.Errorf("provider %q does not match favorite provider %q", flags.provider, fav.Provider)
 		}
 
