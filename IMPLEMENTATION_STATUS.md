@@ -1,7 +1,7 @@
 # sca-cli Implementation Status
 
 **Last updated:** 2026-02-10
-**Current branch:** `feat/commands`
+**Current branch:** `feat/integration-tests`
 **Plan source:** `/home/tim/sca-cli/sca-cli-functional-design-spec-v2.md`
 **OpenAPI:** `/home/tim/sca-cli/Secure Cloud Access APIs.json`
 
@@ -16,8 +16,8 @@
 | 2: Config & Favorites | `feat/config` | DONE - Merged to main | config.go, favorites.go + tests. YAML-based, SCA_CLI_CONFIG env override |
 | 3: SCA Access Service | `feat/sca-service` | DONE - Merged to main | service_config.go, service.go + tests. SDK service pattern with httpClient DI |
 | 4: UI Layer | `feat/ui` | DONE - Merged to main | selector.go + tests. Survey-based interactive selection with formatting & lookup |
-| 5: CLI Commands | `feat/commands` | DONE - Ready to merge | version, configure, login, logout, elevate, status, favorites + tests. 82 total tests passing |
-| 6: Integration Tests & Docs | `feat/integration-tests` | TODO | Depends on Phase 5 |
+| 5: CLI Commands | `feat/commands` | DONE - Merged to main | version, configure, login, logout, elevate, status, favorites + tests. 82 total tests passing |
+| 6: Integration Tests & Docs | `feat/integration-tests` | DONE - Ready to merge | integration_test.go (6 tests), enhanced README, CLAUDE.md with patterns, updated Makefile |
 | 7: Release Infrastructure | `feat/release` | TODO | Parallelizable with Phase 6 |
 
 ---
@@ -189,14 +189,56 @@ type httpClient interface {
 
 ---
 
-## Phase 6: Integration Tests & Docs
+## Phase 6: Integration Tests & Docs (DONE)
 
 **Branch:** `feat/integration-tests`
 
-- `cmd/integration_test.go` with `//go:build integration` tag
-- Test compiled binary: help, version, elevate-without-login error
-- Finalize README with install, quickstart, all commands, config reference, troubleshooting
-- Update CLAUDE.md with implementation patterns
+### Implemented
+
+1. **`cmd/integration_test.go`** — Integration tests for compiled binary
+   - `//go:build integration` tag to separate from unit tests
+   - `TestMain` builds binary before tests, cleans up after
+   - 6 test functions covering:
+     - Help output (root, short flag, help command, subcommand help)
+     - Version command output format
+     - Elevate without authentication (error handling)
+     - Status without authentication
+     - Favorites list (empty state)
+     - Invalid command handling
+   - Uses `exec.Command` to test actual binary behavior
+   - Temporary directories for config isolation
+
+2. **Makefile Updates**
+   - Added `test-integration` target: `go test ./cmd -tags=integration -v`
+   - Added `test-all` target: runs both unit and integration tests
+   - Updated `.PHONY` declarations
+
+3. **README.md Enhancements**
+   - Installation section with binary releases for macOS/Linux/Windows
+   - Expanded Quick Start with step-by-step setup
+   - Detailed command documentation with examples
+   - Configuration section with environment variables
+   - "How It Works" section explaining Azure elevation and authentication flows
+   - Comprehensive Troubleshooting section
+   - Development section with testing and build commands
+   - Contributing guidelines
+
+4. **CLAUDE.md Updates**
+   - Added "Implementation Patterns" section
+   - Command structure patterns (factory functions, RunE, init registration)
+   - Dependency injection patterns (interfaces, test injection)
+   - Testing patterns (table-driven, mocks, integration tests)
+   - Error handling conventions
+   - Output handling (cmd.OutOrStdout)
+   - Flag patterns
+   - Config loading patterns
+   - Service initialization examples
+
+### Test Coverage
+All tests passing:
+- Unit tests: 82 tests (all packages)
+- Integration tests: 6 test functions with 11 subtests
+- Total: 88+ tests
 
 ---
 
@@ -214,10 +256,10 @@ type httpClient interface {
 
 ```
 sca-cli/
-├── CLAUDE.md
+├── CLAUDE.md                         # Project conventions + implementation patterns
 ├── LICENSE
-├── Makefile
-├── README.md
+├── Makefile                          # build, test, test-integration, test-all, lint, clean
+├── README.md                         # Complete documentation with installation, commands, troubleshooting
 ├── main.go                           # calls cmd.Execute()
 ├── go.mod                            # module github.com/aaearon/sca-cli
 ├── go.sum
@@ -237,6 +279,7 @@ sca-cli/
 │   ├── status_test.go                # 12 tests
 │   ├── favorites.go                  # favorites parent with add/list/remove
 │   ├── favorites_test.go             # 5 tests
+│   ├── integration_test.go           # 6 integration test functions (//go:build integration)
 │   ├── interfaces.go                 # shared interfaces for DI
 │   ├── test_mocks.go                 # shared test mocks
 │   └── test_helpers.go               # test utilities
@@ -266,14 +309,19 @@ sca-cli/
 ```
 
 ## Git Status
-- All phases 0-4 merged to `main`
-- Phase 5 on `feat/commands` branch, ready to merge
-- `main` is ahead of `origin/main` by 15 commits (not pushed)
-- Old branches can be cleaned up: `feat/project-scaffolding`, `feat/models`, `feat/config`, `feat/config-favorites`, `feat/sca-service`, `feat/ui`
+- All phases 0-5 merged to `main`
+- Phase 6 on `feat/integration-tests` branch, ready to merge
+- `main` is ahead of `origin/main` by 18 commits (not pushed)
+- Old branches can be cleaned up: `feat/project-scaffolding`, `feat/models`, `feat/config`, `feat/config-favorites`, `feat/sca-service`, `feat/ui`, `feat/commands`
 
-## Test Count: 82 tests total, all passing
+## Test Count: 88+ tests total, all passing
+
+### Unit Tests (82 tests)
 - cmd: 71 tests (version, configure, login, logout, elevate, status, favorites)
 - config: 15 tests
 - sca: 17 tests
 - sca/models: 15 tests
 - ui: 13 tests
+
+### Integration Tests (6 test functions, 11 subtests)
+- cmd/integration_test.go: help, version, elevate-without-login, status-without-login, favorites-list, invalid-command

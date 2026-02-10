@@ -7,13 +7,18 @@ LDFLAGS := -s -w \
 	-X github.com/aaearon/sca-cli/cmd.commit=$(COMMIT) \
 	-X github.com/aaearon/sca-cli/cmd.buildDate=$(DATE)
 
-.PHONY: build test lint clean
+.PHONY: build test test-integration test-all lint clean
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o $(BINARY_NAME) .
 
 test:
 	go test ./... -v
+
+test-integration:
+	go test ./cmd -tags=integration -v
+
+test-all: test test-integration
 
 lint:
 	golangci-lint run ./...
