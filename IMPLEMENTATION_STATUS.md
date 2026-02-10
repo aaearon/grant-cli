@@ -1,7 +1,7 @@
 # sca-cli Implementation Status
 
 **Last updated:** 2026-02-10
-**Current branch:** `feat/sca-service`
+**Current branch:** `main`
 **Plan source:** `/home/tim/sca-cli/sca-cli-functional-design-spec-v2.md`
 **OpenAPI:** `/home/tim/sca-cli/Secure Cloud Access APIs.json`
 
@@ -14,7 +14,7 @@
 | 0: Repo Setup & Scaffolding | `feat/project-scaffolding` | DONE - Merged to main | CLAUDE.md, go.mod, main.go, cmd/root.go, Makefile, README, LICENSE, .gitignore, SDK import tests |
 | 1: Models | `feat/models` | DONE - Merged to main | eligibility.go, elevate.go, session.go + tests. Custom UnmarshalJSON for roleInfo/role |
 | 2: Config & Favorites | `feat/config` | DONE - Merged to main | config.go, favorites.go + tests. YAML-based, SCA_CLI_CONFIG env override |
-| 3: SCA Access Service | `feat/sca-service` | DONE - Ready to merge | service_config.go, service.go + tests. SDK service pattern with httpClient DI |
+| 3: SCA Access Service | `feat/sca-service` | DONE - Merged to main | service_config.go, service.go + tests. SDK service pattern with httpClient DI |
 | 4: UI Layer | `feat/ui` | TODO | Depends on Phase 1 (done) |
 | 5: CLI Commands | `feat/commands` | TODO | Depends on Phases 2, 3, 4 |
 | 6: Integration Tests & Docs | `feat/integration-tests` | TODO | Depends on Phase 5 |
@@ -199,8 +199,8 @@ sca-cli/
 ```
 
 ## Git Status
-- All phases 0-3 on `feat/sca-service` (ready to merge)
-- `main` is ahead of `origin/main` by 9 commits (not pushed)
-- Old branches can be cleaned up: `feat/project-scaffolding`, `feat/models`, `feat/config`, `feat/config-favorites`
+- All phases 0-3 merged to `main`
+- `main` is ahead of `origin/main` by 11 commits (not pushed)
+- Old branches can be cleaned up: `feat/project-scaffolding`, `feat/models`, `feat/config`, `feat/config-favorites`, `feat/sca-service`
 
 ## Test Count: 52 tests total, all passing
