@@ -61,32 +61,43 @@ func main() {
 	}
 	fmt.Printf("\nJWT token (first 80 chars): %s...\n", token[:min(80, len(token))])
 
-	// Decode JWT claims (unverified) to inspect subdomain / platform_domain
+	// Decode JWT claims to extract subdomain + platform_domain (matches SDK behavior)
 	fmt.Println("\n--- JWT Claims ---")
 	printJWTClaims(token)
 
-	// Extract subdomain from identity URL for building service URLs
-	// Identity URL format: https://abz4452.id.cyberark.cloud
-	// The subdomain is "abz4452"
-	subdomain := extractSubdomain(identityURL)
-	fmt.Printf("\nTenant subdomain: %s\n", subdomain)
+	claims, err := parseJWTClaims(token)
+	if err != nil {
+		log.Fatalf("Failed to parse JWT claims: %v", err)
+	}
+
+	subdomain := claims.Subdomain
+	platformDomain := claims.PlatformDomain
+	if subdomain == "" {
+		log.Fatal("JWT does not contain 'subdomain' claim — cannot resolve service URLs")
+	}
+	if platformDomain == "" {
+		// Fallback: derive from identity URL by stripping {subdomain}.id.
+		platformDomain = extractPlatformDomain(identityURL, extractSubdomain(identityURL))
+		fmt.Printf("(platform_domain not in JWT, derived from identity URL: %s)\n", platformDomain)
+	}
+	fmt.Printf("\nTenant subdomain (from JWT): %s\n", subdomain)
+	fmt.Printf("Platform domain (from JWT):  %s\n", platformDomain)
 
 	// Step 2: Try SCA Access API endpoints with different service name patterns
 	// The ISP URL pattern is: https://{subdomain}{separator}{serviceName}.{platformDomain}
-	// Known: IdsecSCAService uses "sca" with "." separator -> abz4452.sca.cyberark.cloud
+	// Known: IdsecSCAService uses "sca" with "." separator -> {subdomain}.sca.{platformDomain}
 	serviceNames := []struct {
 		name      string
 		separator string
 		desc      string
 	}{
-		{"sca", ".", "SDK pattern (abz4452.sca.cyberark.cloud)"},
-		{"", "", "No service (abz4452.cyberark.cloud)"},
-		{"access", ".", "Access service (abz4452.access.cyberark.cloud)"},
-		{"sca", "-", "Dash separator (abz4452-sca.cyberark.cloud)"},
+		{"sca", ".", fmt.Sprintf("SDK pattern (%s.sca.%s)", subdomain, platformDomain)},
+		{"", "", fmt.Sprintf("No service (%s.%s)", subdomain, platformDomain)},
+		{"access", ".", fmt.Sprintf("Access service (%s.access.%s)", subdomain, platformDomain)},
+		{"sca", "-", fmt.Sprintf("Dash separator (%s-sca.%s)", subdomain, platformDomain)},
 	}
 
-	platformDomain := extractPlatformDomain(identityURL, subdomain)
-	fmt.Printf("Platform domain: %s\n\n", platformDomain)
+	fmt.Println()
 
 	for _, svc := range serviceNames {
 		var baseURL string
@@ -174,6 +185,59 @@ func doRequest(client *http.Client, method, url, token string, body interface{})
 		bodyStr = bodyStr[:500] + "..."
 	}
 	fmt.Printf("    Body: %s\n", bodyStr)
+}
+
+// jwtClaims holds the fields extracted from a CyberArk Identity JWT.
+type jwtClaims struct {
+	Subdomain      string
+	PlatformDomain string
+	UniqueName     string
+}
+
+// parseJWTClaims decodes a JWT (without verification) and extracts the
+// subdomain, platform_domain, and unique_name claims — mirroring the
+// SDK's resolveServiceURL() logic.
+func parseJWTClaims(token string) (*jwtClaims, error) {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return nil, fmt.Errorf("invalid JWT format: expected 3 parts, got %d", len(parts))
+	}
+
+	decoded, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode JWT payload: %w", err)
+	}
+
+	var raw map[string]interface{}
+	if err := json.Unmarshal(decoded, &raw); err != nil {
+		return nil, fmt.Errorf("failed to parse JWT claims: %w", err)
+	}
+
+	c := &jwtClaims{}
+	if v, ok := raw["subdomain"].(string); ok {
+		c.Subdomain = v
+	}
+	if v, ok := raw["platform_domain"].(string); ok {
+		c.PlatformDomain = v
+		// Strip "shell." prefix when building service URLs (matches SDK behavior)
+		c.PlatformDomain = strings.TrimPrefix(c.PlatformDomain, "shell.")
+	}
+	if v, ok := raw["unique_name"].(string); ok {
+		c.UniqueName = v
+	}
+
+	// Fallback: derive subdomain from unique_name (user@subdomain.platform.domain)
+	if c.Subdomain == "" && c.UniqueName != "" {
+		parts := strings.SplitN(c.UniqueName, "@", 2)
+		if len(parts) == 2 {
+			domainParts := strings.SplitN(parts[1], ".", 2)
+			if len(domainParts) >= 1 {
+				c.Subdomain = domainParts[0]
+			}
+		}
+	}
+
+	return c, nil
 }
 
 // printJWTClaims decodes and prints JWT claims without verification.
