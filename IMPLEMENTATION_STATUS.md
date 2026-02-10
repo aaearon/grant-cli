@@ -1,7 +1,7 @@
 # sca-cli Implementation Status
 
 **Last updated:** 2026-02-10
-**Current branch:** `main`
+**Current branch:** `feat/commands`
 **Plan source:** `/home/tim/sca-cli/sca-cli-functional-design-spec-v2.md`
 **OpenAPI:** `/home/tim/sca-cli/Secure Cloud Access APIs.json`
 
@@ -16,7 +16,7 @@
 | 2: Config & Favorites | `feat/config` | DONE - Merged to main | config.go, favorites.go + tests. YAML-based, SCA_CLI_CONFIG env override |
 | 3: SCA Access Service | `feat/sca-service` | DONE - Merged to main | service_config.go, service.go + tests. SDK service pattern with httpClient DI |
 | 4: UI Layer | `feat/ui` | DONE - Merged to main | selector.go + tests. Survey-based interactive selection with formatting & lookup |
-| 5: CLI Commands | `feat/commands` | TODO | Depends on Phases 2, 3, 4 |
+| 5: CLI Commands | `feat/commands` | DONE - Ready to merge | version, configure, login, logout, elevate, status, favorites + tests. 82 total tests passing |
 | 6: Integration Tests & Docs | `feat/integration-tests` | TODO | Depends on Phase 5 |
 | 7: Release Infrastructure | `feat/release` | TODO | Parallelizable with Phase 6 |
 
@@ -128,19 +128,64 @@ type httpClient interface {
 
 ---
 
-## Phase 5: CLI Commands (after Phases 2-4)
+## Phase 5: CLI Commands (DONE)
 
 **Branch:** `feat/commands`
 
-### Commands to implement
-1. `cmd/version.go` — ldflags-injected version/commit/date
-2. `cmd/configure.go` — survey prompts for tenant URL, username, MFA; creates SDK profile + app config
-3. `cmd/login.go` — calls IdsecISPAuth.Authenticate()
-4. `cmd/logout.go` — clears keyring
-5. `cmd/elevate.go` — core command with --provider/-p, --target/-t, --role/-r, --favorite/-f, --duration/-d
-6. `cmd/status.go` — shows auth state + active sessions
-7. `cmd/favorites.go` — parent with add/list/remove subcommands
-8. Wire all into `cmd/root.go`
+### Implemented Commands
+
+1. **`cmd/version.go`** — Version command with ldflags injection
+   - Displays version, commit hash, build date
+   - Defaults to "dev", "unknown", "unknown" when not built with ldflags
+   - Makefile updated with proper ldflags
+
+2. **`cmd/configure.go`** — Interactive configuration
+   - Survey prompts for tenant URL, username, optional MFA method
+   - Creates SDK profile at `~/.idsec_profiles/sca-cli.json`
+   - Creates app config at `~/.sca-cli/config.yaml`
+   - Input validation: HTTPS URL, non-empty username, valid MFA methods
+
+3. **`cmd/login.go`** — Authentication command
+   - Calls `IdsecISPAuth.Authenticate()` with profile
+   - Displays success message with username and token expiry
+   - Tokens cached in keyring via SDK
+
+4. **`cmd/logout.go`** — Logout command
+   - Clears all cached tokens from keyring
+   - Simple success message
+
+5. **`cmd/elevate.go`** — Core elevation command (most complex)
+   - Three execution modes: interactive, direct (--target/--role), favorite (--favorite)
+   - Flags: --provider/-p, --target/-t, --role/-r, --favorite/-f, --duration/-d
+   - Provider validation (v1: azure only)
+   - Integrates SCAAccessService.ListEligibility() and Elevate()
+   - Interactive selection via ui.SelectTarget()
+   - Comprehensive error handling
+
+6. **`cmd/status.go`** — Authentication and session status
+   - Shows authentication state (username)
+   - Lists active sessions via SCAAccessService.ListSessions()
+   - Groups sessions by provider
+   - Flag: --provider/-p to filter
+   - Human-readable session expiry times
+
+7. **`cmd/favorites.go`** — Favorites management
+   - Parent command with three subcommands:
+     - `add <name>` — interactive prompts for provider/target/role
+     - `list` — displays all favorites
+     - `remove <name>` — removes a favorite
+
+8. **Shared Infrastructure**
+   - `cmd/interfaces.go` — shared interfaces for dependency injection
+   - `cmd/test_mocks.go` — shared mock implementations
+   - `cmd/test_helpers.go` — test utilities
+   - All commands auto-register via init() functions
+
+### Test Coverage
+- 71 cmd tests covering all commands
+- Table-driven tests following TDD methodology
+- Mock implementations for SDK dependencies
+- All edge cases and error conditions tested
 
 ---
 
@@ -177,7 +222,24 @@ sca-cli/
 ├── go.mod                            # module github.com/aaearon/sca-cli
 ├── go.sum
 ├── cmd/
-│   └── root.go                       # cobra root command with --verbose
+│   ├── root.go                       # cobra root command with --verbose
+│   ├── version.go                    # version command with ldflags
+│   ├── version_test.go               # 2 tests
+│   ├── configure.go                  # configure command with survey prompts
+│   ├── configure_test.go             # 18 tests (configure + validation)
+│   ├── login.go                      # login command using IdsecISPAuth
+│   ├── login_test.go                 # 7 tests
+│   ├── logout.go                     # logout command clearing keyring
+│   ├── logout_test.go                # 6 tests
+│   ├── elevate.go                    # core elevate command (3 modes)
+│   ├── elevate_test.go               # 21 tests
+│   ├── status.go                     # status command showing auth + sessions
+│   ├── status_test.go                # 12 tests
+│   ├── favorites.go                  # favorites parent with add/list/remove
+│   ├── favorites_test.go             # 5 tests
+│   ├── interfaces.go                 # shared interfaces for DI
+│   ├── test_mocks.go                 # shared test mocks
+│   └── test_helpers.go               # test utilities
 ├── internal/
 │   ├── config/
 │   │   ├── config.go                 # Config, Favorite, Load, Save, DefaultConfig, ConfigPath, ConfigDir
@@ -205,10 +267,12 @@ sca-cli/
 
 ## Git Status
 - All phases 0-4 merged to `main`
+- Phase 5 on `feat/commands` branch, ready to merge
 - `main` is ahead of `origin/main` by 15 commits (not pushed)
 - Old branches can be cleaned up: `feat/project-scaffolding`, `feat/models`, `feat/config`, `feat/config-favorites`, `feat/sca-service`, `feat/ui`
 
-## Test Count: 65+ tests total, all passing
+## Test Count: 82 tests total, all passing
+- cmd: 71 tests (version, configure, login, logout, elevate, status, favorites)
 - config: 15 tests
 - sca: 17 tests
 - sca/models: 15 tests
