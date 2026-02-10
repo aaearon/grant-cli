@@ -5,7 +5,7 @@ DATE := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 LDFLAGS := -s -w \
 	-X github.com/aaearon/sca-cli/cmd.version=$(VERSION) \
 	-X github.com/aaearon/sca-cli/cmd.commit=$(COMMIT) \
-	-X github.com/aaearon/sca-cli/cmd.date=$(DATE)
+	-X github.com/aaearon/sca-cli/cmd.buildDate=$(DATE)
 
 .PHONY: build test lint clean
 
