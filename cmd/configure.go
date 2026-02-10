@@ -24,12 +24,15 @@ type profileSaver interface {
 func NewConfigureCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "configure",
-		Short: "Configure sca-cli with CyberArk tenant credentials",
-		Long: `Configure sca-cli by providing your CyberArk tenant URL and username.
+		Short: "Configure sca-cli with CyberArk Identity credentials",
+		Long: `Configure sca-cli by providing your CyberArk Identity URL and username.
 
 This command creates two configuration files:
 - SDK profile at ~/.idsec_profiles/sca-cli.json
 - App config at ~/.sca-cli/config.yaml
+
+Identity URL format: https://{subdomain}.id.cyberark.cloud
+Example: https://abc1234.id.cyberark.cloud
 
 The configuration is stored locally and used for authentication.
 MFA method selection is handled interactively during login.`,
