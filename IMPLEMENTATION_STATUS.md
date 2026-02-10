@@ -367,8 +367,8 @@ sca-cli/
 │           ├── eligibility_test.go   # 6 tests
 │           ├── elevate.go            # ElevateTarget, ElevateRequest, ErrorInfo, ElevateTargetResult, ElevateAccessResult, ElevateResponse
 │           ├── elevate_test.go       # 6 tests
-│           ├── session.go            # SessionInfo, SessionsResponse
-│           └── session_test.go       # 3 tests
+│           ├── session.go            # SessionInfo (snake_case JSON tags), SessionsResponse
+│           └── session_test.go       # 4 tests (incl. real API payload test)
 └── poc/                              # PoC code (reference only)
 ```
 
@@ -391,6 +391,27 @@ sca-cli/
 
 ### Integration Tests (6 test functions, 11 subtests)
 - cmd/integration_test.go: help, version, elevate-without-login, status-without-login, favorites-list, invalid-command
+
+## Bug Fixes
+
+### FIX: Status sessions display blank lines (fix/status-sessions)
+
+**Status:** Fixed
+**Discovered:** 2026-02-10
+
+`sca-cli status` showed sessions as blank lines (`   on  - duration: 0m`) because the `SessionInfo` struct used camelCase JSON tags (`sessionId`, `roleId`, etc.) while the live SCA API returns snake_case (`session_id`, `role_id`, etc.). The OpenAPI spec incorrectly documents camelCase.
+
+Additionally, the `role_id` field in the API response contains the role **display name** (e.g., "User Access Administrator"), not an ARM resource path. The API does not return `workspaceName`, `roleName`, or `expiresAt` fields.
+
+**Root cause:** JSON field name mismatch — struct tags didn't match real API response format.
+
+**Changes:**
+- `internal/sca/models/session.go` — Updated JSON tags to snake_case, removed non-existent fields (`WorkspaceName`, `RoleName`, `ExpiresAt`)
+- `internal/sca/models/session_test.go` — Updated tests with real API format, added `TestSessionInfo_RealAPIPayload` from live capture
+- `cmd/status.go` — Simplified `formatSession()` to use `RoleID` (contains name) and `SessionDuration` directly
+- `cmd/status_test.go` — Updated mock data and expected output to match real API behavior
+
+---
 
 ## Latest Changes (Phase 7 - UX Simplification)
 

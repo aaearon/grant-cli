@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/aaearon/sca-cli/internal/sca"
 	sca_models "github.com/aaearon/sca-cli/internal/sca/models"
@@ -220,45 +219,19 @@ func formatProviderName(provider string) string {
 	}
 }
 
-// formatSession formats a session for display
+// formatSession formats a session for display.
+// The live API's role_id field contains the role display name (e.g., "User Access Administrator").
+// workspace_id contains the ARM resource path.
 func formatSession(session sca_models.SessionInfo) string {
-	// Use name if available, otherwise fall back to ID
-	roleName := session.RoleName
-	if roleName == "" {
-		roleName = session.RoleID
-	}
-
-	workspaceName := session.WorkspaceName
-	if workspaceName == "" {
-		workspaceName = session.WorkspaceID
-	}
-
-	// Format expiry time
-	var expiryStr string
-	if session.ExpiresAt != nil {
-		expiryStr = fmt.Sprintf("expires at %s (%s remaining)",
-			session.ExpiresAt.Format("15:04 MST"),
-			formatDuration(time.Until(*session.ExpiresAt)))
+	durationMin := session.SessionDuration / 60
+	var durationStr string
+	if durationMin >= 60 {
+		durationStr = fmt.Sprintf("%dh %dm", durationMin/60, durationMin%60)
 	} else {
-		// Fallback: calculate from session duration (less precise)
-		// This is only used if ExpiresAt is not provided by the API
-		expiryStr = fmt.Sprintf("duration: %s", formatDuration(time.Duration(session.SessionDuration)*time.Second))
+		durationStr = fmt.Sprintf("%dm", durationMin)
 	}
 
-	return fmt.Sprintf("%s on %s - %s", roleName, workspaceName, expiryStr)
-}
-
-// formatDuration formats a duration in a human-readable way
-func formatDuration(d time.Duration) string {
-	d = d.Round(time.Minute)
-	h := d / time.Hour
-	d -= h * time.Hour
-	m := d / time.Minute
-
-	if h > 0 {
-		return fmt.Sprintf("%dh %dm", h, m)
-	}
-	return fmt.Sprintf("%dm", m)
+	return fmt.Sprintf("%s on %s - duration: %s", session.RoleID, session.WorkspaceID, durationStr)
 }
 
 func init() {

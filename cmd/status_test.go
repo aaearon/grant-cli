@@ -17,13 +17,13 @@ func TestStatusCommand(t *testing.T) {
 	expiresIn := common_models.IdsecRFC3339Time(now.Add(1 * time.Hour))
 
 	tests := []struct {
-		name        string
-		setupAuth   func() *mockAuthLoader
-		setupSvc    func() *mockSessionLister
-		provider    string
-		wantContain []string
+		name           string
+		setupAuth      func() *mockAuthLoader
+		setupSvc       func() *mockSessionLister
+		provider       string
+		wantContain    []string
 		wantNotContain []string
-		wantErr     bool
+		wantErr        bool
 	}{
 		{
 			name: "not authenticated",
@@ -82,9 +82,6 @@ func TestStatusCommand(t *testing.T) {
 				}
 			},
 			setupSvc: func() *mockSessionLister {
-				expiryTime1 := now.Add(1*time.Hour + 12*time.Minute)
-				expiryTime2 := now.Add(25 * time.Minute)
-
 				return &mockSessionLister{
 					sessions: &sca_models.SessionsResponse{
 						Response: []sca_models.SessionInfo{
@@ -92,23 +89,17 @@ func TestStatusCommand(t *testing.T) {
 								SessionID:       "session-1",
 								UserID:          "tim@iosharp.com",
 								CSP:             sca_models.CSPAzure,
-								WorkspaceID:     "/subscriptions/sub-1",
-								WorkspaceName:   "Prod-EastUS",
-								RoleID:          "/providers/Microsoft.Authorization/roleDefinitions/role-1",
-								RoleName:        "Contributor",
-								SessionDuration: 4320, // 72 minutes in seconds
-								ExpiresAt:       &expiryTime1,
+								WorkspaceID:     "providers/Microsoft.Management/managementGroups/29cb7961-e16d-42c7-8ade-1794bbb76782",
+								RoleID:          "Contributor",
+								SessionDuration: 4320, // 72 minutes
 							},
 							{
 								SessionID:       "session-2",
 								UserID:          "tim@iosharp.com",
 								CSP:             sca_models.CSPAzure,
 								WorkspaceID:     "/subscriptions/sub-2",
-								WorkspaceName:   "Dev-WestEU",
-								RoleID:          "/providers/Microsoft.Authorization/roleDefinitions/role-2",
-								RoleName:        "Owner",
-								SessionDuration: 1500, // 25 minutes in seconds
-								ExpiresAt:       &expiryTime2,
+								RoleID:          "Owner",
+								SessionDuration: 1500, // 25 minutes
 							},
 						},
 						Total: 2,
@@ -119,11 +110,10 @@ func TestStatusCommand(t *testing.T) {
 			wantContain: []string{
 				"Authenticated as: tim@iosharp.com",
 				"Azure sessions:",
-				"Contributor on Prod-EastUS",
-				"expires at",
-				"1h 12m remaining",
-				"Owner on Dev-WestEU",
-				"25m remaining",
+				"Contributor on providers/Microsoft.Management/managementGroups/29cb7961",
+				"duration: 1h 12m",
+				"Owner on /subscriptions/sub-2",
+				"duration: 25m",
 			},
 			wantErr: false,
 		},
@@ -144,7 +134,6 @@ func TestStatusCommand(t *testing.T) {
 					listFunc: func(ctx context.Context, csp *sca_models.CSP) (*sca_models.SessionsResponse, error) {
 						// Verify the filter is applied
 						if csp != nil && *csp == sca_models.CSPAzure {
-							expiryTime := now.Add(30 * time.Minute)
 							return &sca_models.SessionsResponse{
 								Response: []sca_models.SessionInfo{
 									{
@@ -152,11 +141,8 @@ func TestStatusCommand(t *testing.T) {
 										UserID:          "tim@iosharp.com",
 										CSP:             sca_models.CSPAzure,
 										WorkspaceID:     "/subscriptions/sub-1",
-										WorkspaceName:   "Test-Workspace",
-										RoleID:          "role-1",
-										RoleName:        "Reader",
+										RoleID:          "Reader",
 										SessionDuration: 1800,
-										ExpiresAt:       &expiryTime,
 									},
 								},
 								Total: 1,
@@ -170,7 +156,7 @@ func TestStatusCommand(t *testing.T) {
 			wantContain: []string{
 				"Authenticated as: tim@iosharp.com",
 				"Azure sessions:",
-				"Reader on Test-Workspace",
+				"Reader on /subscriptions/sub-1",
 			},
 			wantErr: false,
 		},
@@ -187,8 +173,6 @@ func TestStatusCommand(t *testing.T) {
 				}
 			},
 			setupSvc: func() *mockSessionLister {
-				expiryTime := now.Add(1 * time.Hour)
-
 				return &mockSessionLister{
 					sessions: &sca_models.SessionsResponse{
 						Response: []sca_models.SessionInfo{
@@ -197,22 +181,16 @@ func TestStatusCommand(t *testing.T) {
 								UserID:          "user@example.com",
 								CSP:             sca_models.CSPAzure,
 								WorkspaceID:     "/subscriptions/sub-1",
-								WorkspaceName:   "Azure-Prod",
-								RoleID:          "role-1",
-								RoleName:        "Contributor",
+								RoleID:          "Contributor",
 								SessionDuration: 3600,
-								ExpiresAt:       &expiryTime,
 							},
 							{
 								SessionID:       "session-aws",
 								UserID:          "user@example.com",
 								CSP:             sca_models.CSPAWS,
 								WorkspaceID:     "arn:aws:iam::123456789012:role/Admin",
-								WorkspaceName:   "AWS-Account-1",
-								RoleID:          "role-arn",
-								RoleName:        "Administrator",
+								RoleID:          "Administrator",
 								SessionDuration: 3600,
-								ExpiresAt:       &expiryTime,
 							},
 						},
 						Total: 2,
@@ -223,14 +201,14 @@ func TestStatusCommand(t *testing.T) {
 			wantContain: []string{
 				"Authenticated as: user@example.com",
 				"Azure sessions:",
-				"Contributor on Azure-Prod",
+				"Contributor on /subscriptions/sub-1",
 				"AWS sessions:",
-				"Administrator on AWS-Account-1",
+				"Administrator on arn:aws:iam::123456789012:role/Admin",
 			},
 			wantErr: false,
 		},
 		{
-			name: "session expiry time formatting - less than 1 hour",
+			name: "session duration formatting - less than 1 hour",
 			setupAuth: func() *mockAuthLoader {
 				return &mockAuthLoader{
 					token: &auth_models.IdsecToken{
@@ -242,8 +220,6 @@ func TestStatusCommand(t *testing.T) {
 				}
 			},
 			setupSvc: func() *mockSessionLister {
-				expiryTime := now.Add(45 * time.Minute)
-
 				return &mockSessionLister{
 					sessions: &sca_models.SessionsResponse{
 						Response: []sca_models.SessionInfo{
@@ -252,11 +228,8 @@ func TestStatusCommand(t *testing.T) {
 								UserID:          "tim@iosharp.com",
 								CSP:             sca_models.CSPAzure,
 								WorkspaceID:     "/subscriptions/sub-1",
-								WorkspaceName:   "Test-Workspace",
-								RoleID:          "role-1",
-								RoleName:        "Reader",
-								SessionDuration: 2700,
-								ExpiresAt:       &expiryTime,
+								RoleID:          "Reader",
+								SessionDuration: 2700, // 45 minutes
 							},
 						},
 						Total: 1,
@@ -265,12 +238,12 @@ func TestStatusCommand(t *testing.T) {
 				}
 			},
 			wantContain: []string{
-				"45m remaining",
+				"duration: 45m",
 			},
 			wantErr: false,
 		},
 		{
-			name: "session expiry time formatting - multiple hours",
+			name: "session duration formatting - multiple hours",
 			setupAuth: func() *mockAuthLoader {
 				return &mockAuthLoader{
 					token: &auth_models.IdsecToken{
@@ -282,8 +255,6 @@ func TestStatusCommand(t *testing.T) {
 				}
 			},
 			setupSvc: func() *mockSessionLister {
-				expiryTime := now.Add(2*time.Hour + 30*time.Minute)
-
 				return &mockSessionLister{
 					sessions: &sca_models.SessionsResponse{
 						Response: []sca_models.SessionInfo{
@@ -292,11 +263,8 @@ func TestStatusCommand(t *testing.T) {
 								UserID:          "tim@iosharp.com",
 								CSP:             sca_models.CSPAzure,
 								WorkspaceID:     "/subscriptions/sub-1",
-								WorkspaceName:   "Test-Workspace",
-								RoleID:          "role-1",
-								RoleName:        "Reader",
-								SessionDuration: 9000,
-								ExpiresAt:       &expiryTime,
+								RoleID:          "Reader",
+								SessionDuration: 9000, // 2h 30m
 							},
 						},
 						Total: 1,
@@ -305,7 +273,7 @@ func TestStatusCommand(t *testing.T) {
 				}
 			},
 			wantContain: []string{
-				"2h 30m remaining",
+				"duration: 2h 30m",
 			},
 			wantErr: false,
 		},
@@ -323,8 +291,8 @@ func TestStatusCommand(t *testing.T) {
 			},
 			setupSvc: func() *mockSessionLister {
 				return &mockSessionLister{
-					sessions:  nil,
-					listErr: errors.New("API error: service unavailable"),
+					sessions: nil,
+					listErr:  errors.New("API error: service unavailable"),
 				}
 			},
 			wantContain: []string{
@@ -334,7 +302,7 @@ func TestStatusCommand(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "fallback to IDs when names not available",
+			name: "real API format - role name in role_id field",
 			setupAuth: func() *mockAuthLoader {
 				return &mockAuthLoader{
 					token: &auth_models.IdsecToken{
@@ -346,21 +314,16 @@ func TestStatusCommand(t *testing.T) {
 				}
 			},
 			setupSvc: func() *mockSessionLister {
-				expiryTime := now.Add(1 * time.Hour)
-
 				return &mockSessionLister{
 					sessions: &sca_models.SessionsResponse{
 						Response: []sca_models.SessionInfo{
 							{
-								SessionID:       "session-1",
-								UserID:          "tim@iosharp.com",
+								SessionID:       "0e796e75-6027-48bd-bf1e-80e3b1024de4",
+								UserID:          "tim.schindler@cyberark.cloud.40562",
 								CSP:             sca_models.CSPAzure,
-								WorkspaceID:     "/subscriptions/11111111-2222-3333-4444-555555555555",
-								WorkspaceName:   "", // No name available
-								RoleID:          "/providers/Microsoft.Authorization/roleDefinitions/acdd72a7-3385-48ef-bd42-f606fba81ae7",
-								RoleName:        "", // No name available
+								WorkspaceID:     "providers/Microsoft.Management/managementGroups/29cb7961-e16d-42c7-8ade-1794bbb76782",
+								RoleID:          "User Access Administrator",
 								SessionDuration: 3600,
-								ExpiresAt:       &expiryTime,
 							},
 						},
 						Total: 1,
@@ -371,8 +334,8 @@ func TestStatusCommand(t *testing.T) {
 			wantContain: []string{
 				"Authenticated as: tim@iosharp.com",
 				"Azure sessions:",
-				"/providers/Microsoft.Authorization/roleDefinitions/acdd72a7-3385-48ef-bd42-f606fba81ae7",
-				"/subscriptions/11111111-2222-3333-4444-555555555555",
+				"User Access Administrator on providers/Microsoft.Management/managementGroups/29cb7961",
+				"duration: 1h 0m",
 			},
 			wantErr: false,
 		},
