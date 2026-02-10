@@ -1,1 +1,11 @@
 .env
+sca-cli
+sca-cli.exe
+dist/
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.Zone.Identifier
