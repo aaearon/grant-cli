@@ -29,7 +29,6 @@ func TestConfigureCommand(t *testing.T) {
 		name          string
 		tenantURL     string
 		username      string
-		mfaMethod     string
 		setupSaver    func() profileSaver
 		setupConfigFn func() (string, error)
 		wantContain   []string
@@ -39,7 +38,6 @@ func TestConfigureCommand(t *testing.T) {
 			name:      "successful configure with all fields",
 			tenantURL: "https://example.cyberark.cloud",
 			username:  "test.user@example.com",
-			mfaMethod: "otp",
 			setupSaver: func() profileSaver {
 				return &mockProfileSaver{
 					saveFunc: func(p *models.IdsecProfile) error {
@@ -65,8 +63,8 @@ func TestConfigureCommand(t *testing.T) {
 								if settings.IdentityURL != "https://example.cyberark.cloud" {
 									t.Errorf("expected IdentityURL='https://example.cyberark.cloud', got %q", settings.IdentityURL)
 								}
-								if settings.IdentityMFAMethod != "otp" {
-									t.Errorf("expected IdentityMFAMethod='otp', got %q", settings.IdentityMFAMethod)
+								if settings.IdentityMFAMethod != "" {
+									t.Errorf("expected IdentityMFAMethod='', got %q", settings.IdentityMFAMethod)
 								}
 								if !settings.IdentityMFAInteractive {
 									t.Error("expected IdentityMFAInteractive=true")
@@ -91,43 +89,9 @@ func TestConfigureCommand(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:      "successful configure with blank MFA method",
-			tenantURL: "https://example.cyberark.cloud",
-			username:  "test.user@example.com",
-			mfaMethod: "",
-			setupSaver: func() profileSaver {
-				return &mockProfileSaver{
-					saveFunc: func(p *models.IdsecProfile) error {
-						if authProfile, ok := p.AuthProfiles["isp"]; ok {
-							if settings, ok := authProfile.AuthMethodSettings.(*auth_models.IdentityIdsecAuthMethodSettings); ok {
-								if settings.IdentityMFAMethod != "" {
-									t.Errorf("expected IdentityMFAMethod='', got %q", settings.IdentityMFAMethod)
-								}
-								if !settings.IdentityMFAInteractive {
-									t.Error("expected IdentityMFAInteractive=true for blank MFA method")
-								}
-							}
-						}
-						return nil
-					},
-				}
-			},
-			setupConfigFn: func() (string, error) {
-				tmpDir := t.TempDir()
-				cfgPath := filepath.Join(tmpDir, "config.yaml")
-				return cfgPath, nil
-			},
-			wantContain: []string{
-				"Profile saved to",
-				"Config saved to",
-			},
-			wantErr: false,
-		},
-		{
 			name:      "invalid tenant URL",
 			tenantURL: "not-a-valid-url",
 			username:  "test.user@example.com",
-			mfaMethod: "otp",
 			setupSaver: func() profileSaver {
 				return &mockProfileSaver{}
 			},
@@ -145,7 +109,6 @@ func TestConfigureCommand(t *testing.T) {
 			name:      "empty username",
 			tenantURL: "https://example.cyberark.cloud",
 			username:  "",
-			mfaMethod: "otp",
 			setupSaver: func() profileSaver {
 				return &mockProfileSaver{}
 			},
@@ -160,33 +123,9 @@ func TestConfigureCommand(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:      "invalid MFA method",
-			tenantURL: "https://example.cyberark.cloud",
-			username:  "test.user@example.com",
-			mfaMethod: "invalid",
-			setupSaver: func() profileSaver {
-				return &mockProfileSaver{}
-			},
-			setupConfigFn: func() (string, error) {
-				tmpDir := t.TempDir()
-				cfgPath := filepath.Join(tmpDir, "config.yaml")
-				return cfgPath, nil
-			},
-			wantContain: []string{
-				"invalid MFA method",
-				"otp",
-				"oath",
-				"sms",
-				"email",
-				"pf",
-			},
-			wantErr: true,
-		},
-		{
 			name:      "profile save error",
 			tenantURL: "https://example.cyberark.cloud",
 			username:  "test.user@example.com",
-			mfaMethod: "otp",
 			setupSaver: func() profileSaver {
 				return &mockProfileSaver{
 					saveErr: os.ErrPermission,
@@ -206,7 +145,6 @@ func TestConfigureCommand(t *testing.T) {
 			name:      "config save error",
 			tenantURL: "https://example.cyberark.cloud",
 			username:  "test.user@example.com",
-			mfaMethod: "otp",
 			setupSaver: func() profileSaver {
 				return &mockProfileSaver{
 					saveFunc: func(p *models.IdsecProfile) error {
@@ -237,7 +175,7 @@ func TestConfigureCommand(t *testing.T) {
 			t.Setenv("SCA_CLI_CONFIG", cfgPath)
 
 			// Create command with mock dependencies
-			cmd := NewConfigureCommandWithDeps(tt.setupSaver(), tt.tenantURL, tt.username, tt.mfaMethod)
+			cmd := NewConfigureCommandWithDeps(tt.setupSaver(), tt.tenantURL, tt.username, "")
 
 			// Execute command
 			output, err := executeCommand(cmd)
@@ -373,60 +311,3 @@ func TestValidateTenantURL(t *testing.T) {
 	}
 }
 
-func TestValidateMFAMethod(t *testing.T) {
-	tests := []struct {
-		name      string
-		mfaMethod string
-		wantErr   bool
-	}{
-		{
-			name:      "valid otp",
-			mfaMethod: "otp",
-			wantErr:   false,
-		},
-		{
-			name:      "valid oath",
-			mfaMethod: "oath",
-			wantErr:   false,
-		},
-		{
-			name:      "valid sms",
-			mfaMethod: "sms",
-			wantErr:   false,
-		},
-		{
-			name:      "valid email",
-			mfaMethod: "email",
-			wantErr:   false,
-		},
-		{
-			name:      "valid pf",
-			mfaMethod: "pf",
-			wantErr:   false,
-		},
-		{
-			name:      "empty is valid",
-			mfaMethod: "",
-			wantErr:   false,
-		},
-		{
-			name:      "invalid method",
-			mfaMethod: "invalid",
-			wantErr:   true,
-		},
-		{
-			name:      "case sensitive - OTP should fail",
-			mfaMethod: "OTP",
-			wantErr:   true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := validateMFAMethod(tt.mfaMethod)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("validateMFAMethod() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
-	}
-}

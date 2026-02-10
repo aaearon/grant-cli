@@ -60,7 +60,7 @@ func TestIntegration_Help(t *testing.T) {
 		{
 			name:     "configure help",
 			args:     []string{"configure", "--help"},
-			wantText: []string{"configure", "tenant URL", "username", "MFA"},
+			wantText: []string{"configure", "tenant URL", "username"},
 		},
 	}
 

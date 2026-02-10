@@ -16,12 +16,20 @@ type authenticator interface {
 	Authenticate(profile *models.IdsecProfile, authProfile *auth_models.IdsecAuthProfile, secret *auth_models.IdsecSecret, force bool, refreshAuth bool) (*auth_models.IdsecToken, error)
 }
 
+// profileLoader is the interface for loading profiles
+type profileLoader interface {
+	LoadProfile(string) (*models.IdsecProfile, error)
+}
+
 // NewLoginCommand creates the login command
 func NewLoginCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "login",
 		Short: "Authenticate to CyberArk SCA",
-		Long:  "Authenticate to CyberArk Secure Cloud Access (SCA) and cache the authentication token.",
+		Long: `Authenticate to CyberArk Secure Cloud Access (SCA) and cache the authentication token.
+
+If this is your first time using sca-cli, you will be prompted to configure your tenant URL and username.
+The MFA method will be selected interactively during authentication.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ispAuth := auth.NewIdsecISPAuth(true)
 			return runLogin(cmd, ispAuth)
@@ -49,6 +57,27 @@ func runLogin(cmd *cobra.Command, ispAuth auth.IdsecAuth) error {
 		return fmt.Errorf("failed to load profile: %w", err)
 	}
 
+	// If profile doesn't exist, run configure flow
+	if profile == nil {
+		fmt.Fprintln(cmd.OutOrStdout(), "No configuration found. Let's set up sca-cli.")
+
+		// Run configure interactively
+		saver := &profiles.FileSystemProfilesLoader{}
+		if err := runConfigure(cmd, saver, "", "", ""); err != nil {
+			return err
+		}
+
+		// Reload profile after configuration
+		profile, err = (*loader).LoadProfile("sca-cli")
+		if err != nil {
+			return fmt.Errorf("failed to load profile after configuration: %w", err)
+		}
+
+		if profile == nil {
+			return fmt.Errorf("profile not found after configuration")
+		}
+	}
+
 	// Authenticate
 	token, err := ispAuth.Authenticate(profile, nil, nil, false, true)
 	if err != nil {
@@ -73,6 +102,27 @@ func runLoginWithAuth(cmd *cobra.Command, auth authenticator) error {
 	profile, err := (*loader).LoadProfile("sca-cli")
 	if err != nil {
 		return fmt.Errorf("failed to load profile: %w", err)
+	}
+
+	// If profile doesn't exist, run configure flow
+	if profile == nil {
+		fmt.Fprintln(cmd.OutOrStdout(), "No configuration found. Let's set up sca-cli.")
+
+		// Run configure interactively
+		saver := &profiles.FileSystemProfilesLoader{}
+		if err := runConfigure(cmd, saver, "", "", ""); err != nil {
+			return err
+		}
+
+		// Reload profile after configuration
+		profile, err = (*loader).LoadProfile("sca-cli")
+		if err != nil {
+			return fmt.Errorf("failed to load profile after configuration: %w", err)
+		}
+
+		if profile == nil {
+			return fmt.Errorf("profile not found after configuration")
+		}
 	}
 
 	// Authenticate

@@ -60,38 +60,35 @@ make build
 
 ### Initial Setup
 
-1. **Configure your CyberArk tenant:**
-   ```bash
-   sca-cli configure
-   ```
-   You'll be prompted for:
-   - Tenant URL (e.g., `https://yourcompany.cyberark.cloud`)
-   - Username
-   - MFA method (optional: `otp`, `oath`, `sms`, `email`, `pf`)
-
-2. **Authenticate:**
+1. **Authenticate (auto-configures on first run):**
    ```bash
    sca-cli login
    ```
-   Follow the interactive prompts to complete MFA authentication.
+   On first run, you'll be prompted for:
+   - Tenant URL (e.g., `https://yourcompany.cyberark.cloud`)
+   - Username
 
-3. **Elevate permissions:**
+   Then follow the interactive prompts to complete MFA authentication. The MFA method will be selected interactively during login.
+
+2. **Elevate permissions:**
    ```bash
    sca-cli elevate
    ```
    Select your target and role from the interactive list.
 
-4. **Verify active sessions:**
+3. **Verify active sessions:**
    ```bash
    sca-cli status
    ```
+
+**Optional:** Run `sca-cli configure` to reconfigure your tenant URL or username.
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `configure` | First-time setup — configure tenant URL, username, MFA method |
-| `login` | Authenticate to CyberArk Identity (interactive, with MFA) |
+| `configure` | Configure or reconfigure tenant URL and username (optional — `login` auto-configures on first run) |
+| `login` | Authenticate to CyberArk Identity (auto-configures on first run, MFA handled interactively) |
 | `logout` | Clear cached tokens from keyring |
 | `elevate` | Elevate cloud permissions (core command) |
 | `status` | Show authentication state and active SCA sessions |
@@ -100,7 +97,7 @@ make build
 
 ### configure
 
-Initial setup for connecting to your CyberArk tenant.
+Configure or reconfigure your CyberArk tenant connection.
 
 ```bash
 sca-cli configure
@@ -111,9 +108,8 @@ This command:
 - Creates `~/.idsec_profiles/sca-cli.json` for SDK authentication
 - Prompts for tenant URL (must be HTTPS)
 - Prompts for username
-- Optionally prompts for preferred MFA method
 
-**Valid MFA methods:** `otp`, `oath`, `sms`, `email`, `pf`
+**Note:** This command is optional. Running `sca-cli login` for the first time automatically runs configuration. Use `configure` to change your tenant URL or username.
 
 ### login
 
@@ -124,8 +120,9 @@ sca-cli login
 ```
 
 This command:
-- Uses credentials from `~/.idsec_profiles/sca-cli.json`
-- Prompts for password and MFA challenge
+- **First time:** Prompts for tenant URL and username, then authenticates
+- **Subsequent runs:** Uses credentials from `~/.idsec_profiles/sca-cli.json`
+- Prompts for password and MFA challenge (MFA method selected interactively)
 - Stores tokens securely in system keyring
 - Shows token expiration time on success
 
@@ -279,15 +276,14 @@ favorites:
 
 CyberArk Identity SDK profile containing tenant URL and authentication preferences.
 
-**Managed by:** `sca-cli configure` command
+**Managed by:** `sca-cli configure` command (or auto-created by `sca-cli login`)
 
 **Contains:**
 - Tenant URL
 - Username
-- MFA method preference
 - SDK version metadata
 
-**Note:** Tokens are NOT stored in this file — they're stored securely in the system keyring.
+**Note:** Tokens are NOT stored in this file — they're stored securely in the system keyring. MFA method selection is handled interactively during login.
 
 ### Environment Variables
 
@@ -324,7 +320,9 @@ CyberArk Identity SDK profile containing tenant URL and authentication preferenc
 
 **Solution:**
 ```bash
-sca-cli configure  # Re-run configuration
+sca-cli login      # Auto-configures on first run
+# or
+sca-cli configure  # Explicit reconfiguration
 ```
 
 ### "Error: not authenticated" or "authentication required"
@@ -340,7 +338,7 @@ If login fails, verify:
 1. Tenant URL is correct (check `~/.idsec_profiles/sca-cli.json`)
 2. Username is correct
 3. Password is correct
-4. MFA method matches your account settings
+4. MFA device/method is available and working
 
 ### Elevation succeeds but Azure CLI doesn't see new role
 

@@ -20,22 +20,19 @@ type profileSaver interface {
 	SaveProfile(profile *models.IdsecProfile) error
 }
 
-var (
-	validMFAMethods = []string{"otp", "oath", "sms", "email", "pf"}
-)
-
 // NewConfigureCommand creates the configure command
 func NewConfigureCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "configure",
 		Short: "Configure sca-cli with CyberArk tenant credentials",
-		Long: `Configure sca-cli by providing your CyberArk tenant URL, username, and optional MFA method.
+		Long: `Configure sca-cli by providing your CyberArk tenant URL and username.
 
 This command creates two configuration files:
 - SDK profile at ~/.idsec_profiles/sca-cli.json
 - App config at ~/.sca-cli/config.yaml
 
-The configuration is stored locally and used for authentication.`,
+The configuration is stored locally and used for authentication.
+MFA method selection is handled interactively during login.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Use the default file system profile loader
 			loader := &profiles.FileSystemProfilesLoader{}
@@ -51,9 +48,10 @@ func NewConfigureCommandWithDeps(saver profileSaver, tenantURL, username, mfaMet
 	cmd := &cobra.Command{
 		Use:   "configure",
 		Short: "Configure sca-cli with CyberArk tenant credentials",
-		Long:  "Configure sca-cli by providing your CyberArk tenant URL, username, and optional MFA method.",
+		Long:  "Configure sca-cli by providing your CyberArk tenant URL and username.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runConfigure(cmd, saver, tenantURL, username, mfaMethod)
+			// Ignore mfaMethod parameter - always use empty string
+			return runConfigure(cmd, saver, tenantURL, username, "")
 		},
 	}
 
@@ -61,8 +59,8 @@ func NewConfigureCommandWithDeps(saver profileSaver, tenantURL, username, mfaMet
 }
 
 func runConfigure(cmd *cobra.Command, saver profileSaver, tenantURL, username, mfaMethod string) error {
-	// Only prompt if values are not provided (interactive mode only when all are empty)
-	promptNeeded := tenantURL == "" && username == "" && mfaMethod == ""
+	// Only prompt if values are not provided (interactive mode only when both are empty)
+	promptNeeded := tenantURL == "" && username == ""
 
 	if promptNeeded {
 		if err := survey.AskOne(&survey.Input{
@@ -78,14 +76,6 @@ func runConfigure(cmd *cobra.Command, saver profileSaver, tenantURL, username, m
 		}, &username, survey.WithValidator(survey.Required)); err != nil {
 			return fmt.Errorf("failed to read username: %w", err)
 		}
-
-		// Prompt for MFA method, allow blank
-		if err := survey.AskOne(&survey.Input{
-			Message: "MFA Method (optional):",
-			Help:    "Leave blank for interactive selection, or specify: otp, oath, sms, email, pf",
-		}, &mfaMethod); err != nil {
-			return fmt.Errorf("failed to read MFA method: %w", err)
-		}
 	}
 
 	// Validate inputs
@@ -95,10 +85,6 @@ func runConfigure(cmd *cobra.Command, saver profileSaver, tenantURL, username, m
 
 	if strings.TrimSpace(username) == "" {
 		return fmt.Errorf("username is required")
-	}
-
-	if err := validateMFAMethod(mfaMethod); err != nil {
-		return err
 	}
 
 	// Create SDK profile
@@ -111,7 +97,7 @@ func runConfigure(cmd *cobra.Command, saver profileSaver, tenantURL, username, m
 				AuthMethod: auth_models.Identity,
 				AuthMethodSettings: &auth_models.IdentityIdsecAuthMethodSettings{
 					IdentityURL:            tenantURL,
-					IdentityMFAMethod:      mfaMethod,
+					IdentityMFAMethod:      "", // Always empty - SDK handles MFA interactively
 					IdentityMFAInteractive: true,
 				},
 			},
@@ -171,25 +157,6 @@ func validateTenantURL(tenantURL string) error {
 	}
 
 	return nil
-}
-
-// validateMFAMethod validates that the MFA method is one of the allowed values or empty
-func validateMFAMethod(method string) error {
-	method = strings.TrimSpace(method)
-
-	// Empty is valid (interactive selection)
-	if method == "" {
-		return nil
-	}
-
-	// Check if method is in the valid list
-	for _, valid := range validMFAMethods {
-		if method == valid {
-			return nil
-		}
-	}
-
-	return fmt.Errorf("invalid MFA method %q: must be one of: %s", method, strings.Join(validMFAMethods, ", "))
 }
 
 func init() {
