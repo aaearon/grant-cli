@@ -1,6 +1,6 @@
 # sca-cli — Functional Design Specification
 
-**Version:** 2.2 (Draft)
+**Version:** 2.3 (Draft)
 **Author:** Tim Schindler
 **Date:** 2026-02-10
 **License:** MIT
@@ -11,7 +11,7 @@
 
 Users who need to elevate their Azure permissions via CyberArk Secure Cloud Access (SCA) are forced to leave their terminal, open a web browser, navigate the SCA web console, select the target role, and then return to the Azure CLI. This context-switching is disruptive for CLI-first workflows.
 
-`sca-cli` eliminates this by enabling users to discover eligible Azure roles, elevate permissions, and inject temporary credentials into their shell — all without leaving the terminal.
+`sca-cli` eliminates this by enabling users to discover eligible Azure roles and elevate permissions — all without leaving the terminal. SCA elevation activates a JIT (just-in-time) Azure role assignment; the user's existing `az` CLI session automatically picks up the new permissions.
 
 ## 2. Target Audience
 
@@ -27,8 +27,8 @@ The tool will be released as open-source.
 - Authentication to CyberArk Identity — interactive human users only (delegated to idsec-sdk-golang)
 - MFA support — push/OTP, OATH, SMS, email, phone call, browser-based IdP redirect (delegated to idsec-sdk-golang)
 - List eligible Azure targets from the SCA Access API
-- Elevate access to a selected Azure role
-- Inject Azure credentials as environment variables (`AZURE_*`, `ARM_*`) into the current shell
+- Elevate access to a selected Azure role (JIT role assignment — no Azure credentials returned)
+- Show active session status (session ID, expiry)
 - Interactive role selection with fuzzy search/filter (when no flag is provided)
 - Direct role selection via CLI flag (`--role`, `--target`)
 - Role favorites/aliases stored in a local config file
@@ -36,9 +36,10 @@ The tool will be released as open-source.
 
 ### 3.2 Out of Scope (v1)
 
+- Credential injection / environment variable export (`sca-cli env`) — not applicable for Azure; SCA elevation activates a JIT role assignment, it does not return Azure credentials. The user's existing `az login` session automatically has the elevated permissions. May be relevant for AWS in future versions where SCA returns temporary access keys.
 - Service user / non-human authentication (not applicable to the end-user elevation use case)
 - AWS and GCP cloud providers (future versions)
-- Session listing and revocation (use SCA web console)
+- Session revocation (use SCA web console or `sca-cli` future version)
 - Session timer / TTL countdown
 - Auto-refresh of tokens before expiry
 - Policy management (admin-only — use the `idsec` CLI's `policy cloudaccess` commands or the SCA web console)
@@ -170,7 +171,7 @@ Note: The OpenAPI spec also defines `POST /oauth2/token/{app_id}` on the **ident
 
 The following questions from v2.1 have been answered via the PoC (see `poc/` directory):
 
-1. **What does `/access/elevate` return for Azure?** The response schema is `{response: {csp, organizationId, results: [{workspaceId, roleId, sessionId, accessCredentials, errorInfo}]}}`. The `accessCredentials` field contains the credentials needed to access the workspace once elevation succeeds. The `errorInfo` field (with `code`, `message`, `description`) is present only if elevation failed.
+1. **What does `/access/elevate` return for Azure?** The response schema is `{response: {csp, organizationId, results: [{workspaceId, roleId, sessionId, accessCredentials, errorInfo}]}}`. For Azure, SCA activates a JIT role assignment — it does **not** return Azure credentials. The `accessCredentials` field is expected to be `null` for Azure (it may only be populated for AWS, where SCA vends temporary access keys). The user's existing `az` CLI session automatically has the elevated permissions. The `errorInfo` field (with `code`, `message`, `description`) is present only if elevation failed.
 
 2. **Does `/oauth2/token/{app_id}` require a pre-registered application?** Yes — this endpoint is on the identity host, uses Basic Auth (`UserPassBasicAuth`), and requires `grant_type: client_credentials`. It is for service-to-service authentication and is **not needed** for the interactive CLI flow. The ISP JWT is used directly.
 
@@ -260,7 +261,7 @@ Required fields: `csp` (enum: `AWS`, `AZURE`, `GCP`), `targets` (array, 1-5 item
 }
 ```
 
-The `accessCredentials` field contains cloud-provider-specific credentials. The `errorInfo` object (with `code`, `message`, `description`) is present only on per-target failure.
+For Azure, `accessCredentials` is expected to be `null` — SCA activates a JIT role assignment rather than returning credentials. The user's existing Azure CLI session (`az login`) automatically picks up the elevated permissions. For AWS (future), this field would contain temporary access keys. The `errorInfo` object (with `code`, `message`, `description`) is present only on per-target failure.
 
 ## 6. User Flows
 
@@ -311,10 +312,10 @@ Fetching eligible Azure targets...
     Resource Group: rg-databases / Role: SQL Admin (1h max)
 
 ✓ Elevated to Contributor on Prod-EastUS
+  Session ID: a1b2c3d4-...
   Session expires at 16:32 UTC
 
-  Run the following to activate in your current shell:
-  eval $(sca-cli env)
+  Your az CLI session now has the elevated permissions.
 ```
 
 ### 6.4 Direct Role Selection (with flags)
@@ -322,9 +323,8 @@ Fetching eligible Azure targets...
 ```
 $ sca-cli elevate --target "Prod-EastUS" --role "Contributor"
 ✓ Elevated to Contributor on Prod-EastUS
+  Session ID: a1b2c3d4-...
   Session expires at 16:32 UTC
-
-  eval $(sca-cli env)
 ```
 
 ### 6.5 Using Favorites
@@ -334,22 +334,15 @@ $ sca-cli elevate --favorite prod-contrib
 ✓ Elevated to Contributor on Prod-EastUS
 ```
 
-### 6.6 Credential Injection
+### 6.6 Check Session Status
 
 ```
-$ eval $(sca-cli env)
-# This outputs:
-# export AZURE_SUBSCRIPTION_ID=...
-# export AZURE_TENANT_ID=...
-# export ARM_ACCESS_TOKEN=...
-# export ARM_SUBSCRIPTION_ID=...
-# export SCA_SESSION_EXPIRY=...
-```
+$ sca-cli status
+Authenticated as: tim@iosharp.com
 
-After `eval`, the user can run `az` commands directly:
-
-```
-$ az vm list --output table
+Active SCA sessions:
+  Contributor on Prod-EastUS — expires at 16:32 UTC (1h 12m remaining)
+  Owner on Dev-WestEU — expires at 15:45 UTC (25m remaining)
 ```
 
 ## 7. CLI Command Structure
@@ -364,13 +357,11 @@ sca-cli
 │   ├── --role, -r     # Role name
 │   ├── --favorite, -f # Use a saved favorite alias
 │   └── --duration, -d # Requested session duration (if policy allows)
-├── env                # Output export statements for shell injection
-│   └── --format       # shell (default), powershell, json, fish
 ├── favorites          # Manage role favorites
 │   ├── add            # Save a target+role as a named favorite
 │   ├── list           # List saved favorites
 │   └── remove         # Delete a favorite
-├── status             # Show current auth and session state
+├── status             # Show current auth state and active SCA sessions
 └── version            # Print version info
 ```
 
@@ -392,9 +383,6 @@ profile: sca-cli
 
 # Default cloud provider (v1: azure only)
 provider: azure
-
-# Output format for `sca-cli env`
-env_format: shell  # shell | powershell | fish | json
 
 favorites:
   prod-contrib:
@@ -465,41 +453,30 @@ Note: Authentication configuration (tenant URL, username, MFA method) lives in t
                                              │ elevate              │
                                              └──────────┬───────────┘
                                                         │
-                                               API returns session
-                                               credentials + expiry
+                                               API activates JIT
+                                               role assignment in
+                                               Azure RBAC/Entra ID
                                                         │
                                                         ▼
                                              ┌──────────────────────┐
-                                             │ Cache credentials    │
-                                             │ for `sca-cli env`    │
+                                             │ Display session ID   │
+                                             │ and expiry time.     │
+                                             │ User's az CLI now    │
+                                             │ has elevated perms.  │
                                              └──────────────────────┘
 ```
 
-## 11. Environment Variable Output
+## 11. Azure Elevation Model
 
-`sca-cli env` outputs shell-appropriate export statements. The `--format` flag controls syntax:
+For Azure, SCA elevation activates a **JIT (just-in-time) role assignment** in Azure RBAC or Entra ID. This is fundamentally different from credential vending:
 
-| Format | Example output |
-|--------|---------------|
-| `shell` (default) | `export AZURE_SUBSCRIPTION_ID="..."` |
-| `powershell` | `$env:AZURE_SUBSCRIPTION_ID="..."` |
-| `fish` | `set -gx AZURE_SUBSCRIPTION_ID "..."` |
-| `json` | `{"AZURE_SUBSCRIPTION_ID": "..."}` |
+- **No Azure credentials are returned** by the SCA API. The `accessCredentials` field in the elevate response is `null` for Azure.
+- **The user's existing `az` CLI session** (authenticated via `az login`) automatically picks up the elevated permissions once the JIT role assignment is active.
+- **No environment variable injection is needed.** There is no `sca-cli env` command — the user simply runs `az` commands after elevation.
 
-### Variables Exported
+This means `sca-cli`'s core value for Azure is replacing the browser-based SCA console for target selection and elevation, not credential management.
 
-| Variable | Description |
-|----------|-------------|
-| `AZURE_SUBSCRIPTION_ID` | Target subscription ID |
-| `AZURE_TENANT_ID` | Azure AD tenant ID |
-| `ARM_ACCESS_TOKEN` | Temporary access token for Azure Resource Manager |
-| `ARM_SUBSCRIPTION_ID` | Same as `AZURE_SUBSCRIPTION_ID` (Terraform compatibility) |
-| `SCA_SESSION_ID` | SCA session identifier |
-| `SCA_SESSION_EXPIRY` | ISO 8601 timestamp of session expiration |
-| `SCA_ROLE` | Name of the elevated role |
-| `SCA_TARGET` | Name of the target (subscription/resource group) |
-
-Note: The exact variables exported depend on what `/api/access/elevate` returns in `accessCredentials` — see Section 5.3 for the response schema. The `accessCredentials` field is cloud-provider-specific and its format for Azure needs to be captured from a successful elevation call.
+**Note for future AWS support:** AWS SCA may behave differently — SCA could vend temporary AWS access keys via the `accessCredentials` field. A credential injection command (`sca-cli env`) would be relevant in that case and can be added in a future version.
 
 ## 12. Error Handling
 
@@ -520,7 +497,7 @@ Note: The exact variables exported depend on what `/api/access/elevate` returns 
 - **No credentials in config files.** Tokens are stored in the OS keyring via `IdsecKeyring` (macOS Keychain, Windows Credential Manager, Linux Secret Service) with automatic fallback to AES-encrypted file for Docker/WSL environments.
 - **No plaintext logging of tokens.** `--verbose` mode logs request/response metadata but redacts token values.
 - **Short-lived sessions.** The tool respects SCA policy-defined session durations and does not attempt to extend them.
-- **No credential persistence beyond session.** `sca-cli env` outputs ephemeral variables; they are lost when the shell session ends.
+- **No Azure credential handling.** For Azure, SCA activates JIT role assignments — no Azure credentials pass through `sca-cli`. Only the CyberArk Identity JWT is managed (via the SDK keyring).
 - **Interactive auth only.** No service account credentials are stored or accepted — the tool is designed for human users with MFA enforcement.
 
 ## 14. Cross-Platform Support
@@ -545,7 +522,6 @@ sca-cli/
 │   ├── login.go
 │   ├── logout.go
 │   ├── elevate.go
-│   ├── env.go
 │   ├── favorites.go
 │   ├── status.go
 │   └── version.go
@@ -554,13 +530,11 @@ sca-cli/
 │   │   ├── service.go      # SCAAccessService — implements IdsecService pattern
 │   │   ├── service_config.go
 │   │   └── models/
-│   │       ├── eligibility.go   # Request/response types for /access/csp/eligibility
+│   │       ├── eligibility.go   # Request/response types for /access/{csp}/eligibility
 │   │       └── elevate.go       # Request/response types for /access/elevate
 │   ├── config/             # sca-cli specific configuration
 │   │   ├── config.go       # YAML config management
 │   │   └── favorites.go    # Favorite management
-│   ├── shell/              # Environment variable output formatting
-│   │   └── env.go          # shell/powershell/fish/json formatters
 │   └── ui/                 # Interactive TUI components
 │       └── selector.go     # Role picker using survey/v2 Select with filter
 ├── go.mod                  # Depends on github.com/cyberark/idsec-sdk-golang
@@ -632,7 +606,7 @@ This ensures our service works identically to the SDK's built-in services: same 
 
 ## 18. Future Considerations (Post-v1)
 
-- AWS and GCP cloud provider support
+- AWS and GCP cloud provider support (AWS may require `sca-cli env` for credential injection since SCA vends temporary access keys for AWS)
 - Active session listing and revocation (`sca-cli sessions`)
 - Session TTL countdown and auto-refresh
 - Shell prompt integration (show active role in PS1)
@@ -658,7 +632,6 @@ This ensures our service works identically to the SDK's built-in services: same 
 | **SCA Access: List eligibility** | ❌ Not in SDK | ❌ Not in SDK | ✅ `SCAAccessService.ListEligibility()` |
 | **SCA Access: Elevate** | ❌ Not in SDK | ❌ Not in SDK | ✅ `SCAAccessService.Elevate()` |
 | Interactive role selection UI | — | — | ✅ Custom (via `survey/v2` Select) |
-| Shell env var injection | — | — | ✅ Custom formatter |
 | Favorites management | — | — | ✅ Custom config |
 
 ## Appendix B: Revision History
@@ -669,3 +642,4 @@ This ensures our service works identically to the SDK's built-in services: same 
 | 2.0 | 2026-02-10 | Major rewrite: switched from ark-sdk-golang to idsec-sdk-golang; scoped auth to interactive human users only (auth.Identity); removed service user support; corrected SIA vs SCA product confusion; added SCA Access Service implementation pattern; restructured project to eliminate custom auth/credential code |
 | 2.1 | 2026-02-10 | Dependency alignment: removed bubbletea (use survey/v2 Select with filter instead); removed go-keyring (use 99designs/keyring via SDK); confirmed zero new Go module dependencies — all libraries reused from idsec-sdk-golang dep tree; added fatih/color for terminal output; noted go-github-selfupdate available for future self-update command |
 | 2.2 | 2026-02-10 | PoC validation against live tenant. Corrected API paths: base URL is `https://{subdomain}.sca.cyberark.cloud/api`, eligibility is `GET /api/access/{CSP}/eligibility` (CSP as path param), elevate is `POST /api/access/elevate`. Resolved all 4 open questions from Section 5.1: ISP JWT works directly (no token exchange), `/oauth2/token/{app_id}` is identity-host-only Basic Auth (not needed for CLI), documented full eligibility and elevate request/response schemas. Added note that JWT `subdomain` claim differs from identity URL subdomain. Added `X-API-Version: 2.0` header requirement. Added `roleInfo` vs `role` field name discrepancy note. |
+| 2.3 | 2026-02-10 | Removed `sca-cli env` command and credential injection. For Azure, SCA elevation activates a JIT role assignment — no Azure credentials are returned. The user's existing `az login` session picks up elevated permissions automatically. Removed Section 11 env var output, `env.go`, `internal/shell/` from project structure. Moved credential injection to future/AWS scope. Updated `status` command to show SCA session expiry (not token expiry). |
