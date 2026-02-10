@@ -26,7 +26,6 @@ type elevateFlags struct {
 	target   string
 	role     string
 	favorite string
-	duration int
 }
 
 var rootCmd = &cobra.Command{
@@ -67,7 +66,6 @@ Examples:
 		flags.target, _ = cmd.Flags().GetString("target")
 		flags.role, _ = cmd.Flags().GetString("role")
 		flags.favorite, _ = cmd.Flags().GetString("favorite")
-		flags.duration, _ = cmd.Flags().GetInt("duration")
 
 		// Load config
 		cfg, err := config.Load(config.ConfigPath())
@@ -97,7 +95,7 @@ Examples:
 			return fmt.Errorf("failed to create SCA service: %w", err)
 		}
 
-		return runElevate(cmd, flags, ispAuth, scaService, scaService, &uiSelector{}, cfg)
+		return runElevateWithDeps(cmd, flags, profile, ispAuth, scaService, scaService, &uiSelector{}, cfg)
 	},
 }
 
@@ -127,7 +125,6 @@ func NewRootCommandWithDeps(
 			flags.target, _ = cmd.Flags().GetString("target")
 			flags.role, _ = cmd.Flags().GetString("role")
 			flags.favorite, _ = cmd.Flags().GetString("favorite")
-			flags.duration, _ = cmd.Flags().GetInt("duration")
 
 			// Load SDK profile
 			loader := profiles.DefaultProfilesLoader()
@@ -145,7 +142,6 @@ func NewRootCommandWithDeps(
 	cmd.Flags().StringP("target", "t", "", "Target name (subscription, resource group, etc.)")
 	cmd.Flags().StringP("role", "r", "", "Role name")
 	cmd.Flags().StringP("favorite", "f", "", "Use a saved favorite alias")
-	cmd.Flags().IntP("duration", "d", 0, "Requested session duration in minutes (if policy allows)")
 
 	return cmd
 }
@@ -166,26 +162,6 @@ func init() {
 	rootCmd.Flags().StringP("target", "t", "", "Target name (subscription, resource group, etc.)")
 	rootCmd.Flags().StringP("role", "r", "", "Role name")
 	rootCmd.Flags().StringP("favorite", "f", "", "Use a saved favorite alias")
-	rootCmd.Flags().IntP("duration", "d", 0, "Requested session duration in minutes (if policy allows)")
-}
-
-func runElevate(
-	cmd *cobra.Command,
-	flags *elevateFlags,
-	authLoader authLoader,
-	eligibilityLister eligibilityLister,
-	elevateService elevateService,
-	selector targetSelector,
-	cfg *config.Config,
-) error {
-	// Load SDK profile
-	loader := profiles.DefaultProfilesLoader()
-	profile, err := (*loader).LoadProfile(cfg.Profile)
-	if err != nil {
-		return fmt.Errorf("failed to load profile: %w", err)
-	}
-
-	return runElevateWithDeps(cmd, flags, profile, authLoader, eligibilityLister, elevateService, selector, cfg)
 }
 
 func runElevateWithDeps(
@@ -203,7 +179,7 @@ func runElevateWithDeps(
 	// Check authentication state
 	_, err := authLoader.LoadAuthentication(profile, true)
 	if err != nil {
-		return fmt.Errorf("Not authenticated. Run 'grant login' first")
+		return fmt.Errorf("not authenticated, run 'grant login' first")
 	}
 
 	// Determine execution mode
@@ -216,12 +192,12 @@ func runElevateWithDeps(
 		isFavoriteMode = true
 		fav, err := cfg.GetFavorite(flags.favorite)
 		if err != nil {
-			return fmt.Errorf("Favorite '%s' not found. Run 'grant favorites list'", flags.favorite)
+			return fmt.Errorf("favorite %q not found, run 'grant favorites list'", flags.favorite)
 		}
 
 		// Check provider mismatch
 		if flags.provider != "" && strings.ToLower(flags.provider) != strings.ToLower(fav.Provider) {
-			return fmt.Errorf("Provider '%s' does not match favorite provider '%s'", flags.provider, fav.Provider)
+			return fmt.Errorf("provider %q does not match favorite provider %q", flags.provider, fav.Provider)
 		}
 
 		provider = fav.Provider
@@ -234,7 +210,7 @@ func runElevateWithDeps(
 
 		// Validate direct mode flags
 		if (targetName != "" && roleName == "") || (targetName == "" && roleName != "") {
-			return fmt.Errorf("Both --target and --role must be provided")
+			return fmt.Errorf("both --target and --role must be provided")
 		}
 
 		// Determine provider from flag or config
@@ -246,7 +222,7 @@ func runElevateWithDeps(
 
 	// Validate provider (v1 only accepts azure)
 	if strings.ToLower(provider) != "azure" {
-		return fmt.Errorf("Provider '%s' is not supported in this version. Supported providers: azure", provider)
+		return fmt.Errorf("provider %q is not supported in this version, supported providers: azure", provider)
 	}
 
 	// Convert provider to CSP
@@ -264,7 +240,7 @@ func runElevateWithDeps(
 	}
 
 	if len(eligibilityResp.Response) == 0 {
-		return fmt.Errorf("No eligible %s targets found. Check your SCA policies", strings.ToLower(provider))
+		return fmt.Errorf("no eligible %s targets found, check your SCA policies", strings.ToLower(provider))
 	}
 
 	// Resolve target based on mode
@@ -274,7 +250,7 @@ func runElevateWithDeps(
 		// Direct or favorite mode - find matching target
 		selectedTarget = findMatchingTarget(eligibilityResp.Response, targetName, roleName)
 		if selectedTarget == nil {
-			return fmt.Errorf("Target '%s' or role '%s' not found. Run 'grant' to see available options", targetName, roleName)
+			return fmt.Errorf("target %q or role %q not found, run 'grant' to see available options", targetName, roleName)
 		}
 	} else {
 		// Interactive mode
@@ -304,19 +280,19 @@ func runElevateWithDeps(
 
 	// Check for errors in response
 	if len(elevateResp.Response.Results) == 0 {
-		return fmt.Errorf("Elevation failed: no results returned")
+		return fmt.Errorf("elevation failed: no results returned")
 	}
 
 	result := elevateResp.Response.Results[0]
 	if result.ErrorInfo != nil {
-		return fmt.Errorf("Elevation failed: %s - %s\n%s",
+		return fmt.Errorf("elevation failed: %s - %s\n%s",
 			result.ErrorInfo.Code,
 			result.ErrorInfo.Message,
 			result.ErrorInfo.Description)
 	}
 
 	// Display success message
-	fmt.Fprintf(cmd.OutOrStdout(), "✓ Elevated to %s on %s\n",
+	fmt.Fprintf(cmd.OutOrStdout(), "Elevated to %s on %s\n",
 		selectedTarget.RoleInfo.Name,
 		selectedTarget.WorkspaceName)
 	fmt.Fprintf(cmd.OutOrStdout(), "  Session ID: %s\n", result.SessionID)

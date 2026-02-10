@@ -7,7 +7,7 @@ LDFLAGS := -s -w \
 	-X github.com/aaearon/grant-cli/cmd.commit=$(COMMIT) \
 	-X github.com/aaearon/grant-cli/cmd.buildDate=$(DATE)
 
-.PHONY: build test test-integration test-all lint clean
+.PHONY: build test test-race test-integration test-all test-coverage lint clean
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o $(BINARY_NAME) .
@@ -15,14 +15,21 @@ build:
 test:
 	go test ./... -v
 
+test-race:
+	go test -race ./... -v
+
 test-integration:
 	go test ./cmd -tags=integration -v
 
-test-all: test test-integration
+test-all: test-race test-integration
+
+test-coverage:
+	go test -race -coverprofile=coverage.out ./...
+	go tool cover -func=coverage.out
 
 lint:
 	golangci-lint run ./...
 
 clean:
-	rm -f $(BINARY_NAME)
+	rm -f $(BINARY_NAME) coverage.out
 	go clean

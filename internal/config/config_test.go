@@ -173,6 +173,25 @@ func TestDefaultConfig(t *testing.T) {
 	}
 }
 
+func TestLoadConfig_PermissionError(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	// Create a file, then make it unreadable
+	if err := os.WriteFile(path, []byte("profile: test"), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+	if err := os.Chmod(path, 0000); err != nil {
+		t.Fatalf("failed to chmod: %v", err)
+	}
+	t.Cleanup(func() { os.Chmod(path, 0644) })
+
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected error for unreadable file, got nil")
+	}
+}
+
 func TestConfigPath_Override(t *testing.T) {
 	customPath := "/tmp/custom-grant/config.yaml"
 

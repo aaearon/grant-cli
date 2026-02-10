@@ -15,10 +15,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	statusProvider string
-)
-
 // NewStatusCommand creates the status command
 func NewStatusCommand() *cobra.Command {
 	cmd := &cobra.Command{
@@ -52,7 +48,7 @@ func NewStatusCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&statusProvider, "provider", "p", "", "filter sessions by provider (azure, aws, gcp)")
+	cmd.Flags().StringP("provider", "p", "", "filter sessions by provider (azure, aws, gcp)")
 
 	return cmd
 }
@@ -64,11 +60,11 @@ func NewStatusCommandWithDeps(authLoader authLoader, sessionLister sessionLister
 		Short: "Show authentication state and active SCA sessions",
 		Long:  "Display the current authentication state and list all active elevated sessions.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runStatusWithDeps(cmd, authLoader, sessionLister)
+			return runStatus(cmd, authLoader, sessionLister, nil)
 		},
 	}
 
-	cmd.Flags().StringVarP(&statusProvider, "provider", "p", "", "filter sessions by provider (azure, aws, gcp)")
+	cmd.Flags().StringP("provider", "p", "", "filter sessions by provider (azure, aws, gcp)")
 
 	return cmd
 }
@@ -85,9 +81,10 @@ func runStatus(cmd *cobra.Command, authLoader authLoader, sessionLister sessionL
 	fmt.Fprintf(cmd.OutOrStdout(), "Authenticated as: %s\n", token.Username)
 
 	// Parse provider filter if specified
+	provider, _ := cmd.Flags().GetString("provider")
 	var cspFilter *sca_models.CSP
-	if statusProvider != "" {
-		csp, err := parseProvider(statusProvider)
+	if provider != "" {
+		csp, err := parseProvider(provider)
 		if err != nil {
 			return err
 		}
@@ -112,58 +109,9 @@ func runStatus(cmd *cobra.Command, authLoader authLoader, sessionLister sessionL
 
 	// Display grouped sessions
 	fmt.Fprintf(cmd.OutOrStdout(), "\n")
-	for _, provider := range sortedProviders(sessionsByProvider) {
-		fmt.Fprintf(cmd.OutOrStdout(), "%s sessions:\n", formatProviderName(provider))
-		for _, session := range sessionsByProvider[provider] {
-			fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", formatSession(session))
-		}
-	}
-
-	return nil
-}
-
-func runStatusWithDeps(cmd *cobra.Command, authLoader authLoader, sessionLister sessionLister) error {
-	// Load authentication state
-	token, err := authLoader.LoadAuthentication(nil, true)
-	if err != nil {
-		fmt.Fprintf(cmd.OutOrStdout(), "Not authenticated. Run 'grant login' first.\n")
-		return nil
-	}
-
-	// Display authenticated user
-	fmt.Fprintf(cmd.OutOrStdout(), "Authenticated as: %s\n", token.Username)
-
-	// Parse provider filter if specified
-	var cspFilter *sca_models.CSP
-	if statusProvider != "" {
-		csp, err := parseProvider(statusProvider)
-		if err != nil {
-			return err
-		}
-		cspFilter = &csp
-	}
-
-	// List sessions
-	ctx := context.Background()
-	sessions, err := sessionLister.ListSessions(ctx, cspFilter)
-	if err != nil {
-		return fmt.Errorf("failed to list sessions: %w", err)
-	}
-
-	// Display sessions
-	if len(sessions.Response) == 0 {
-		fmt.Fprintf(cmd.OutOrStdout(), "\nNo active sessions.\n")
-		return nil
-	}
-
-	// Group sessions by provider
-	sessionsByProvider := groupSessionsByProvider(sessions.Response)
-
-	// Display grouped sessions
-	fmt.Fprintf(cmd.OutOrStdout(), "\n")
-	for _, provider := range sortedProviders(sessionsByProvider) {
-		fmt.Fprintf(cmd.OutOrStdout(), "%s sessions:\n", formatProviderName(provider))
-		for _, session := range sessionsByProvider[provider] {
+	for _, p := range sortedProviders(sessionsByProvider) {
+		fmt.Fprintf(cmd.OutOrStdout(), "%s sessions:\n", formatProviderName(p))
+		for _, session := range sessionsByProvider[p] {
 			fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", formatSession(session))
 		}
 	}

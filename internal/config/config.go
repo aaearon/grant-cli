@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -39,7 +40,7 @@ func Load(path string) (*Config, error) {
 		if errors.Is(err, os.ErrNotExist) {
 			return DefaultConfig(), nil
 		}
-		return DefaultConfig(), nil
+		return nil, fmt.Errorf("failed to read config: %w", err)
 	}
 
 	cfg := DefaultConfig()
