@@ -1,0 +1,35 @@
+version: 2
+
+builds:
+  - binary: grant
+    ldflags:
+      - -s -w
+      - -X github.com/aaearon/grant-cli/cmd.version={{.Version}}
+      - -X github.com/aaearon/grant-cli/cmd.commit={{.ShortCommit}}
+      - -X github.com/aaearon/grant-cli/cmd.buildDate={{.Date}}
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"

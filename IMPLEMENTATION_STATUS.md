@@ -19,7 +19,7 @@
 | 5: CLI Commands | `feat/commands` | ✅ DONE - Merged to main | version, configure, login, logout, elevate, status, favorites + tests. 82 total tests passing |
 | 6: Integration Tests & Docs | `feat/integration-tests` | ✅ DONE - Merged to main | integration_test.go (6 tests), enhanced README, CLAUDE.md with patterns, updated Makefile |
 | 7: UX Simplification | `feat/simplify-login-ux` | ✅ DONE - Merged to main | Removed MFA config, auto-configure on first login, Identity URL clarification |
-| 8: Release Infrastructure | `feat/release` | 📋 TODO | .goreleaser.yml, GitHub Actions CI/CD |
+| 8: Release Infrastructure | `feat/release` | ✅ DONE | .goreleaser.yaml, GitHub Actions release workflow |
 
 ---
 
@@ -335,13 +335,29 @@ fa62e5f - feat: simplify login UX - remove MFA config, add auto-configure
 
 ---
 
-## Phase 8: Release Infrastructure
+## Phase 8: Release Infrastructure (DONE)
 
 **Branch:** `feat/release`
 
-- `.goreleaser.yml` — darwin/amd64+arm64, linux/amd64+arm64, windows/amd64
-- `.github/workflows/ci.yml` — on push/PR: test + lint
-- `.github/workflows/release.yml` — on tag v*: test + goreleaser
+### Implemented
+
+1. **`.goreleaser.yaml`** — GoReleaser v2 configuration
+   - Binary name: `grant`
+   - Ldflags: `-s -w` + version/commit/buildDate injection (matches Makefile)
+   - Targets: linux/darwin/windows on amd64/arm64 (6 binaries)
+   - Archives: tar.gz for linux/darwin, zip for windows
+   - Checksums: sha256 (`checksums.txt`)
+   - Changelog: auto-generated, sorted asc, excludes docs/test/ci commits
+
+2. **`.github/workflows/release.yml`** — GitHub Actions release workflow
+   - Trigger: push tags matching `v*`
+   - Steps: checkout (fetch-depth 0), setup Go 1.25, GoReleaser v6 action
+   - Permissions: `contents: write` for creating releases
+   - Uses `GITHUB_TOKEN` for authentication
+
+### Verification
+- `goreleaser check` — config validated
+- `goreleaser release --snapshot --clean` — all 6 targets built successfully
 
 ---
 
@@ -349,6 +365,10 @@ fa62e5f - feat: simplify login UX - remove MFA config, add auto-configure
 
 ```
 grant/
+├── .goreleaser.yaml                  # GoReleaser v2 config (6 targets, ldflags, checksums)
+├── .github/
+│   └── workflows/
+│       └── release.yml               # GitHub Actions: tag push → GoReleaser release
 ├── CLAUDE.md                         # Project conventions + implementation patterns
 ├── LICENSE
 ├── Makefile                          # build, test, test-integration, test-all, lint, clean
