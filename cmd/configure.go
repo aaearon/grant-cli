@@ -134,8 +134,8 @@ func runConfigure(cmd *cobra.Command, saver profileSaver, tenantURL, username, m
 	}
 
 	// Success message
-	cmd.Printf("Profile saved to %s\n", profilePath)
-	cmd.Printf("Config saved to %s\n", cfgPath)
+	fmt.Fprintf(cmd.OutOrStdout(), "Profile saved to %s\n", profilePath)
+	fmt.Fprintf(cmd.OutOrStdout(), "Config saved to %s\n", cfgPath)
 
 	return nil
 }

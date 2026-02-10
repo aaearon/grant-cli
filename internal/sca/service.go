@@ -98,7 +98,10 @@ func (s *SCAAccessService) ListEligibility(ctx context.Context, csp models.CSP) 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			body = []byte("(failed to read response body)")
+		}
 		return nil, fmt.Errorf("eligibility request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -127,7 +130,10 @@ func (s *SCAAccessService) Elevate(ctx context.Context, req *models.ElevateReque
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			body = []byte("(failed to read response body)")
+		}
 		return nil, fmt.Errorf("elevate request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -156,7 +162,10 @@ func (s *SCAAccessService) ListSessions(ctx context.Context, csp *models.CSP) (*
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			body = []byte("(failed to read response body)")
+		}
 		return nil, fmt.Errorf("sessions request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 

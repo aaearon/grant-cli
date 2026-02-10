@@ -431,12 +431,11 @@ grant/
 - 🧹 Feature branches deleted: `feat/simplify-login-ux`
 - 🗑️ Old branches can be cleaned up: `feat/project-scaffolding`, `feat/models`, `feat/config`, `feat/config-favorites`, `feat/sca-service`, `feat/ui`, `feat/commands`, `feat/integration-tests`
 
-## Test Count: 86+ tests total, all passing
+## Test Count: 87+ tests total, all passing
 
 ### Unit Tests (80+ tests)
 - cmd: 69 tests (version, configure, login, logout, elevate, status, favorites)
-  - Note: Reduced from 71 due to MFA validation test removal
-- config: 15 tests
+- config: 16 tests (added permission error test)
 - sca: 17 tests
 - sca/models: 15 tests
 - ui: 13 tests
@@ -462,6 +461,46 @@ Additionally, the `role_id` field in the API response contains the role **displa
 - `internal/sca/models/session_test.go` — Updated tests with real API format, added `TestSessionInfo_RealAPIPayload` from live capture
 - `cmd/status.go` — Simplified `formatSession()` to use `RoleID` (contains name) and `SessionDuration` directly
 - `cmd/status_test.go` — Updated mock data and expected output to match real API behavior
+
+---
+
+## Code Review Improvements (`fix/code-review-improvements`)
+
+**Status:** Done
+**Date:** 2026-02-10
+
+Comprehensive code quality sweep addressing issues found during code review.
+
+### HIGH - Bug Fixes
+1. **config.Load() error handling** — Non-ErrNotExist errors (permission denied, I/O errors) were silently swallowed, returning defaults. Now returns the error. Added `TestLoadConfig_PermissionError` test.
+2. **Duplicate login functions** — Consolidated `runLogin()` and `runLoginWithAuth()` into single `runLogin(cmd, auth authenticator)`. Both production and test paths now use the same function.
+3. **Duplicate status functions** — Consolidated `runStatus()` and `runStatusWithDeps()` into single `runStatus()` that accepts `profile` parameter (can be nil for test path). Removed package-level `statusProvider` variable; flag value now read via `cmd.Flags().GetString("provider")` inside RunE.
+4. **Redundant profile loading** — Production `rootCmd.RunE` loaded the profile, then `runElevate()` loaded it again. Removed `runElevate` wrapper; production path now calls `runElevateWithDeps` directly with the already-loaded profile.
+
+### MEDIUM - Design Fixes
+5. **Removed `--duration` flag** — Flag was parsed but never wired into `ElevateRequest`. Removed from struct, flag registration, and test assertions. Can be re-added when API support is confirmed.
+6. **io.ReadAll error handling** — Three error-response paths in `service.go` discarded `io.ReadAll` errors. Now includes fallback message `"(failed to read response body)"` when read fails.
+
+### LOW - Consistency Fixes
+7. **Error message capitalization** — Lowercased all `fmt.Errorf` strings per Go convention. Updated 9 error messages in `root.go` and corresponding test assertions.
+8. **Unicode checkmark removed** — Replaced `"✓ Elevated..."` with `"Elevated..."` for terminal compatibility.
+9. **Output method consistency** — Changed `cmd.Printf()` in `configure.go` to `fmt.Fprintf(cmd.OutOrStdout(), ...)` for consistency with all other commands.
+
+### CI/CD Improvements
+10. **Makefile** — Added `test-race` target with `-race` flag. Added `test-coverage` target with `coverprofile`. Changed `test-all` to use `test-race`. Added `coverage.out` to `clean`.
+11. **CI workflow** — Added `.github/workflows/ci.yml` that runs build, test-race, and lint on push/PR to main.
+
+### Files Modified
+- `internal/config/config.go` — Error propagation fix
+- `internal/config/config_test.go` — Added permission error test
+- `internal/sca/service.go` — io.ReadAll error handling
+- `cmd/login.go` — Consolidated duplicate functions
+- `cmd/status.go` — Consolidated duplicate functions, removed package-level var
+- `cmd/root.go` — Removed runElevate wrapper, --duration flag, lowercased errors, removed checkmark
+- `cmd/root_elevate_test.go` — Updated assertions for new error messages, removed --duration test
+- `cmd/configure.go` — Output method consistency
+- `Makefile` — Race, coverage targets
+- `.github/workflows/ci.yml` — New CI workflow
 
 ---
 

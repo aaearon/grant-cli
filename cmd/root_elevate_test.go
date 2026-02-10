@@ -152,7 +152,7 @@ func TestRootElevate_InteractiveMode(t *testing.T) {
 			},
 			args: []string{},
 			wantContain: []string{
-				"No eligible azure targets found",
+				"no eligible azure targets found",
 			},
 			wantErr: true,
 		},
@@ -267,7 +267,7 @@ func TestRootElevate_DirectMode(t *testing.T) {
 			},
 			args: []string{"--target", "NonExistent", "--role", "Contributor"},
 			wantContain: []string{
-				"Target 'NonExistent' or role 'Contributor' not found",
+				`target "NonExistent" or role "Contributor" not found`,
 			},
 			wantErr: true,
 		},
@@ -296,7 +296,7 @@ func TestRootElevate_DirectMode(t *testing.T) {
 			},
 			args: []string{"--target", "Prod-EastUS", "--role", "NonExistentRole"},
 			wantContain: []string{
-				"Target 'Prod-EastUS' or role 'NonExistentRole' not found",
+				`target "Prod-EastUS" or role "NonExistentRole" not found`,
 			},
 			wantErr: true,
 		},
@@ -311,7 +311,7 @@ func TestRootElevate_DirectMode(t *testing.T) {
 			},
 			args: []string{"--target", "Prod-EastUS"},
 			wantContain: []string{
-				"Both --target and --role must be provided",
+				"both --target and --role must be provided",
 			},
 			wantErr: true,
 		},
@@ -326,7 +326,7 @@ func TestRootElevate_DirectMode(t *testing.T) {
 			},
 			args: []string{"--role", "Contributor"},
 			wantContain: []string{
-				"Both --target and --role must be provided",
+				"both --target and --role must be provided",
 			},
 			wantErr: true,
 		},
@@ -436,7 +436,7 @@ func TestRootElevate_FavoriteMode(t *testing.T) {
 			},
 			args: []string{"--favorite", "nonexistent"},
 			wantContain: []string{
-				"Favorite 'nonexistent' not found",
+				`favorite "nonexistent" not found`,
 			},
 			wantErr: true,
 		},
@@ -460,7 +460,7 @@ func TestRootElevate_FavoriteMode(t *testing.T) {
 			},
 			args: []string{"--favorite", "prod-contrib", "--provider", "aws"},
 			wantContain: []string{
-				"Provider 'aws' does not match favorite provider 'azure'",
+				`provider "aws" does not match favorite provider "azure"`,
 			},
 			wantErr: true,
 		},
@@ -509,8 +509,8 @@ func TestRootElevate_ProviderValidation(t *testing.T) {
 			},
 			args: []string{"--provider", "aws"},
 			wantContain: []string{
-				"Provider 'aws' is not supported in this version",
-				"Supported providers: azure",
+				`provider "aws" is not supported in this version`,
+				"supported providers: azure",
 			},
 			wantErr: true,
 		},
@@ -525,8 +525,8 @@ func TestRootElevate_ProviderValidation(t *testing.T) {
 			},
 			args: []string{"--provider", "gcp"},
 			wantContain: []string{
-				"Provider 'gcp' is not supported in this version",
-				"Supported providers: azure",
+				`provider "gcp" is not supported in this version`,
+				"supported providers: azure",
 			},
 			wantErr: true,
 		},
@@ -587,8 +587,8 @@ func TestRootElevate_AuthenticationErrors(t *testing.T) {
 			},
 			args: []string{},
 			wantContain: []string{
-				"Not authenticated",
-				"Run 'grant login' first",
+				"not authenticated",
+				"run 'grant login' first",
 			},
 			wantErr: true,
 		},
@@ -679,7 +679,7 @@ func TestRootElevate_ElevationErrors(t *testing.T) {
 			},
 			args: []string{"--target", "Prod-EastUS", "--role", "Contributor"},
 			wantContain: []string{
-				"Elevation failed",
+				"elevation failed",
 				"POLICY_DENIED",
 				"Elevation requires approval",
 			},
@@ -764,9 +764,5 @@ func TestRootElevate_UsageAndFlags(t *testing.T) {
 
 	if cmd.Flags().Lookup("favorite") == nil {
 		t.Error("expected --favorite flag to be registered")
-	}
-
-	if cmd.Flags().Lookup("duration") == nil {
-		t.Error("expected --duration flag to be registered")
 	}
 }

@@ -371,7 +371,7 @@ func TestStatusCommand(t *testing.T) {
 
 			// Set provider flag if specified
 			if tt.provider != "" {
-				cmd.Flags().Set("provider", tt.provider)
+				_ = cmd.Flags().Set("provider", tt.provider)
 			}
 
 			// Execute command
