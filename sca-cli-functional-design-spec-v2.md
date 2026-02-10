@@ -1,6 +1,6 @@
 # sca-cli — Functional Design Specification
 
-**Version:** 2.1 (Draft)
+**Version:** 2.2 (Draft)
 **Author:** Tim Schindler
 **Date:** 2026-02-10
 **License:** MIT
@@ -131,6 +131,8 @@ JWT session token returned
 - MFA method can be pre-configured (via `IdentityMFAMethod`) or selected interactively
 - External IdP users (non-`@cyberark.cloud.*`) are detected automatically and redirected to browser-based SSO
 
+**Important: Tenant subdomain resolution.** The identity URL subdomain (e.g., `abz4452` in `abz4452.id.cyberark.cloud`) is **not** the tenant subdomain used for SCA API calls. The correct subdomain is extracted from the JWT `subdomain` claim (e.g., `cyberiam-poc`). The SDK's `IdsecISPServiceClient.resolveServiceURL()` handles this automatically by parsing the JWT claims `subdomain` and `platform_domain` to construct service URLs like `https://{subdomain}.sca.{platform_domain}/api`.
+
 ### 4.5 Dependency Benefits
 
 Importing `idsec-sdk-golang` eliminates ~70% of the implementation effort:
@@ -149,20 +151,116 @@ Importing `idsec-sdk-golang` eliminates ~70% of the implementation effort:
 
 Reference: https://api-docs.cyberark.com/sca-api/docs/secure-cloud-access-apis
 
+**Base URL:** `https://{subdomain}.sca.cyberark.cloud/api` where `{subdomain}` is the JWT `subdomain` claim (e.g., `cyberiam-poc`).
+
+**Required headers:** `Authorization: Bearer {jwt}`, `X-API-Version: 2.0`, `Origin` and `Referer` matching the service host, `Content-Type: application/json`.
+
 These are the **end-user** SCA APIs that `sca-cli` wraps. They are distinct from the admin APIs already covered by the SDK.
 
 | Operation | Method | Endpoint | Purpose |
 |-----------|--------|----------|---------|
-| Authenticate | `POST` | `/token/{app_id}` | Generate a public access token for API calls |
-| List eligible targets | `GET` | `/access/csp/eligibility` | Retrieve Azure roles/subscriptions the user can elevate to |
-| Elevate access | `POST` | `/access/elevate` | Request JIT elevation for a specific target and role |
+| List eligible targets | `GET` | `/api/access/{csp}/eligibility` | Retrieve targets the user can elevate to (CSP as path param: `AWS`, `AZURE`, `GCP`) |
+| Elevate access | `POST` | `/api/access/elevate` | Request JIT elevation for one or more targets |
+| List sessions | `GET` | `/api/access/sessions` | List active elevated sessions |
+| Revoke sessions | `POST` | `/api/access/sessions/revoke` | Revoke active elevated sessions |
 
-### 5.1 Open Questions (Require Validation Against a Live Tenant)
+Note: The OpenAPI spec also defines `POST /oauth2/token/{app_id}` on the **identity** host (`{tenant}.id.cyberark.cloud`) for service-to-service authentication using Basic Auth with client credentials. This is **not relevant** for `sca-cli` — we use the ISP JWT from interactive Identity auth directly.
 
-1. **What credentials does `/access/elevate` return for Azure?** — Does it return an ARM access token, or does it activate an Azure RBAC role assignment that the user accesses via their existing `az` CLI session?
-2. **Does `/token/{app_id}` require a pre-registered application in the CyberArk tenant?** — Or can it be called with any valid ISP JWT?
-3. **Is the ISP JWT from `IdsecISPAuth` sufficient to call the SCA Access APIs directly?** — Or is a separate SCA-specific token exchange required via `/token/{app_id}`?
-4. **What is the exact response schema for `/access/csp/eligibility`?** — We need to know the field names for target name, subscription ID, role name, max duration, etc.
+### 5.1 Resolved Questions (Validated Against Live Tenant)
+
+The following questions from v2.1 have been answered via the PoC (see `poc/` directory):
+
+1. **What does `/access/elevate` return for Azure?** The response schema is `{response: {csp, organizationId, results: [{workspaceId, roleId, sessionId, accessCredentials, errorInfo}]}}`. The `accessCredentials` field contains the credentials needed to access the workspace once elevation succeeds. The `errorInfo` field (with `code`, `message`, `description`) is present only if elevation failed.
+
+2. **Does `/oauth2/token/{app_id}` require a pre-registered application?** Yes — this endpoint is on the identity host, uses Basic Auth (`UserPassBasicAuth`), and requires `grant_type: client_credentials`. It is for service-to-service authentication and is **not needed** for the interactive CLI flow. The ISP JWT is used directly.
+
+3. **Is the ISP JWT sufficient for SCA Access APIs?** **Yes.** The Identity JWT from `IdsecISPAuth` works directly as a `Bearer` token on `{subdomain}.sca.cyberark.cloud/api/*` endpoints. No token exchange is required. The `X-API-Version: 2.0` header is required (set by the SDK's `IdsecSCAService`).
+
+4. **What is the exact response schema for `/access/{csp}/eligibility`?** See Section 5.2.
+
+### 5.2 Eligibility Response Schema
+
+`GET /api/access/{CSP}/eligibility` where `{CSP}` is `AWS`, `AZURE`, or `GCP` (path parameter).
+
+Optional query parameters: `limit` (1-50), `nextToken` (pagination).
+
+**Response (Azure example):**
+
+```json
+{
+  "response": [
+    {
+      "organizationId": "29cb7961-e16d-42c7-8ade-1794bbb76782",
+      "workspaceId": "providers/Microsoft.Management/managementGroups/29cb7961-...",
+      "workspaceName": "Tenant Root Group",
+      "workspaceType": "management_group",
+      "roleInfo": {
+        "id": "/providers/Microsoft.Authorization/roleDefinitions/18d7d88d-...",
+        "name": "User Access Administrator"
+      }
+    },
+    {
+      "organizationId": "29cb7961-e16d-42c7-8ade-1794bbb76782",
+      "workspaceId": "29cb7961-e16d-42c7-8ade-1794bbb76782",
+      "workspaceName": "CyberIAM Tech Labs",
+      "workspaceType": "directory",
+      "roleInfo": {
+        "id": "62e90394-69f5-4237-9190-012177145e10",
+        "name": "Global Administrator"
+      }
+    }
+  ],
+  "nextToken": null,
+  "total": 2
+}
+```
+
+**Note:** The live API returns `roleInfo` (with `id` and `name` fields). The OpenAPI spec defines this as `role` in `CommonEligibleTarget` — the field name discrepancy should be handled in the client.
+
+Azure `workspaceType` values: `RESOURCE`, `RESOURCE_GROUP`, `SUBSCRIPTION`, `MANAGEMENT_GROUP`, `DIRECTORY`.
+
+### 5.3 Elevate Request/Response Schema
+
+`POST /api/access/elevate`
+
+**Request body:**
+
+```json
+{
+  "csp": "AZURE",
+  "organizationId": "29cb7961-e16d-42c7-8ade-1794bbb76782",
+  "targets": [
+    {
+      "workspaceId": "29cb7961-e16d-42c7-8ade-1794bbb76782",
+      "roleId": "62e90394-69f5-4237-9190-012177145e10"
+    }
+  ]
+}
+```
+
+Required fields: `csp` (enum: `AWS`, `AZURE`, `GCP`), `targets` (array, 1-5 items). Each target requires `workspaceId` and either `roleId` or `roleName`. The `organizationId` is required for Azure and GCP but not for standalone AWS accounts.
+
+**Response body:**
+
+```json
+{
+  "response": {
+    "csp": "AZURE",
+    "organizationId": "...",
+    "results": [
+      {
+        "workspaceId": "...",
+        "roleId": "...",
+        "sessionId": "...",
+        "accessCredentials": "...",
+        "errorInfo": null
+      }
+    ]
+  }
+}
+```
+
+The `accessCredentials` field contains cloud-provider-specific credentials. The `errorInfo` object (with `code`, `message`, `description`) is present only on per-target failure.
 
 ## 6. User Flows
 
@@ -346,8 +444,8 @@ Note: Authentication configuration (tenant URL, username, MFA method) lives in t
                                              ┌──────────────────────┐
                                              │ SCAAccessService     │
                                              │ .ListEligibility()   │
-                                             │ GET /access/csp/     │
-                                             │ eligibility          │
+                                             │ GET /api/access/     │
+                                             │ {CSP}/eligibility    │
                                              └──────────┬───────────┘
                                                         │
                                                         ▼
@@ -363,7 +461,8 @@ Note: Authentication configuration (tenant URL, username, MFA method) lives in t
                                              ┌──────────────────────┐
                                              │ SCAAccessService     │
                                              │ .Elevate()           │
-                                             │ POST /access/elevate │
+                                             │ POST /api/access/    │
+                                             │ elevate              │
                                              └──────────┬───────────┘
                                                         │
                                                API returns session
@@ -400,7 +499,7 @@ Note: Authentication configuration (tenant URL, username, MFA method) lives in t
 | `SCA_ROLE` | Name of the elevated role |
 | `SCA_TARGET` | Name of the target (subscription/resource group) |
 
-Note: The exact variables exported depend on what `/access/elevate` returns — see Open Questions in Section 5.1.
+Note: The exact variables exported depend on what `/api/access/elevate` returns in `accessCredentials` — see Section 5.3 for the response schema. The `accessCredentials` field is cloud-provider-specific and its format for Azure needs to be captured from a successful elevation call.
 
 ## 12. Error Handling
 
@@ -507,14 +606,17 @@ func NewSCAAccessService(authenticators ...auth.IdsecAuth) (*SCAAccessService, e
     base, err := services.NewIdsecBaseService(svcIface, authenticators...)
     // ... resolve ISP auth, create ISP service client for "sca" service
     // Pattern: isp.FromISPAuth(ispAuth, "sca", ".", "", refreshCallback)
+    // Sets X-API-Version: 2.0 header (required by the SCA API gateway)
 }
 
-func (s *SCAAccessService) ListEligibility() (*EligibilityResponse, error) {
-    // GET /access/csp/eligibility via s.client.Get(...)
+func (s *SCAAccessService) ListEligibility(csp string) (*EligibilityResponse, error) {
+    // GET /api/access/{csp}/eligibility via s.client.Get(...)
+    // csp: "AWS", "AZURE", or "GCP" (path parameter)
 }
 
 func (s *SCAAccessService) Elevate(req *ElevateRequest) (*ElevateResponse, error) {
-    // POST /access/elevate via s.client.Post(...)
+    // POST /api/access/elevate via s.client.Post(...)
+    // Body: {csp, organizationId, targets: [{workspaceId, roleId|roleName}]}
 }
 ```
 
@@ -566,3 +668,4 @@ This ensures our service works identically to the SDK's built-in services: same 
 | 1.0 | 2026-02-10 | Initial spec with standalone implementation |
 | 2.0 | 2026-02-10 | Major rewrite: switched from ark-sdk-golang to idsec-sdk-golang; scoped auth to interactive human users only (auth.Identity); removed service user support; corrected SIA vs SCA product confusion; added SCA Access Service implementation pattern; restructured project to eliminate custom auth/credential code |
 | 2.1 | 2026-02-10 | Dependency alignment: removed bubbletea (use survey/v2 Select with filter instead); removed go-keyring (use 99designs/keyring via SDK); confirmed zero new Go module dependencies — all libraries reused from idsec-sdk-golang dep tree; added fatih/color for terminal output; noted go-github-selfupdate available for future self-update command |
+| 2.2 | 2026-02-10 | PoC validation against live tenant. Corrected API paths: base URL is `https://{subdomain}.sca.cyberark.cloud/api`, eligibility is `GET /api/access/{CSP}/eligibility` (CSP as path param), elevate is `POST /api/access/elevate`. Resolved all 4 open questions from Section 5.1: ISP JWT works directly (no token exchange), `/oauth2/token/{app_id}` is identity-host-only Basic Auth (not needed for CLI), documented full eligibility and elevate request/response schemas. Added note that JWT `subdomain` claim differs from identity URL subdomain. Added `X-API-Version: 2.0` header requirement. Added `roleInfo` vs `role` field name discrepancy note. |
