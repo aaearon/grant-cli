@@ -19,7 +19,7 @@ func TestVersionCommand(t *testing.T) {
 			commit:  "",
 			date:    "",
 			wantContain: []string{
-				"sca-cli version dev",
+				"grant version dev",
 				"commit: unknown",
 				"built: unknown",
 			},
@@ -30,7 +30,7 @@ func TestVersionCommand(t *testing.T) {
 			commit:  "abc1234",
 			date:    "2026-02-10T12:00:00Z",
 			wantContain: []string{
-				"sca-cli version 1.0.0",
+				"grant version 1.0.0",
 				"commit: abc1234",
 				"built: 2026-02-10T12:00:00Z",
 			},
@@ -41,7 +41,7 @@ func TestVersionCommand(t *testing.T) {
 			commit:  "",
 			date:    "",
 			wantContain: []string{
-				"sca-cli version 1.0.0",
+				"grant version 1.0.0",
 				"commit: unknown",
 				"built: unknown",
 			},
@@ -87,7 +87,7 @@ func TestVersionCommandIntegration(t *testing.T) {
 	}
 
 	// Should contain at least the version line
-	if !strings.Contains(output, "sca-cli version") {
-		t.Errorf("version output missing 'sca-cli version', got: %s", output)
+	if !strings.Contains(output, "grant version") {
+		t.Errorf("version output missing 'grant version', got: %s", output)
 	}
 }

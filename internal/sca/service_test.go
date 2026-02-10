@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aaearon/sca-cli/internal/sca/models"
+	"github.com/aaearon/grant-cli/internal/sca/models"
 )
 
 // mockHTTPClient is a simple mock that returns pre-configured responses

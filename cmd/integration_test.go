@@ -13,7 +13,7 @@ import (
 // TestMain builds the binary before running integration tests
 func TestMain(m *testing.M) {
 	// Build the binary
-	cmd := exec.Command("go", "build", "-o", "../sca-cli-test", "../.")
+	cmd := exec.Command("go", "build", "-o", "../grant-test", "../.")
 	if err := cmd.Run(); err != nil {
 		panic("Failed to build binary for integration tests: " + err.Error())
 	}
@@ -22,13 +22,13 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 
 	// Clean up
-	os.Remove("../sca-cli-test")
+	os.Remove("../grant-test")
 
 	os.Exit(code)
 }
 
 func getBinaryPath() string {
-	return filepath.Join("..", "sca-cli-test")
+	return filepath.Join("..", "grant-test")
 }
 
 func TestIntegration_Help(t *testing.T) {
@@ -40,22 +40,22 @@ func TestIntegration_Help(t *testing.T) {
 		{
 			name:     "root help",
 			args:     []string{"--help"},
-			wantText: []string{"sca-cli", "Available Commands:", "configure", "login", "elevate", "status"},
+			wantText: []string{"grant", "Available Commands:", "configure", "login", "status"},
 		},
 		{
 			name:     "short help flag",
 			args:     []string{"-h"},
-			wantText: []string{"sca-cli", "Available Commands:"},
+			wantText: []string{"grant", "Available Commands:"},
 		},
 		{
 			name:     "help command",
 			args:     []string{"help"},
-			wantText: []string{"sca-cli", "Available Commands:"},
+			wantText: []string{"grant", "Available Commands:"},
 		},
 		{
-			name:     "elevate help",
-			args:     []string{"elevate", "--help"},
-			wantText: []string{"elevate", "--provider", "--target", "--role", "--favorite"},
+			name:     "root elevation help",
+			args:     []string{"--help"},
+			wantText: []string{"--provider", "--target", "--role", "--favorite"},
 		},
 		{
 			name:     "configure help",
@@ -90,7 +90,7 @@ func TestIntegration_Version(t *testing.T) {
 	}
 
 	outputStr := string(output)
-	requiredFields := []string{"sca-cli version", "commit:", "built:"}
+	requiredFields := []string{"grant version", "commit:", "built:"}
 
 	for _, field := range requiredFields {
 		if !strings.Contains(outputStr, field) {
@@ -108,15 +108,15 @@ func TestIntegration_ElevateWithoutLogin(t *testing.T) {
 	// Set a temporary config path to avoid interfering with real config
 	tempDir := t.TempDir()
 
-	cmd := exec.Command(getBinaryPath(), "elevate", "--provider", "azure")
-	cmd.Env = append(os.Environ(), "SCA_CLI_CONFIG="+filepath.Join(tempDir, "config.yaml"))
+	cmd := exec.Command(getBinaryPath(), "--provider", "azure")
+	cmd.Env = append(os.Environ(), "GRANT_CONFIG="+filepath.Join(tempDir, "config.yaml"))
 	cmd.Env = append(cmd.Env, "HOME="+tempDir) // Isolate from real credentials
 
 	output, err := cmd.CombinedOutput()
 
 	// Command should fail when not authenticated
 	if err == nil {
-		t.Errorf("Expected elevate to fail without authentication, but it succeeded.\nOutput: %s", output)
+		t.Errorf("Expected elevation to fail without authentication, but it succeeded.\nOutput: %s", output)
 	}
 
 	outputStr := string(output)
@@ -141,7 +141,7 @@ func TestIntegration_StatusWithoutLogin(t *testing.T) {
 	tempDir := t.TempDir()
 
 	cmd := exec.Command(getBinaryPath(), "status")
-	cmd.Env = append(os.Environ(), "SCA_CLI_CONFIG="+filepath.Join(tempDir, "config.yaml"))
+	cmd.Env = append(os.Environ(), "GRANT_CONFIG="+filepath.Join(tempDir, "config.yaml"))
 	cmd.Env = append(cmd.Env, "HOME="+tempDir) // Isolate from real credentials
 
 	output, err := cmd.CombinedOutput()
@@ -163,7 +163,7 @@ func TestIntegration_FavoritesList(t *testing.T) {
 	tempDir := t.TempDir()
 
 	cmd := exec.Command(getBinaryPath(), "favorites", "list")
-	cmd.Env = append(os.Environ(), "SCA_CLI_CONFIG="+filepath.Join(tempDir, "config.yaml"))
+	cmd.Env = append(os.Environ(), "GRANT_CONFIG="+filepath.Join(tempDir, "config.yaml"))
 
 	output, err := cmd.CombinedOutput()
 

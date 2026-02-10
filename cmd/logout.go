@@ -12,7 +12,7 @@ func NewLogoutCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "logout",
 		Short: "Log out and clear cached authentication tokens",
-		Long:  "Log out of sca-cli by clearing cached authentication tokens from the system keyring.",
+		Long:  "Log out of grant by clearing cached authentication tokens from the system keyring.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runLogout(cmd)
 		},
@@ -21,8 +21,8 @@ func NewLogoutCommand() *cobra.Command {
 
 func runLogout(cmd *cobra.Command) error {
 	// Create keyring and clear authentication
-	// Use empty service name to clear all keyrings for sca-cli
-	kr, err := keyring.NewIdsecKeyring("sca-cli").GetKeyring(true)
+	// Use empty service name to clear all keyrings for grant
+	kr, err := keyring.NewIdsecKeyring("grant").GetKeyring(true)
 	if err != nil {
 		return fmt.Errorf("failed to access keyring: %w", err)
 	}

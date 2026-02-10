@@ -159,8 +159,8 @@ func TestSaveConfig_RoundTrip(t *testing.T) {
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 
-	if cfg.Profile != "sca-cli" {
-		t.Errorf("profile = %q, want %q", cfg.Profile, "sca-cli")
+	if cfg.Profile != "grant" {
+		t.Errorf("profile = %q, want %q", cfg.Profile, "grant")
 	}
 	if cfg.DefaultProvider != "azure" {
 		t.Errorf("default_provider = %q, want %q", cfg.DefaultProvider, "azure")
@@ -174,9 +174,9 @@ func TestDefaultConfig(t *testing.T) {
 }
 
 func TestConfigPath_Override(t *testing.T) {
-	customPath := "/tmp/custom-sca-cli/config.yaml"
+	customPath := "/tmp/custom-grant/config.yaml"
 
-	t.Setenv("SCA_CLI_CONFIG", customPath)
+	t.Setenv("GRANT_CONFIG", customPath)
 
 	got := ConfigPath()
 	if got != customPath {

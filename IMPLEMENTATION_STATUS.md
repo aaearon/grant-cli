@@ -1,4 +1,4 @@
-# sca-cli Implementation Status
+# grant Implementation Status
 
 **Last updated:** 2026-02-10
 **Current branch:** `main`
@@ -12,8 +12,8 @@
 | Phase | Branch | Status | Notes |
 |-------|--------|--------|-------|
 | 0: Repo Setup & Scaffolding | `feat/project-scaffolding` | ✅ DONE - Merged to main | CLAUDE.md, go.mod, main.go, cmd/root.go, Makefile, README, LICENSE, .gitignore, SDK import tests |
-| 1: Models | `feat/models` | ✅ DONE - Merged to main | eligibility.go, elevate.go, session.go + tests. Custom UnmarshalJSON for roleInfo/role |
-| 2: Config & Favorites | `feat/config` | ✅ DONE - Merged to main | config.go, favorites.go + tests. YAML-based, SCA_CLI_CONFIG env override |
+| 1: Models | `feat/models` | ✅ DONE - Merged to main | eligibility.go, root.go, session.go + tests. Custom UnmarshalJSON for roleInfo/role |
+| 2: Config & Favorites | `feat/config` | ✅ DONE - Merged to main | config.go, favorites.go + tests. YAML-based, GRANT_CONFIG env override |
 | 3: SCA Access Service | `feat/sca-service` | ✅ DONE - Merged to main | service_config.go, service.go + tests. SDK service pattern with httpClient DI |
 | 4: UI Layer | `feat/ui` | ✅ DONE - Merged to main | selector.go + tests. Survey-based interactive selection with formatting & lookup |
 | 5: CLI Commands | `feat/commands` | ✅ DONE - Merged to main | version, configure, login, logout, elevate, status, favorites + tests. 82 total tests passing |
@@ -142,8 +142,8 @@ type httpClient interface {
 
 2. **`cmd/configure.go`** — Interactive configuration
    - Survey prompts for Identity URL (`https://{subdomain}.id.cyberark.cloud`) and username
-   - Creates SDK profile at `~/.idsec_profiles/sca-cli.json` with empty `IdentityMFAMethod`
-   - Creates app config at `~/.sca-cli/config.yaml`
+   - Creates SDK profile at `~/.idsec_profiles/grant.json` with empty `IdentityMFAMethod`
+   - Creates app config at `~/.grant/config.yaml`
    - Input validation: HTTPS URL, non-empty username
    - **Note:** MFA configuration removed in Phase 7 - SDK handles MFA interactively
 
@@ -264,7 +264,7 @@ All tests passing:
 
 #### 2. Login Command Enhancement
 - **Added:** Auto-configure flow when profile doesn't exist
-- **Added:** Message: "No configuration found. Let's set up sca-cli."
+- **Added:** Message: "No configuration found. Let's set up grant."
 - **Flow:** Detects missing profile → runs configure → proceeds to authentication
 - **Updated:** Command Long description to mention auto-configure feature
 
@@ -279,7 +279,7 @@ All tests passing:
 
 #### 4. Documentation Updates
 - **README.md:**
-  - Simplified Quick Start to single `sca-cli login` command
+  - Simplified Quick Start to single `grant login` command
   - Updated all references from "Tenant URL" to "Identity URL"
   - Added Identity URL format specification: `https://{subdomain}.id.cyberark.cloud`
   - Removed invalid example: `https://company.cyberark.cloud`
@@ -331,7 +331,7 @@ fa62e5f - feat: simplify login UX - remove MFA config, add auto-configure
 
 5. **`cmd/test_helpers.go`** — Mirrors PersistentPreRunE in `NewRootCommand()`
 
-6. **`internal/sca/service.go`** — Wraps ISP client with `loggingClient` via `common.GetLogger("sca-cli", -1)`
+6. **`internal/sca/service.go`** — Wraps ISP client with `loggingClient` via `common.GetLogger("grant", -1)`
 
 ---
 
@@ -348,13 +348,13 @@ fa62e5f - feat: simplify login UX - remove MFA config, add auto-configure
 ## Current File Structure (implemented)
 
 ```
-sca-cli/
+grant/
 ├── CLAUDE.md                         # Project conventions + implementation patterns
 ├── LICENSE
 ├── Makefile                          # build, test, test-integration, test-all, lint, clean
 ├── README.md                         # Complete documentation with installation, commands, troubleshooting
 ├── main.go                           # calls cmd.Execute()
-├── go.mod                            # module github.com/aaearon/sca-cli
+├── go.mod                            # module github.com/aaearon/grant-cli
 ├── go.sum
 ├── cmd/
 │   ├── root.go                       # cobra root command with --verbose, PersistentPreRunE
@@ -397,8 +397,8 @@ sca-cli/
 │       └── models/
 │           ├── eligibility.go        # CSP, WorkspaceType, RoleInfo, AzureEligibleTarget (custom UnmarshalJSON), EligibilityResponse
 │           ├── eligibility_test.go   # 6 tests
-│           ├── elevate.go            # ElevateTarget, ElevateRequest, ErrorInfo, ElevateTargetResult, ElevateAccessResult, ElevateResponse
-│           ├── elevate_test.go       # 6 tests
+│           ├── root.go               # ElevateTarget, ElevateRequest, ErrorInfo, ElevateTargetResult, ElevateAccessResult, ElevateResponse
+│           ├── root_elevate_test.go  # 6 tests
 │           ├── session.go            # SessionInfo (snake_case JSON tags), SessionsResponse
 │           └── session_test.go       # 4 tests (incl. real API payload test)
 └── poc/                              # PoC code (reference only)
@@ -431,7 +431,7 @@ sca-cli/
 **Status:** Fixed
 **Discovered:** 2026-02-10
 
-`sca-cli status` showed sessions as blank lines (`   on  - duration: 0m`) because the `SessionInfo` struct used camelCase JSON tags (`sessionId`, `roleId`, etc.) while the live SCA API returns snake_case (`session_id`, `role_id`, etc.). The OpenAPI spec incorrectly documents camelCase.
+`grant status` showed sessions as blank lines (`   on  - duration: 0m`) because the `SessionInfo` struct used camelCase JSON tags (`sessionId`, `roleId`, etc.) while the live SCA API returns snake_case (`session_id`, `role_id`, etc.). The OpenAPI spec incorrectly documents camelCase.
 
 Additionally, the `role_id` field in the API response contains the role **display name** (e.g., "User Access Administrator"), not an ARM resource path. The API does not return `workspaceName`, `roleName`, or `expiresAt` fields.
 
@@ -458,7 +458,7 @@ cmd/login_test.go       | 209 ++++++++++++++++++++++++++++++++++++++  (Profile s
 ```
 
 ### User-Facing Changes
-- ✅ Single command first-time setup: `sca-cli login` (no separate configure needed)
+- ✅ Single command first-time setup: `grant login` (no separate configure needed)
 - ✅ MFA method selection handled interactively by SDK (no pre-configuration)
 - ✅ Clear Identity URL format: `https://{subdomain}.id.cyberark.cloud`
-- ✅ `sca-cli configure` still available for reconfiguration
+- ✅ `grant configure` still available for reconfiguration

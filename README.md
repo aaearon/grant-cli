@@ -1,10 +1,10 @@
-# sca-cli
+# grant
 
 A CLI tool for elevating Azure permissions via CyberArk Secure Cloud Access (SCA) — without leaving the terminal.
 
 ## Overview
 
-`sca-cli` enables terminal-based Azure permission elevation through CyberArk SCA. It wraps the `idsec-sdk-golang` SDK for authentication and builds a custom SCA Access API client for JIT role elevation.
+`grant` enables terminal-based Azure permission elevation through CyberArk SCA. It wraps the `idsec-sdk-golang` SDK for authentication and builds a custom SCA Access API client for JIT role elevation.
 
 **Key Features:**
 - Interactive permission elevation with fuzzy search
@@ -17,42 +17,42 @@ A CLI tool for elevating Azure permissions via CyberArk Secure Cloud Access (SCA
 
 ### Binary Releases (Recommended)
 
-Download pre-built binaries from the [Releases](https://github.com/aaearon/sca-cli/releases) page.
+Download pre-built binaries from the [Releases](https://github.com/aaearon/grant-cli/releases) page.
 
 **macOS:**
 ```bash
 # Intel
-curl -LO https://github.com/aaearon/sca-cli/releases/latest/download/sca-cli_Darwin_x86_64.tar.gz
-tar xzf sca-cli_Darwin_x86_64.tar.gz
-sudo mv sca-cli /usr/local/bin/
+curl -LO https://github.com/aaearon/grant-cli/releases/latest/download/grant_Darwin_x86_64.tar.gz
+tar xzf grant_Darwin_x86_64.tar.gz
+sudo mv grant /usr/local/bin/
 
 # Apple Silicon
-curl -LO https://github.com/aaearon/sca-cli/releases/latest/download/sca-cli_Darwin_arm64.tar.gz
-tar xzf sca-cli_Darwin_arm64.tar.gz
-sudo mv sca-cli /usr/local/bin/
+curl -LO https://github.com/aaearon/grant-cli/releases/latest/download/grant_Darwin_arm64.tar.gz
+tar xzf grant_Darwin_arm64.tar.gz
+sudo mv grant /usr/local/bin/
 ```
 
 **Linux:**
 ```bash
-curl -LO https://github.com/aaearon/sca-cli/releases/latest/download/sca-cli_Linux_x86_64.tar.gz
-tar xzf sca-cli_Linux_x86_64.tar.gz
-sudo mv sca-cli /usr/local/bin/
+curl -LO https://github.com/aaearon/grant-cli/releases/latest/download/grant_Linux_x86_64.tar.gz
+tar xzf grant_Linux_x86_64.tar.gz
+sudo mv grant /usr/local/bin/
 ```
 
 **Windows:**
-Download `sca-cli_Windows_x86_64.zip` from releases and extract to a directory in your PATH.
+Download `grant_Windows_x86_64.zip` from releases and extract to a directory in your PATH.
 
 ### Go Install
 
 ```bash
-go install github.com/aaearon/sca-cli@latest
+go install github.com/aaearon/grant-cli@latest
 ```
 
 ### From Source
 
 ```bash
-git clone https://github.com/aaearon/sca-cli.git
-cd sca-cli
+git clone https://github.com/aaearon/grant-cli.git
+cd grant-cli
 make build
 ```
 
@@ -62,7 +62,7 @@ make build
 
 1. **Authenticate (auto-configures on first run):**
    ```bash
-   sca-cli login
+   grant login
    ```
    On first run, you'll be prompted for:
    - Identity URL (e.g., `https://abc1234.id.cyberark.cloud`)
@@ -72,25 +72,26 @@ make build
 
 2. **Elevate permissions:**
    ```bash
-   sca-cli elevate
+   grant
    ```
    Select your target and role from the interactive list.
 
 3. **Verify active sessions:**
    ```bash
-   sca-cli status
+   grant status
    ```
 
-**Optional:** Run `sca-cli configure` to reconfigure your Identity URL or username.
+**Optional:** Run `grant configure` to reconfigure your Identity URL or username.
 
 ## Commands
+
+Running `grant` with no subcommand elevates cloud permissions (the core behavior). Subcommands are listed below.
 
 | Command | Description |
 |---------|-------------|
 | `configure` | Configure or reconfigure Identity URL and username (optional — `login` auto-configures on first run) |
 | `login` | Authenticate to CyberArk Identity (auto-configures on first run, MFA handled interactively) |
 | `logout` | Clear cached tokens from keyring |
-| `elevate` | Elevate cloud permissions (core command) |
 | `status` | Show authentication state and active SCA sessions |
 | `favorites` | Manage saved role favorites (add/list/remove) |
 | `version` | Print version information |
@@ -100,28 +101,28 @@ make build
 Configure or reconfigure your CyberArk tenant connection.
 
 ```bash
-sca-cli configure
+grant configure
 ```
 
 This command:
-- Creates `~/.sca-cli/config.yaml` for application settings
-- Creates `~/.idsec_profiles/sca-cli.json` for SDK authentication
+- Creates `~/.grant/config.yaml` for application settings
+- Creates `~/.idsec_profiles/grant.json` for SDK authentication
 - Prompts for Identity URL (must be HTTPS, format: `https://{subdomain}.id.cyberark.cloud`)
 - Prompts for username
 
-**Note:** This command is optional. Running `sca-cli login` for the first time automatically runs configuration. Use `configure` to change your Identity URL or username.
+**Note:** This command is optional. Running `grant login` for the first time automatically runs configuration. Use `configure` to change your Identity URL or username.
 
 ### login
 
 Authenticate to CyberArk Identity with MFA.
 
 ```bash
-sca-cli login
+grant login
 ```
 
 This command:
 - **First time:** Prompts for Identity URL and username, then authenticates
-- **Subsequent runs:** Uses credentials from `~/.idsec_profiles/sca-cli.json`
+- **Subsequent runs:** Uses credentials from `~/.idsec_profiles/grant.json`
 - Prompts for password and MFA challenge (MFA method selected interactively)
 - Stores tokens securely in system keyring
 - Shows token expiration time on success
@@ -133,31 +134,31 @@ This command:
 Clear all cached tokens from the system keyring.
 
 ```bash
-sca-cli logout
+grant logout
 ```
 
 This removes stored authentication tokens but preserves your configuration files.
 
-### elevate
+### Default Behavior (Elevate)
 
-Request JIT (just-in-time) permission elevation for cloud resources.
+Running `grant` with no subcommand requests JIT (just-in-time) permission elevation for cloud resources.
 
 **Interactive mode** — select from eligible targets:
 ```bash
-sca-cli elevate
-sca-cli elevate --provider azure  # explicit provider
+grant
+grant --provider azure  # explicit provider
 ```
 
 **Direct mode** — specify target and role:
 ```bash
-sca-cli elevate --target "Prod-EastUS" --role "Contributor"
-sca-cli elevate -t "MyResourceGroup" -r "Owner"
+grant --target "Prod-EastUS" --role "Contributor"
+grant -t "MyResourceGroup" -r "Owner"
 ```
 
 **Favorite mode** — use a saved favorite:
 ```bash
-sca-cli elevate --favorite prod-contrib
-sca-cli elevate -f dev-reader
+grant --favorite prod-contrib
+grant -f dev-reader
 ```
 
 **Flags:**
@@ -180,8 +181,8 @@ For Azure, SCA creates a JIT Azure RBAC role assignment. Your existing `az` CLI 
 Display authentication state and active elevation sessions.
 
 ```bash
-sca-cli status
-sca-cli status --provider azure  # filter by provider
+grant status
+grant status --provider azure  # filter by provider
 ```
 
 **Output includes:**
@@ -196,7 +197,7 @@ Manage saved role combinations for quick elevation.
 
 **Add a favorite:**
 ```bash
-sca-cli favorites add <name>
+grant favorites add <name>
 ```
 This interactively prompts for:
 - Provider (default: azure)
@@ -205,29 +206,29 @@ This interactively prompts for:
 
 **List favorites:**
 ```bash
-sca-cli favorites list
+grant favorites list
 ```
 Shows all saved favorites with their provider, target, and role.
 
 **Remove a favorite:**
 ```bash
-sca-cli favorites remove <name>
+grant favorites remove <name>
 ```
 
 **Example workflow:**
 ```bash
 # Add a favorite
-$ sca-cli favorites add prod-contrib
+$ grant favorites add prod-contrib
 Provider: azure
 Target: Prod-EastUS
 Role: Contributor
 Favorite 'prod-contrib' added successfully.
 
 # Use the favorite
-$ sca-cli elevate --favorite prod-contrib
+$ grant --favorite prod-contrib
 
 # List favorites
-$ sca-cli favorites list
+$ grant favorites list
 prod-contrib:
   Provider: azure
   Target: Prod-EastUS
@@ -239,21 +240,21 @@ prod-contrib:
 Display version information including commit hash and build date.
 
 ```bash
-sca-cli version
+grant version
 ```
 
 ## Configuration
 
-### App Config (`~/.sca-cli/config.yaml`)
+### App Config (`~/.grant/config.yaml`)
 
 Application settings including default provider and favorites.
 
-**Default location:** `~/.sca-cli/config.yaml`
+**Default location:** `~/.grant/config.yaml`
 
-**Override:** Set `SCA_CLI_CONFIG` environment variable to use a custom path.
+**Override:** Set `GRANT_CONFIG` environment variable to use a custom path.
 
 ```yaml
-profile: sca-cli              # SDK profile name
+profile: grant              # SDK profile name
 default_provider: azure       # Default cloud provider
 
 favorites:
@@ -268,15 +269,15 @@ favorites:
 ```
 
 **Fields:**
-- `profile` — Name of the SDK profile in `~/.idsec_profiles/` (default: `sca-cli`)
-- `default_provider` — Default cloud provider for elevate command (default: `azure`)
+- `profile` — Name of the SDK profile in `~/.idsec_profiles/` (default: `grant`)
+- `default_provider` — Default cloud provider for elevation (default: `azure`)
 - `favorites` — Map of favorite names to provider/target/role combinations
 
-### SDK Profile (`~/.idsec_profiles/sca-cli.json`)
+### SDK Profile (`~/.idsec_profiles/grant.json`)
 
 CyberArk Identity SDK profile containing Identity URL and authentication preferences.
 
-**Managed by:** `sca-cli configure` command (or auto-created by `sca-cli login`)
+**Managed by:** `grant configure` command (or auto-created by `grant login`)
 
 **Contains:**
 - Identity URL (format: `https://{subdomain}.id.cyberark.cloud`)
@@ -289,7 +290,7 @@ CyberArk Identity SDK profile containing Identity URL and authentication prefere
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `SCA_CLI_CONFIG` | Custom path to app config YAML | `~/.sca-cli/config.yaml` |
+| `GRANT_CONFIG` | Custom path to app config YAML | `~/.grant/config.yaml` |
 | `HOME` | User home directory (used for config paths) | System default |
 
 ## How It Works
@@ -306,11 +307,11 @@ CyberArk Identity SDK profile containing Identity URL and authentication prefere
 
 ### Authentication Flow
 
-1. **Initial Authentication:** `sca-cli login` authenticates to CyberArk Identity with MFA
+1. **Initial Authentication:** `grant login` authenticates to CyberArk Identity with MFA
 2. **Token Storage:** Tokens stored securely in system keyring (macOS Keychain, Windows Credential Manager, Linux Secret Service)
 3. **Token Reuse:** Subsequent commands reuse cached tokens if still valid
 4. **Auto-Refresh:** SDK automatically refreshes tokens before expiry
-5. **Manual Logout:** `sca-cli logout` clears tokens from keyring
+5. **Manual Logout:** `grant logout` clears tokens from keyring
 
 ## Troubleshooting
 
@@ -320,9 +321,9 @@ CyberArk Identity SDK profile containing Identity URL and authentication prefere
 
 **Solution:**
 ```bash
-sca-cli login      # Auto-configures on first run
+grant login      # Auto-configures on first run
 # or
-sca-cli configure  # Explicit reconfiguration
+grant configure  # Explicit reconfiguration
 ```
 
 ### "Error: not authenticated" or "authentication required"
@@ -331,11 +332,11 @@ sca-cli configure  # Explicit reconfiguration
 
 **Solution:**
 ```bash
-sca-cli login
+grant login
 ```
 
 If login fails, verify:
-1. Identity URL is correct (check `~/.idsec_profiles/sca-cli.json` - should be `https://{subdomain}.id.cyberark.cloud`)
+1. Identity URL is correct (check `~/.idsec_profiles/grant.json` - should be `https://{subdomain}.id.cyberark.cloud`)
 2. Username is correct
 3. Password is correct
 4. MFA device/method is available and working
@@ -361,16 +362,16 @@ az login
 **Solution:**
 1. Contact your CyberArk administrator to verify SCA policies
 2. Ensure policies grant you access to Azure targets
-3. Verify you're using the correct provider: `sca-cli elevate --provider azure`
+3. Verify you're using the correct provider: `grant --provider azure`
 
 ### "Failed to elevate" or partial success
 
 **Cause:** Policy may not allow the specific role or target, or session limit reached.
 
 **Solution:**
-1. Check active sessions: `sca-cli status`
+1. Check active sessions: `grant status`
 2. Verify the target name and role name are correct
-3. Try with different duration: `sca-cli elevate --duration 4`
+3. Try with different duration: `grant --duration 4`
 4. Contact your CyberArk administrator if role should be available
 
 ### Interactive selection doesn't appear
@@ -380,7 +381,7 @@ az login
 **Solution:**
 Use direct mode with explicit flags:
 ```bash
-sca-cli elevate --target "MyTarget" --role "Contributor"
+grant --target "MyTarget" --role "Contributor"
 ```
 
 ### "Error: invalid provider" (v1)
@@ -390,7 +391,7 @@ sca-cli elevate --target "MyTarget" --role "Contributor"
 **Solution:**
 Use `--provider azure` (or omit the flag, as Azure is the default):
 ```bash
-sca-cli elevate --provider azure
+grant --provider azure
 ```
 
 ### Token expired or invalid during operation
@@ -399,8 +400,8 @@ sca-cli elevate --provider azure
 
 **Solution:**
 ```bash
-sca-cli logout
-sca-cli login
+grant logout
+grant login
 ```
 
 ### Permission denied accessing keyring (Linux)

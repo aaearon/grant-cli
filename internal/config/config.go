@@ -15,7 +15,7 @@ type Favorite struct {
 	Role     string `yaml:"role"`
 }
 
-// Config holds the sca-cli application configuration.
+// Config holds the grant application configuration.
 type Config struct {
 	Profile         string              `yaml:"profile"`
 	DefaultProvider string              `yaml:"default_provider"`
@@ -25,7 +25,7 @@ type Config struct {
 // DefaultConfig returns a Config with default values.
 func DefaultConfig() *Config {
 	return &Config{
-		Profile:         "sca-cli",
+		Profile:         "grant",
 		DefaultProvider: "azure",
 		Favorites:       make(map[string]Favorite),
 	}
@@ -72,12 +72,12 @@ func Save(cfg *Config, path string) error {
 // ConfigDir returns the default config directory path.
 func ConfigDir() string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".sca-cli")
+	return filepath.Join(home, ".grant")
 }
 
-// ConfigPath returns the config file path, respecting the SCA_CLI_CONFIG env var.
+// ConfigPath returns the config file path, respecting the GRANT_CONFIG env var.
 func ConfigPath() string {
-	if p := os.Getenv("SCA_CLI_CONFIG"); p != "" {
+	if p := os.Getenv("GRANT_CONFIG"); p != "" {
 		return p
 	}
 	return filepath.Join(ConfigDir(), "config.yaml")

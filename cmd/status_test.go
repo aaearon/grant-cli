@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	sca_models "github.com/aaearon/sca-cli/internal/sca/models"
+	sca_models "github.com/aaearon/grant-cli/internal/sca/models"
 	auth_models "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
 	common_models "github.com/cyberark/idsec-sdk-golang/pkg/models/common"
 )
@@ -38,7 +38,7 @@ func TestStatusCommand(t *testing.T) {
 			},
 			wantContain: []string{
 				"Not authenticated",
-				"Run 'sca-cli login' first",
+				"Run 'grant login' first",
 			},
 			wantErr: false,
 		},

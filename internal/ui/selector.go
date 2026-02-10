@@ -5,7 +5,7 @@ import (
 	"sort"
 
 	"github.com/Iilun/survey/v2"
-	"github.com/aaearon/sca-cli/internal/sca/models"
+	"github.com/aaearon/grant-cli/internal/sca/models"
 )
 
 // FormatTargetOption formats an eligible target into a display string.

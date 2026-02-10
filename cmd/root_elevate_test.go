@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aaearon/sca-cli/internal/config"
-	"github.com/aaearon/sca-cli/internal/sca/models"
+	"github.com/aaearon/grant-cli/internal/config"
+	"github.com/aaearon/grant-cli/internal/sca/models"
 	auth_models "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
 	common_models "github.com/cyberark/idsec-sdk-golang/pkg/models/common"
 )
@@ -55,7 +55,7 @@ func (m *mockTargetSelector) SelectTarget(targets []models.AzureEligibleTarget) 
 	return m.target, m.selectErr
 }
 
-func TestElevateCommand_InteractiveMode(t *testing.T) {
+func TestRootElevate_InteractiveMode(t *testing.T) {
 	tests := []struct {
 		name        string
 		setupMocks  func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *mockTargetSelector, *config.Config)
@@ -162,7 +162,7 @@ func TestElevateCommand_InteractiveMode(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			authLoader, eligibilityLister, elevateService, selector, cfg := tt.setupMocks()
 
-			cmd := NewElevateCommandWithDeps(authLoader, eligibilityLister, elevateService, selector, cfg)
+			cmd := NewRootCommandWithDeps(authLoader, eligibilityLister, elevateService, selector, cfg)
 
 			output, err := executeCommand(cmd, tt.args...)
 
@@ -182,7 +182,7 @@ func TestElevateCommand_InteractiveMode(t *testing.T) {
 	}
 }
 
-func TestElevateCommand_DirectMode(t *testing.T) {
+func TestRootElevate_DirectMode(t *testing.T) {
 	tests := []struct {
 		name        string
 		setupMocks  func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *config.Config)
@@ -336,7 +336,7 @@ func TestElevateCommand_DirectMode(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			authLoader, eligibilityLister, elevateService, cfg := tt.setupMocks()
 
-			cmd := NewElevateCommandWithDeps(authLoader, eligibilityLister, elevateService, nil, cfg)
+			cmd := NewRootCommandWithDeps(authLoader, eligibilityLister, elevateService, nil, cfg)
 
 			output, err := executeCommand(cmd, tt.args...)
 
@@ -356,7 +356,7 @@ func TestElevateCommand_DirectMode(t *testing.T) {
 	}
 }
 
-func TestElevateCommand_FavoriteMode(t *testing.T) {
+func TestRootElevate_FavoriteMode(t *testing.T) {
 	tests := []struct {
 		name        string
 		setupMocks  func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *config.Config)
@@ -470,7 +470,7 @@ func TestElevateCommand_FavoriteMode(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			authLoader, eligibilityLister, elevateService, cfg := tt.setupMocks()
 
-			cmd := NewElevateCommandWithDeps(authLoader, eligibilityLister, elevateService, nil, cfg)
+			cmd := NewRootCommandWithDeps(authLoader, eligibilityLister, elevateService, nil, cfg)
 
 			output, err := executeCommand(cmd, tt.args...)
 
@@ -490,7 +490,7 @@ func TestElevateCommand_FavoriteMode(t *testing.T) {
 	}
 }
 
-func TestElevateCommand_ProviderValidation(t *testing.T) {
+func TestRootElevate_ProviderValidation(t *testing.T) {
 	tests := []struct {
 		name        string
 		setupMocks  func() (*mockAuthLoader, *config.Config)
@@ -548,7 +548,7 @@ func TestElevateCommand_ProviderValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			authLoader, cfg := tt.setupMocks()
 
-			cmd := NewElevateCommandWithDeps(authLoader, nil, nil, nil, cfg)
+			cmd := NewRootCommandWithDeps(authLoader, nil, nil, nil, cfg)
 
 			output, err := executeCommand(cmd, tt.args...)
 
@@ -568,7 +568,7 @@ func TestElevateCommand_ProviderValidation(t *testing.T) {
 	}
 }
 
-func TestElevateCommand_AuthenticationErrors(t *testing.T) {
+func TestRootElevate_AuthenticationErrors(t *testing.T) {
 	tests := []struct {
 		name        string
 		setupMocks  func() (*mockAuthLoader, *config.Config)
@@ -588,7 +588,7 @@ func TestElevateCommand_AuthenticationErrors(t *testing.T) {
 			args: []string{},
 			wantContain: []string{
 				"Not authenticated",
-				"Run 'sca-cli login' first",
+				"Run 'grant login' first",
 			},
 			wantErr: true,
 		},
@@ -598,7 +598,7 @@ func TestElevateCommand_AuthenticationErrors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			authLoader, cfg := tt.setupMocks()
 
-			cmd := NewElevateCommandWithDeps(authLoader, nil, nil, nil, cfg)
+			cmd := NewRootCommandWithDeps(authLoader, nil, nil, nil, cfg)
 
 			output, err := executeCommand(cmd, tt.args...)
 
@@ -618,7 +618,7 @@ func TestElevateCommand_AuthenticationErrors(t *testing.T) {
 	}
 }
 
-func TestElevateCommand_ElevationErrors(t *testing.T) {
+func TestRootElevate_ElevationErrors(t *testing.T) {
 	tests := []struct {
 		name        string
 		setupMocks  func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *config.Config)
@@ -712,7 +712,7 @@ func TestElevateCommand_ElevationErrors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			authLoader, eligibilityLister, elevateService, cfg := tt.setupMocks()
 
-			cmd := NewElevateCommandWithDeps(authLoader, eligibilityLister, elevateService, nil, cfg)
+			cmd := NewRootCommandWithDeps(authLoader, eligibilityLister, elevateService, nil, cfg)
 
 			output, err := executeCommand(cmd, tt.args...)
 
@@ -732,12 +732,13 @@ func TestElevateCommand_ElevationErrors(t *testing.T) {
 	}
 }
 
-func TestElevateCommand_UsageAndIntegration(t *testing.T) {
-	cmd := NewElevateCommand()
+func TestRootElevate_UsageAndFlags(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cmd := NewRootCommandWithDeps(&mockAuthLoader{}, nil, nil, nil, cfg)
 
 	// Verify command metadata
-	if cmd.Use != "elevate" {
-		t.Errorf("expected Use='elevate', got %q", cmd.Use)
+	if cmd.Use != "grant" {
+		t.Errorf("expected Use='grant', got %q", cmd.Use)
 	}
 
 	if cmd.Short == "" {

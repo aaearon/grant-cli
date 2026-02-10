@@ -7,7 +7,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/aaearon/sca-cli/internal/sca/models"
+	"github.com/aaearon/grant-cli/internal/sca/models"
 	"github.com/cyberark/idsec-sdk-golang/pkg/auth"
 	"github.com/cyberark/idsec-sdk-golang/pkg/common"
 	"github.com/cyberark/idsec-sdk-golang/pkg/common/isp"
@@ -63,7 +63,7 @@ func NewSCAAccessService(authenticators ...auth.IdsecAuth) (*SCAAccessService, e
 	client.SetHeader("X-API-Version", "2.0")
 
 	// Wrap with logging — SDK logger level-gates based on IDSEC_LOG_LEVEL env
-	svc.httpClient = newLoggingClient(client, common.GetLogger("sca-cli", -1))
+	svc.httpClient = newLoggingClient(client, common.GetLogger("grant", -1))
 
 	return svc, nil
 }

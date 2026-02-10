@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/Iilun/survey/v2"
-	"github.com/aaearon/sca-cli/internal/config"
+	"github.com/aaearon/grant-cli/internal/config"
 	"github.com/spf13/cobra"
 )
 

@@ -3,7 +3,7 @@ package ui
 import (
 	"testing"
 
-	"github.com/aaearon/sca-cli/internal/sca/models"
+	"github.com/aaearon/grant-cli/internal/sca/models"
 )
 
 func TestFormatTargetOption(t *testing.T) {

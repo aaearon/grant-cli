@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aaearon/sca-cli/internal/config"
+	"github.com/aaearon/grant-cli/internal/config"
 	"github.com/cyberark/idsec-sdk-golang/pkg/models"
 	auth_models "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
 )
@@ -42,8 +42,8 @@ func TestConfigureCommand(t *testing.T) {
 				return &mockProfileSaver{
 					saveFunc: func(p *models.IdsecProfile) error {
 						// Verify profile structure
-						if p.ProfileName != "sca-cli" {
-							t.Errorf("expected ProfileName='sca-cli', got %q", p.ProfileName)
+						if p.ProfileName != "grant" {
+							t.Errorf("expected ProfileName='grant', got %q", p.ProfileName)
 						}
 						if p.AuthProfiles == nil {
 							t.Error("expected AuthProfiles to be initialized")
@@ -82,7 +82,7 @@ func TestConfigureCommand(t *testing.T) {
 			},
 			wantContain: []string{
 				"Profile saved to",
-				"sca-cli.json",
+				"grant.json",
 				"Config saved to",
 				"config.yaml",
 			},
@@ -172,7 +172,7 @@ func TestConfigureCommand(t *testing.T) {
 			}
 
 			// Override environment variable for config path
-			t.Setenv("SCA_CLI_CONFIG", cfgPath)
+			t.Setenv("GRANT_CONFIG", cfgPath)
 
 			// Create command with mock dependencies
 			cmd := NewConfigureCommandWithDeps(tt.setupSaver(), tt.tenantURL, tt.username, "")
@@ -205,8 +205,8 @@ func TestConfigureCommand(t *testing.T) {
 					if err != nil {
 						t.Errorf("failed to load config: %v", err)
 					}
-					if cfg.Profile != "sca-cli" {
-						t.Errorf("expected Profile='sca-cli', got %q", cfg.Profile)
+					if cfg.Profile != "grant" {
+						t.Errorf("expected Profile='grant', got %q", cfg.Profile)
 					}
 					if cfg.DefaultProvider != "azure" {
 						t.Errorf("expected DefaultProvider='azure', got %q", cfg.DefaultProvider)

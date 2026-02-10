@@ -17,7 +17,7 @@ func NewVersionCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
 		Short: "Print version information",
-		Long:  "Print the version, commit hash, and build date of sca-cli",
+		Long:  "Print the version, commit hash, and build date of grant",
 		Run: func(cmd *cobra.Command, args []string) {
 			printVersion(cmd)
 		},
@@ -40,7 +40,7 @@ func printVersion(cmd *cobra.Command) {
 		d = "unknown"
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "sca-cli version %s\ncommit: %s\nbuilt: %s\n", v, c, d)
+	fmt.Fprintf(cmd.OutOrStdout(), "grant version %s\ncommit: %s\nbuilt: %s\n", v, c, d)
 }
 
 func init() {

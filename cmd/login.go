@@ -28,7 +28,7 @@ func NewLoginCommand() *cobra.Command {
 		Short: "Authenticate to CyberArk SCA",
 		Long: `Authenticate to CyberArk Secure Cloud Access (SCA) and cache the authentication token.
 
-If this is your first time using sca-cli, you will be prompted to configure your tenant URL and username.
+If this is your first time using grant, you will be prompted to configure your tenant URL and username.
 The MFA method will be selected interactively during authentication.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ispAuth := auth.NewIdsecISPAuth(true)
@@ -52,14 +52,14 @@ func NewLoginCommandWithAuth(auth authenticator) *cobra.Command {
 func runLogin(cmd *cobra.Command, ispAuth auth.IdsecAuth) error {
 	// Load the SDK profile
 	loader := profiles.DefaultProfilesLoader()
-	profile, err := (*loader).LoadProfile("sca-cli")
+	profile, err := (*loader).LoadProfile("grant")
 	if err != nil {
 		return fmt.Errorf("failed to load profile: %w", err)
 	}
 
 	// If profile doesn't exist, run configure flow
 	if profile == nil {
-		fmt.Fprintln(cmd.OutOrStdout(), "No configuration found. Let's set up sca-cli.")
+		fmt.Fprintln(cmd.OutOrStdout(), "No configuration found. Let's set up grant.")
 
 		// Run configure interactively
 		saver := &profiles.FileSystemProfilesLoader{}
@@ -68,7 +68,7 @@ func runLogin(cmd *cobra.Command, ispAuth auth.IdsecAuth) error {
 		}
 
 		// Reload profile after configuration
-		profile, err = (*loader).LoadProfile("sca-cli")
+		profile, err = (*loader).LoadProfile("grant")
 		if err != nil {
 			return fmt.Errorf("failed to load profile after configuration: %w", err)
 		}
@@ -99,14 +99,14 @@ func runLogin(cmd *cobra.Command, ispAuth auth.IdsecAuth) error {
 func runLoginWithAuth(cmd *cobra.Command, auth authenticator) error {
 	// Load the SDK profile
 	loader := profiles.DefaultProfilesLoader()
-	profile, err := (*loader).LoadProfile("sca-cli")
+	profile, err := (*loader).LoadProfile("grant")
 	if err != nil {
 		return fmt.Errorf("failed to load profile: %w", err)
 	}
 
 	// If profile doesn't exist, run configure flow
 	if profile == nil {
-		fmt.Fprintln(cmd.OutOrStdout(), "No configuration found. Let's set up sca-cli.")
+		fmt.Fprintln(cmd.OutOrStdout(), "No configuration found. Let's set up grant.")
 
 		// Run configure interactively
 		saver := &profiles.FileSystemProfilesLoader{}
@@ -115,7 +115,7 @@ func runLoginWithAuth(cmd *cobra.Command, auth authenticator) error {
 		}
 
 		// Reload profile after configuration
-		profile, err = (*loader).LoadProfile("sca-cli")
+		profile, err = (*loader).LoadProfile("grant")
 		if err != nil {
 			return fmt.Errorf("failed to load profile after configuration: %w", err)
 		}

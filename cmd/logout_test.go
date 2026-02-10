@@ -89,7 +89,7 @@ func TestLogoutClearsKeyring(t *testing.T) {
 	// It will only pass if we can actually create a keyring
 
 	// Create a keyring instance to test with
-	kr, err := keyring.NewIdsecKeyring("sca-cli-test").GetKeyring(true)
+	kr, err := keyring.NewIdsecKeyring("grant-test").GetKeyring(true)
 	if err != nil {
 		t.Skipf("Skipping keyring test: %v", err)
 	}

@@ -136,7 +136,7 @@ func TestLoginCommand(t *testing.T) {
 
 			// Create a minimal profile file
 			profile := &models.IdsecProfile{
-				ProfileName: "sca-cli",
+				ProfileName: "grant",
 				AuthProfiles: map[string]*auth_models.IdsecAuthProfile{
 					"isp": {
 						Username:   "test.user@example.com",
@@ -240,7 +240,7 @@ func TestLoginCommandAutoConfigure(t *testing.T) {
 						}
 						// Return valid profile on second call (after configure)
 						return &models.IdsecProfile{
-							ProfileName: "sca-cli",
+							ProfileName: "grant",
 							AuthProfiles: map[string]*auth_models.IdsecAuthProfile{
 								"isp": {
 									Username:   "test.user@example.com",
@@ -279,7 +279,7 @@ func TestLoginCommandAutoConfigure(t *testing.T) {
 			setupLoader: func() *mockProfileLoader {
 				return &mockProfileLoader{
 					profile: &models.IdsecProfile{
-						ProfileName: "sca-cli",
+						ProfileName: "grant",
 						AuthProfiles: map[string]*auth_models.IdsecAuthProfile{
 							"isp": {
 								Username:   "test.user@example.com",

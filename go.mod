@@ -1,4 +1,4 @@
-module github.com/aaearon/sca-cli
+module github.com/aaearon/grant-cli
 
 go 1.25.0
 

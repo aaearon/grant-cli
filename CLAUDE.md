@@ -1,8 +1,8 @@
-# sca-cli
+# grant
 
 ## Project
 - **Language:** Go 1.24+
-- **Module:** `github.com/aaearon/sca-cli`
+- **Module:** `github.com/aaearon/grant-cli`
 - **Sole dependency:** `github.com/cyberark/idsec-sdk-golang` — zero new Go module deps (all libs reused from SDK dep tree)
 
 ## SDK Import Conventions
@@ -57,14 +57,14 @@ Custom `SCAAccessService` follows SDK conventions:
 - `--verbose` / `-v` global flag wired via `PersistentPreRunE` in `cmd/root.go`
 - Calls `config.EnableVerboseLogging("INFO")` (sets `IDSEC_LOG_LEVEL=INFO`) or `config.DisableVerboseLogging()` (sets `IDSEC_LOG_LEVEL=CRITICAL`)
 - `loggingClient` in `internal/sca/logging_client.go` decorates `httpClient`, logging method/route/status/duration at INFO, response headers at DEBUG with Authorization redaction
-- `NewSCAAccessService()` wraps ISP client with `loggingClient` using `common.GetLogger("sca-cli", -1)` (dynamic level from env)
+- `NewSCAAccessService()` wraps ISP client with `loggingClient` using `common.GetLogger("grant", -1)` (dynamic level from env)
 - `NewSCAAccessServiceWithClient()` (test constructor) does not wrap — tests don't need logging
 - `Execute()` prints `"Hint: re-run with --verbose for more details"` on error when verbose is off
 - Users can set `IDSEC_LOG_LEVEL=DEBUG` env var for deeper SDK output
 
 ## Config
-- App config: `~/.sca-cli/config.yaml`
-- SDK profile: `~/.idsec_profiles/sca-cli.json`
+- App config: `~/.grant/config.yaml`
+- SDK profile: `~/.idsec_profiles/grant.json`
 
 ## Build
 ```bash
@@ -190,10 +190,10 @@ func (m *mockAuthProvider) Authenticate(p *models.IdsecProfile) (*models.IdsecTo
 // integration_test.go - tests compiled binary
 func TestMain(m *testing.M) {
     // Build binary before tests
-    cmd := exec.Command("go", "build", "-o", "../sca-cli-test", "../.")
+    cmd := exec.Command("go", "build", "-o", "../grant-test", "../.")
     cmd.Run()
     code := m.Run()
-    os.Remove("../sca-cli-test")
+    os.Remove("../grant-test")
     os.Exit(code)
 }
 ```
@@ -253,7 +253,7 @@ if cmd.Flags().Changed("flag1") && cmd.Flags().Changed("flag2") {
 ### Config Loading
 
 ```go
-// Load config with SCA_CLI_CONFIG override
+// Load config with GRANT_CONFIG override
 cfg, err := config.Load()
 if err != nil {
     // Default config if not found

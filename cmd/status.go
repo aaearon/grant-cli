@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/aaearon/sca-cli/internal/sca"
-	sca_models "github.com/aaearon/sca-cli/internal/sca/models"
+	"github.com/aaearon/grant-cli/internal/sca"
+	sca_models "github.com/aaearon/grant-cli/internal/sca/models"
 	"github.com/cyberark/idsec-sdk-golang/pkg/auth"
 	"github.com/cyberark/idsec-sdk-golang/pkg/models"
 	auth_models "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
@@ -28,7 +28,7 @@ func NewStatusCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Load profile
 			loader := profiles.DefaultProfilesLoader()
-			profile, err := (*loader).LoadProfile("sca-cli")
+			profile, err := (*loader).LoadProfile("grant")
 			if err != nil {
 				return fmt.Errorf("failed to load profile: %w", err)
 			}
@@ -77,7 +77,7 @@ func runStatus(cmd *cobra.Command, authLoader authLoader, sessionLister sessionL
 	// Load authentication state
 	token, err := authLoader.LoadAuthentication(profile, true)
 	if err != nil {
-		fmt.Fprintf(cmd.OutOrStdout(), "Not authenticated. Run 'sca-cli login' first.\n")
+		fmt.Fprintf(cmd.OutOrStdout(), "Not authenticated. Run 'grant login' first.\n")
 		return nil
 	}
 
@@ -126,7 +126,7 @@ func runStatusWithDeps(cmd *cobra.Command, authLoader authLoader, sessionLister 
 	// Load authentication state
 	token, err := authLoader.LoadAuthentication(nil, true)
 	if err != nil {
-		fmt.Fprintf(cmd.OutOrStdout(), "Not authenticated. Run 'sca-cli login' first.\n")
+		fmt.Fprintf(cmd.OutOrStdout(), "Not authenticated. Run 'grant login' first.\n")
 		return nil
 	}
 

@@ -1,6 +1,6 @@
 .env
-sca-cli
-sca-cli.exe
+grant
+grant.exe
 dist/
 *.exe
 *.dll

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aaearon/sca-cli/internal/config"
+	"github.com/aaearon/grant-cli/internal/config"
 )
 
 func TestFavoritesListCommand(t *testing.T) {
@@ -60,8 +60,8 @@ func TestFavoritesListCommand(t *testing.T) {
 			// Setup temp config
 			tmpDir := t.TempDir()
 			configPath := filepath.Join(tmpDir, "config.yaml")
-			os.Setenv("SCA_CLI_CONFIG", configPath)
-			defer os.Unsetenv("SCA_CLI_CONFIG")
+			os.Setenv("GRANT_CONFIG", configPath)
+			defer os.Unsetenv("GRANT_CONFIG")
 
 			tt.setupConfig(configPath)
 
@@ -135,8 +135,8 @@ func TestFavoritesRemoveCommand(t *testing.T) {
 			// Setup temp config
 			tmpDir := t.TempDir()
 			configPath := filepath.Join(tmpDir, "config.yaml")
-			os.Setenv("SCA_CLI_CONFIG", configPath)
-			defer os.Unsetenv("SCA_CLI_CONFIG")
+			os.Setenv("GRANT_CONFIG", configPath)
+			defer os.Unsetenv("GRANT_CONFIG")
 
 			tt.setupConfig(configPath)
 
@@ -199,8 +199,8 @@ func TestFavoritesAddCommand(t *testing.T) {
 			// Setup temp config
 			tmpDir := t.TempDir()
 			configPath := filepath.Join(tmpDir, "config.yaml")
-			os.Setenv("SCA_CLI_CONFIG", configPath)
-			defer os.Unsetenv("SCA_CLI_CONFIG")
+			os.Setenv("GRANT_CONFIG", configPath)
+			defer os.Unsetenv("GRANT_CONFIG")
 
 			tt.setupConfig(configPath)
 
@@ -225,8 +225,8 @@ func TestFavoritesCommandIntegration(t *testing.T) {
 	// Setup temp config
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.yaml")
-	os.Setenv("SCA_CLI_CONFIG", configPath)
-	defer os.Unsetenv("SCA_CLI_CONFIG")
+	os.Setenv("GRANT_CONFIG", configPath)
+	defer os.Unsetenv("GRANT_CONFIG")
 
 	// Initialize config
 	cfg := config.DefaultConfig()

@@ -7,12 +7,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewRootCommand creates a new root command for testing
+// NewRootCommand creates a new root command for testing (no elevation RunE)
 func NewRootCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "sca-cli",
-		Short: "Elevate Azure permissions via CyberArk Secure Cloud Access",
-		Long:  "sca-cli enables terminal-based Azure permission elevation through CyberArk Secure Cloud Access (SCA).",
+		Use:   "grant",
+		Short: "Request temporary elevated cloud permissions",
+		Long:  "Grant temporary elevated cloud permissions via CyberArk Secure Cloud Access (SCA).",
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			if verbose {
 				config.EnableVerboseLogging("INFO")

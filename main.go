@@ -1,6 +1,6 @@
 package main
 
-import "github.com/aaearon/sca-cli/cmd"
+import "github.com/aaearon/grant-cli/cmd"
 
 func main() {
 	cmd.Execute()

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/aaearon/sca-cli/internal/config"
+	"github.com/aaearon/grant-cli/internal/config"
 	"github.com/cyberark/idsec-sdk-golang/pkg/models"
 	auth_models "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
 	"github.com/cyberark/idsec-sdk-golang/pkg/profiles"
@@ -24,12 +24,12 @@ type profileSaver interface {
 func NewConfigureCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "configure",
-		Short: "Configure sca-cli with CyberArk Identity credentials",
-		Long: `Configure sca-cli by providing your CyberArk Identity URL and username.
+		Short: "Configure grant with CyberArk Identity credentials",
+		Long: `Configure grant by providing your CyberArk Identity URL and username.
 
 This command creates two configuration files:
-- SDK profile at ~/.idsec_profiles/sca-cli.json
-- App config at ~/.sca-cli/config.yaml
+- SDK profile at ~/.idsec_profiles/grant.json
+- App config at ~/.grant/config.yaml
 
 Identity URL format: https://{subdomain}.id.cyberark.cloud
 Example: https://abc1234.id.cyberark.cloud
@@ -50,8 +50,8 @@ MFA method selection is handled interactively during login.`,
 func NewConfigureCommandWithDeps(saver profileSaver, tenantURL, username, mfaMethod string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "configure",
-		Short: "Configure sca-cli with CyberArk tenant credentials",
-		Long:  "Configure sca-cli by providing your CyberArk tenant URL and username.",
+		Short: "Configure grant with CyberArk tenant credentials",
+		Long:  "Configure grant by providing your CyberArk tenant URL and username.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Ignore mfaMethod parameter - always use empty string
 			return runConfigure(cmd, saver, tenantURL, username, "")
@@ -92,7 +92,7 @@ func runConfigure(cmd *cobra.Command, saver profileSaver, tenantURL, username, m
 
 	// Create SDK profile
 	profile := &models.IdsecProfile{
-		ProfileName:        "sca-cli",
+		ProfileName:        "grant",
 		ProfileDescription: "SCA CLI Profile",
 		AuthProfiles: map[string]*auth_models.IdsecAuthProfile{
 			"isp": {
@@ -118,11 +118,11 @@ func runConfigure(cmd *cobra.Command, saver profileSaver, tenantURL, username, m
 		home, _ := os.UserHomeDir()
 		profileDir = filepath.Join(home, ".idsec_profiles")
 	}
-	profilePath := filepath.Join(profileDir, "sca-cli.json")
+	profilePath := filepath.Join(profileDir, "grant.json")
 
 	// Create app config
 	cfg := &config.Config{
-		Profile:         "sca-cli",
+		Profile:         "grant",
 		DefaultProvider: "azure",
 		Favorites:       make(map[string]config.Favorite),
 	}

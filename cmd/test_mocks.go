@@ -3,7 +3,7 @@ package cmd
 import (
 	"context"
 
-	"github.com/aaearon/sca-cli/internal/sca/models"
+	"github.com/aaearon/grant-cli/internal/sca/models"
 	sdk_models "github.com/cyberark/idsec-sdk-golang/pkg/models"
 	auth_models "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
 )

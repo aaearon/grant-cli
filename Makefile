@@ -1,11 +1,11 @@
-BINARY_NAME := sca-cli
+BINARY_NAME := grant
 VERSION ?= dev
 COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 DATE := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 LDFLAGS := -s -w \
-	-X github.com/aaearon/sca-cli/cmd.version=$(VERSION) \
-	-X github.com/aaearon/sca-cli/cmd.commit=$(COMMIT) \
-	-X github.com/aaearon/sca-cli/cmd.buildDate=$(DATE)
+	-X github.com/aaearon/grant-cli/cmd.version=$(VERSION) \
+	-X github.com/aaearon/grant-cli/cmd.commit=$(COMMIT) \
+	-X github.com/aaearon/grant-cli/cmd.buildDate=$(DATE)
 
 .PHONY: build test test-integration test-all lint clean
 
