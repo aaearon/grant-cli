@@ -306,6 +306,35 @@ fa62e5f - feat: simplify login UX - remove MFA config, add auto-configure
 
 ---
 
+## Feature: Verbose Flag (`feat/verbose-flag`)
+
+**Status:** DONE
+
+### Implemented
+
+1. **`internal/sca/logging_client.go`** — `loggingClient` decorator
+   - `logger` interface (Info/Error/Debug) for DI — satisfied by `*common.IdsecLogger`
+   - Wraps `httpClient`, logs method/route/status/duration at INFO level
+   - Errors logged at ERROR level
+   - Response headers logged at DEBUG with `Authorization` redacted
+   - `redactHeaders()` replaces auth values with `Bearer [REDACTED]`
+
+2. **`internal/sca/logging_client_test.go`** — 8 subtests
+   - Get/Post delegation, success/error logging, duration logging, header redaction
+
+3. **`cmd/root.go`** — `PersistentPreRunE` wiring
+   - `--verbose` → `config.EnableVerboseLogging("INFO")`
+   - No `--verbose` → `config.DisableVerboseLogging()`
+   - `Execute()` prints `"Hint: re-run with --verbose for more details"` on error
+
+4. **`cmd/root_test.go`** — 2 tests for PersistentPreRunE env var behavior
+
+5. **`cmd/test_helpers.go`** — Mirrors PersistentPreRunE in `NewRootCommand()`
+
+6. **`internal/sca/service.go`** — Wraps ISP client with `loggingClient` via `common.GetLogger("sca-cli", -1)`
+
+---
+
 ## Phase 8: Release Infrastructure
 
 **Branch:** `feat/release`
@@ -328,7 +357,8 @@ sca-cli/
 ├── go.mod                            # module github.com/aaearon/sca-cli
 ├── go.sum
 ├── cmd/
-│   ├── root.go                       # cobra root command with --verbose
+│   ├── root.go                       # cobra root command with --verbose, PersistentPreRunE
+│   ├── root_test.go                  # 2 tests (PersistentPreRunE verbose wiring)
 │   ├── version.go                    # version command with ldflags
 │   ├── version_test.go               # 2 tests
 │   ├── configure.go                  # configure command with survey prompts
@@ -360,6 +390,8 @@ sca-cli/
 │       ├── sdk_import_test.go        # SDK type verification (2 tests)
 │       ├── service_config.go         # ServiceConfig() for sca-access service
 │       ├── service_config_test.go    # 5 tests
+│       ├── logging_client.go          # loggingClient decorator with logger interface
+│       ├── logging_client_test.go    # 8 subtests (delegation, logging, redaction)
 │       ├── service.go                # SCAAccessService with ListEligibility, Elevate, ListSessions
 │       ├── service_test.go           # 10 tests
 │       └── models/

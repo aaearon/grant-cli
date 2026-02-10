@@ -61,7 +61,9 @@ func NewSCAAccessService(authenticators ...auth.IdsecAuth) (*SCAAccessService, e
 
 	// Set required API version header
 	client.SetHeader("X-API-Version", "2.0")
-	svc.httpClient = client
+
+	// Wrap with logging — SDK logger level-gates based on IDSEC_LOG_LEVEL env
+	svc.httpClient = newLoggingClient(client, common.GetLogger("sca-cli", -1))
 
 	return svc, nil
 }

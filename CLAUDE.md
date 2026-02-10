@@ -53,6 +53,15 @@ Custom `SCAAccessService` follows SDK conventions:
 - `Iilun/survey/v2` for interactive prompts
 - `fatih/color` for terminal output
 
+## Verbose / Logging
+- `--verbose` / `-v` global flag wired via `PersistentPreRunE` in `cmd/root.go`
+- Calls `config.EnableVerboseLogging("INFO")` (sets `IDSEC_LOG_LEVEL=INFO`) or `config.DisableVerboseLogging()` (sets `IDSEC_LOG_LEVEL=CRITICAL`)
+- `loggingClient` in `internal/sca/logging_client.go` decorates `httpClient`, logging method/route/status/duration at INFO, response headers at DEBUG with Authorization redaction
+- `NewSCAAccessService()` wraps ISP client with `loggingClient` using `common.GetLogger("sca-cli", -1)` (dynamic level from env)
+- `NewSCAAccessServiceWithClient()` (test constructor) does not wrap — tests don't need logging
+- `Execute()` prints `"Hint: re-run with --verbose for more details"` on error when verbose is off
+- Users can set `IDSEC_LOG_LEVEL=DEBUG` env var for deeper SDK output
+
 ## Config
 - App config: `~/.sca-cli/config.yaml`
 - SDK profile: `~/.idsec_profiles/sca-cli.json`
