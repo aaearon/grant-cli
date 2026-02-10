@@ -64,8 +64,8 @@ func runConfigure(cmd *cobra.Command, saver profileSaver, tenantURL, username, m
 
 	if promptNeeded {
 		if err := survey.AskOne(&survey.Input{
-			Message: "CyberArk Tenant URL:",
-			Help:    "The full URL of your CyberArk tenant (e.g., https://example.cyberark.cloud)",
+			Message: "CyberArk Identity URL:",
+			Help:    "Your CyberArk Identity platform URL (e.g., https://abc1234.id.cyberark.cloud)",
 		}, &tenantURL, survey.WithValidator(survey.Required)); err != nil {
 			return fmt.Errorf("failed to read tenant URL: %w", err)
 		}

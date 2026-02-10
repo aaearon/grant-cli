@@ -65,7 +65,7 @@ make build
    sca-cli login
    ```
    On first run, you'll be prompted for:
-   - Tenant URL (e.g., `https://yourcompany.cyberark.cloud`)
+   - Identity URL (e.g., `https://abc1234.id.cyberark.cloud`)
    - Username
 
    Then follow the interactive prompts to complete MFA authentication. The MFA method will be selected interactively during login.
@@ -81,13 +81,13 @@ make build
    sca-cli status
    ```
 
-**Optional:** Run `sca-cli configure` to reconfigure your tenant URL or username.
+**Optional:** Run `sca-cli configure` to reconfigure your Identity URL or username.
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `configure` | Configure or reconfigure tenant URL and username (optional — `login` auto-configures on first run) |
+| `configure` | Configure or reconfigure Identity URL and username (optional — `login` auto-configures on first run) |
 | `login` | Authenticate to CyberArk Identity (auto-configures on first run, MFA handled interactively) |
 | `logout` | Clear cached tokens from keyring |
 | `elevate` | Elevate cloud permissions (core command) |
@@ -106,10 +106,10 @@ sca-cli configure
 This command:
 - Creates `~/.sca-cli/config.yaml` for application settings
 - Creates `~/.idsec_profiles/sca-cli.json` for SDK authentication
-- Prompts for tenant URL (must be HTTPS)
+- Prompts for Identity URL (must be HTTPS, format: `https://{subdomain}.id.cyberark.cloud`)
 - Prompts for username
 
-**Note:** This command is optional. Running `sca-cli login` for the first time automatically runs configuration. Use `configure` to change your tenant URL or username.
+**Note:** This command is optional. Running `sca-cli login` for the first time automatically runs configuration. Use `configure` to change your Identity URL or username.
 
 ### login
 
@@ -120,7 +120,7 @@ sca-cli login
 ```
 
 This command:
-- **First time:** Prompts for tenant URL and username, then authenticates
+- **First time:** Prompts for Identity URL and username, then authenticates
 - **Subsequent runs:** Uses credentials from `~/.idsec_profiles/sca-cli.json`
 - Prompts for password and MFA challenge (MFA method selected interactively)
 - Stores tokens securely in system keyring
@@ -274,12 +274,12 @@ favorites:
 
 ### SDK Profile (`~/.idsec_profiles/sca-cli.json`)
 
-CyberArk Identity SDK profile containing tenant URL and authentication preferences.
+CyberArk Identity SDK profile containing Identity URL and authentication preferences.
 
 **Managed by:** `sca-cli configure` command (or auto-created by `sca-cli login`)
 
 **Contains:**
-- Tenant URL
+- Identity URL (format: `https://{subdomain}.id.cyberark.cloud`)
 - Username
 - SDK version metadata
 
@@ -335,7 +335,7 @@ sca-cli login
 ```
 
 If login fails, verify:
-1. Tenant URL is correct (check `~/.idsec_profiles/sca-cli.json`)
+1. Identity URL is correct (check `~/.idsec_profiles/sca-cli.json` - should be `https://{subdomain}.id.cyberark.cloud`)
 2. Username is correct
 3. Password is correct
 4. MFA device/method is available and working
