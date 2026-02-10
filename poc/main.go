@@ -92,9 +92,6 @@ func main() {
 		desc      string
 	}{
 		{"sca", ".", fmt.Sprintf("SDK pattern (%s.sca.%s)", subdomain, platformDomain)},
-		{"", "", fmt.Sprintf("No service (%s.%s)", subdomain, platformDomain)},
-		{"access", ".", fmt.Sprintf("Access service (%s.access.%s)", subdomain, platformDomain)},
-		{"sca", "-", fmt.Sprintf("Dash separator (%s-sca.%s)", subdomain, platformDomain)},
 	}
 
 	fmt.Println()
@@ -112,46 +109,48 @@ func main() {
 		fmt.Println()
 	}
 
-	// Step 3: Try /token/{app_id} endpoint
-	fmt.Println("--- Step 3: /token endpoint ---")
-	for _, svc := range serviceNames {
-		var baseURL string
-		if svc.name != "" {
-			baseURL = fmt.Sprintf("https://%s%s%s.%s", subdomain, svc.separator, svc.name, platformDomain)
-		} else {
-			baseURL = fmt.Sprintf("https://%s.%s", subdomain, platformDomain)
-		}
-		tryTokenEndpoint(client, baseURL, token)
-	}
+	// Q2: /oauth2/token/{app_id} — per OpenAPI spec this is on the IDENTITY host, not SCA
+	// Uses Basic Auth (UserPassBasicAuth), not Bearer token
+	fmt.Println("\n--- Step 3: /oauth2/token/{app_id} (on Identity host) ---")
+	fmt.Printf("  [POST] %s/oauth2/token/__idaptive_cybr_user_oidc\n", identityURL)
+	doRequest(client, "POST", identityURL+"/oauth2/token/__idaptive_cybr_user_oidc", token, map[string]interface{}{
+		"grant_type": "client_credentials",
+	})
 }
 
-// tryAccessAPIs calls the SCA Access API endpoints and logs responses.
+// tryAccessAPIs calls the confirmed SCA Access API endpoints.
 func tryAccessAPIs(client *http.Client, baseURL, token string) {
-	// Q3 & Q4: GET /access/csp/eligibility
-	fmt.Println("  [GET] /access/csp/eligibility")
-	doRequest(client, "GET", baseURL+"/access/csp/eligibility", token, nil)
+	// Q4: GET /api/access/{CSP}/eligibility — confirmed path pattern
+	csps := []string{"AZURE", "AWS", "GCP"}
+	for _, csp := range csps {
+		fmt.Printf("  [GET] /api/access/%s/eligibility\n", csp)
+		doRequest(client, "GET", fmt.Sprintf("%s/api/access/%s/eligibility", baseURL, csp), token, nil)
+	}
 
-	// Q1: POST /access/elevate (we'll try with empty body first to see what it expects)
-	fmt.Println("  [POST] /access/elevate")
-	doRequest(client, "POST", baseURL+"/access/elevate", token, map[string]interface{}{})
-}
-
-// tryTokenEndpoint calls /token/{app_id} to check if it requires pre-registration.
-func tryTokenEndpoint(client *http.Client, baseURL, token string) {
-	// Q2: POST /token/{app_id}
-	fmt.Printf("  [POST] %s/token/test-app\n", baseURL)
-	doRequest(client, "POST", baseURL+"/token/test-app", token, map[string]interface{}{})
+	// Q1: POST /api/access/elevate — per OpenAPI spec requires {csp, targets: [{workspaceId, roleId}]}
+	fmt.Println("\n  [POST] /api/access/elevate (Azure directory - Global Administrator)")
+	doRequest(client, "POST", baseURL+"/api/access/elevate", token, map[string]interface{}{
+		"csp":            "AZURE",
+		"organizationId": "29cb7961-e16d-42c7-8ade-1794bbb76782",
+		"targets": []map[string]interface{}{
+			{
+				"workspaceId": "29cb7961-e16d-42c7-8ade-1794bbb76782",
+				"roleId":      "62e90394-69f5-4237-9190-012177145e10",
+			},
+		},
+	})
 }
 
 // doRequest executes an HTTP request with Bearer token and logs the response.
-func doRequest(client *http.Client, method, url, token string, body interface{}) {
+// It sets Origin/Referer headers to match the target host (as the SDK does).
+func doRequest(client *http.Client, method, rawURL, token string, body interface{}) {
 	var bodyReader io.Reader
 	if body != nil {
 		data, _ := json.Marshal(body)
 		bodyReader = strings.NewReader(string(data))
 	}
 
-	req, err := http.NewRequest(method, url, bodyReader)
+	req, err := http.NewRequest(method, rawURL, bodyReader)
 	if err != nil {
 		fmt.Printf("    ERROR creating request: %v\n", err)
 		return
@@ -159,6 +158,12 @@ func doRequest(client *http.Client, method, url, token string, body interface{})
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "*/*")
+	req.Header.Set("Connection", "keep-alive")
+	req.Header.Set("X-API-Version", "2.0")
+	// SDK sets Origin/Referer to the service host (required by ISP gateway)
+	origin := fmt.Sprintf("%s://%s", req.URL.Scheme, req.URL.Host)
+	req.Header.Set("Origin", origin)
+	req.Header.Set("Referer", origin)
 
 	resp, err := client.Do(req)
 	if err != nil {
