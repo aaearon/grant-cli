@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Feature Request
+    url: https://github.com/aaearon/grant-cli/discussions/new?category=ideas
+    about: Suggest new features or enhancements via GitHub Discussions
+  - name: Question or Discussion
+    url: https://github.com/aaearon/grant-cli/discussions/new?category=q-a
+    about: Ask questions or discuss usage in GitHub Discussions
