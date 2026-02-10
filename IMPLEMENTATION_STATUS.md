@@ -1,7 +1,7 @@
 # sca-cli Implementation Status
 
 **Last updated:** 2026-02-10
-**Current branch:** `main`
+**Current branch:** `feat/ui`
 **Plan source:** `/home/tim/sca-cli/sca-cli-functional-design-spec-v2.md`
 **OpenAPI:** `/home/tim/sca-cli/Secure Cloud Access APIs.json`
 
@@ -15,7 +15,7 @@
 | 1: Models | `feat/models` | DONE - Merged to main | eligibility.go, elevate.go, session.go + tests. Custom UnmarshalJSON for roleInfo/role |
 | 2: Config & Favorites | `feat/config` | DONE - Merged to main | config.go, favorites.go + tests. YAML-based, SCA_CLI_CONFIG env override |
 | 3: SCA Access Service | `feat/sca-service` | DONE - Merged to main | service_config.go, service.go + tests. SDK service pattern with httpClient DI |
-| 4: UI Layer | `feat/ui` | TODO | Depends on Phase 1 (done) |
+| 4: UI Layer | `feat/ui` | DONE - Ready to merge | selector.go + tests. Survey-based interactive selection with formatting & lookup |
 | 5: CLI Commands | `feat/commands` | TODO | Depends on Phases 2, 3, 4 |
 | 6: Integration Tests & Docs | `feat/integration-tests` | TODO | Depends on Phase 5 |
 | 7: Release Infrastructure | `feat/release` | TODO | Parallelizable with Phase 6 |
@@ -107,22 +107,24 @@ type httpClient interface {
 
 ---
 
-## Phase 4: UI Layer (NEXT, parallelizable with Phase 3)
+## Phase 4: UI Layer (DONE)
 
 **Branch:** `feat/ui`
 
-### What to build
-- `internal/ui/selector.go` — interactive target selector using `survey/v2`
-- `FormatTargetOption(target)` — formats display string per workspace type
-- `BuildOptions(targets)` — builds sorted option list
-- `FindTargetByDisplay(targets, display)` — reverse lookup
-- `SelectTarget(targets)` — interactive survey Select with filter
+### Implemented
+- `internal/ui/selector.go` — interactive target selector using `Iilun/survey/v2`
+  - `FormatTargetOption(target)` — formats display string per workspace type
+  - `BuildOptions(targets)` — builds sorted option list
+  - `FindTargetByDisplay(targets, display)` — reverse lookup
+  - `SelectTarget(targets)` — interactive survey Select with fuzzy filter
+- `internal/ui/selector_test.go` — 3 test functions, 13 subtests
 
-### Format patterns
+### Format patterns implemented
 - Subscription: `Subscription: {name} / Role: {roleName}`
 - Resource Group: `Resource Group: {name} / Role: {roleName}`
 - Management Group: `Management Group: {name} / Role: {roleName}`
 - Directory: `Directory: {name} / Role: {roleName}`
+- Resource: `Resource: {name} / Role: {roleName}`
 
 ---
 
@@ -182,6 +184,9 @@ sca-cli/
 │   │   ├── config_test.go            # 6 tests
 │   │   ├── favorites.go              # AddFavorite, RemoveFavorite, GetFavorite, ListFavorites, FavoriteEntry
 │   │   └── favorites_test.go         # 9 tests
+│   ├── ui/
+│   │   ├── selector.go               # FormatTargetOption, BuildOptions, FindTargetByDisplay, SelectTarget
+│   │   └── selector_test.go          # 3 test functions, 13 subtests
 │   └── sca/
 │       ├── sdk_import_test.go        # SDK type verification (2 tests)
 │       ├── service_config.go         # ServiceConfig() for sca-access service
@@ -200,7 +205,12 @@ sca-cli/
 
 ## Git Status
 - All phases 0-3 merged to `main`
-- `main` is ahead of `origin/main` by 11 commits (not pushed)
+- Phase 4 complete on `feat/ui` branch (ready to merge)
+- `main` is ahead of `origin/main` by 12 commits (not pushed)
 - Old branches can be cleaned up: `feat/project-scaffolding`, `feat/models`, `feat/config`, `feat/config-favorites`, `feat/sca-service`
 
-## Test Count: 52 tests total, all passing
+## Test Count: 65+ tests total, all passing
+- config: 15 tests
+- sca: 17 tests
+- sca/models: 15 tests
+- ui: 13 tests
