@@ -200,6 +200,58 @@ func TestRootElevate_DirectMode(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "direct mode success with case-insensitive match",
+			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *config.Config) {
+				authLoader := &mockAuthLoader{
+					token: &auth_models.IdsecToken{Token: "test-jwt"},
+				}
+
+				eligibilityLister := &mockEligibilityLister{
+					response: &models.EligibilityResponse{
+						Response: []models.AzureEligibleTarget{
+							{
+								OrganizationID: "org-123",
+								WorkspaceID:    "sub-456",
+								WorkspaceName:  "Prod-EastUS",
+								WorkspaceType:  models.WorkspaceTypeSubscription,
+								RoleInfo: models.RoleInfo{
+									ID:   "role-789",
+									Name: "Contributor",
+								},
+							},
+						},
+						Total: 1,
+					},
+				}
+
+				elevateService := &mockElevateService{
+					response: &models.ElevateResponse{
+						Response: models.ElevateAccessResult{
+							CSP:            models.CSPAzure,
+							OrganizationID: "org-123",
+							Results: []models.ElevateTargetResult{
+								{
+									WorkspaceID: "sub-456",
+									RoleID:      "role-789",
+									SessionID:   "session-ci",
+								},
+							},
+						},
+					},
+				}
+
+				cfg := config.DefaultConfig()
+
+				return authLoader, eligibilityLister, elevateService, cfg
+			},
+			args: []string{"--target", "prod-eastus", "--role", "contributor"},
+			wantContain: []string{
+				"Elevated to Contributor on Prod-EastUS",
+				"Session ID: session-ci",
+			},
+			wantErr: false,
+		},
+		{
 			name: "direct mode - target not found",
 			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *config.Config) {
 				authLoader := &mockAuthLoader{

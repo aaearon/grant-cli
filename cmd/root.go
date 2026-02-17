@@ -298,10 +298,10 @@ func runElevateWithDeps(
 	return nil
 }
 
-// findMatchingTarget finds a target by workspace name and role name
+// findMatchingTarget finds a target by workspace name and role name (case-insensitive)
 func findMatchingTarget(targets []models.AzureEligibleTarget, targetName, roleName string) *models.AzureEligibleTarget {
 	for i := range targets {
-		if targets[i].WorkspaceName == targetName && targets[i].RoleInfo.Name == roleName {
+		if strings.EqualFold(targets[i].WorkspaceName, targetName) && strings.EqualFold(targets[i].RoleInfo.Name, roleName) {
 			return &targets[i]
 		}
 	}
