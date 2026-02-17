@@ -545,6 +545,44 @@ Addresses 10 findings (3 HIGH, 4 MEDIUM, 3 LOW) from comprehensive code review.
 
 ---
 
+## Feature: Status Workspace Names (`fix/code-review-findings`)
+
+**Status:** Done
+**Date:** 2026-02-17
+
+### Problem
+
+`grant status` showed raw ARM resource paths (e.g., `providers/Microsoft.Management/managementGroups/29cb7961-...`) instead of friendly workspace names. The sessions API (`GET /api/access/sessions`) only returns `workspace_id`, not `workspace_name`.
+
+### Solution
+
+Cross-reference sessions with the eligibility API (`GET /api/access/{CSP}/eligibility`) to resolve workspace IDs to friendly names. Display format: `Name (path)` when name is available, raw path as fallback.
+
+**Before:** `User Access Administrator on providers/Microsoft.Management/managementGroups/29cb7961-... - duration: 1h 0m`
+**After:**  `User Access Administrator on Tenant Root Group (providers/Microsoft.Management/managementGroups/29cb7961-...) - duration: 1h 0m`
+
+### Implementation
+
+- Added `eligibilityLister` as a dependency to `runStatus()` and `NewStatusCommandWithDeps()`
+- `buildWorkspaceNameMap()` collects unique CSPs from sessions, fetches eligibility for each, builds `map[string]string` (workspaceID -> workspaceName)
+- `formatSession()` accepts name map, shows `"name (id)"` when name is resolved, falls back to raw ID
+- Graceful degradation: eligibility API errors are silently ignored, raw workspace ID shown as fallback
+
+### Files Modified
+
+- `cmd/status.go` — `buildWorkspaceNameMap()`, updated `formatSession()` signature, `runStatus()` and `NewStatusCommandWithDeps()` accept `eligibilityLister`
+- `cmd/status_test.go` — Added `setupEligibility` to all test cases, updated assertions for `"name (path)"` format, added `"eligibility fetch fails - graceful degradation"` test case
+
+---
+
+## Claude Skill: grant-login
+
+**Location:** `.claude/skills/grant-login/SKILL.md`
+
+Reusable Claude skill for driving the interactive `grant login` flow via tmux. Reads credentials from `.env`, sends password, selects OATH Code MFA method, generates TOTP via python3 stdlib, and verifies successful authentication.
+
+---
+
 ## Latest Changes (Phase 7 - UX Simplification)
 
 ### Files Modified

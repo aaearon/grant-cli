@@ -66,6 +66,11 @@ Custom `SCAAccessService` follows SDK conventions:
 - App config: `~/.grant/config.yaml`
 - SDK profile: `~/.idsec_profiles/grant.json`
 
+## Authentication
+- Use the `/grant-login` skill when you need to authenticate to the grant CLI (e.g., before manual testing)
+- Skill definition: `.claude/skills/grant-login/SKILL.md`
+- Requires `.env` at project root with `GRANT_PASSWORD` and `TOTP_SECRET`
+
 ## Build
 ```bash
 make build              # Build binary with ldflags
