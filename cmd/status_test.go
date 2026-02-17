@@ -404,7 +404,7 @@ func TestStatusCommand(t *testing.T) {
 
 func TestStatusCommandIntegration(t *testing.T) {
 	// Test that status command is properly registered
-	rootCmd := NewRootCommand()
+	rootCmd := newTestRootCommand()
 	statusCmd := NewStatusCommand()
 	rootCmd.AddCommand(statusCmd)
 

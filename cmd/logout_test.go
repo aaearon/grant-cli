@@ -46,7 +46,7 @@ func TestLogoutCommand(t *testing.T) {
 
 func TestLogoutCommandIntegration(t *testing.T) {
 	// Test that logout command is properly registered
-	rootCmd := NewRootCommand()
+	rootCmd := newTestRootCommand()
 	logoutCmd := NewLogoutCommand()
 	rootCmd.AddCommand(logoutCmd)
 

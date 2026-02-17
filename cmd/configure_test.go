@@ -222,7 +222,7 @@ func TestConfigureCommand(t *testing.T) {
 
 func TestConfigureCommandIntegration(t *testing.T) {
 	// Test that configure command is properly registered
-	rootCmd := NewRootCommand()
+	rootCmd := newTestRootCommand()
 	configureCmd := NewConfigureCommand()
 	rootCmd.AddCommand(configureCmd)
 

@@ -3,27 +3,12 @@ package cmd
 import (
 	"bytes"
 
-	"github.com/cyberark/idsec-sdk-golang/pkg/config"
 	"github.com/spf13/cobra"
 )
 
-// NewRootCommand creates a new root command for testing (no elevation RunE)
-func NewRootCommand() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "grant",
-		Short: "Request temporary elevated cloud permissions",
-		Long:  "Grant temporary elevated cloud permissions via CyberArk Secure Cloud Access (SCA).",
-		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			if verbose {
-				config.EnableVerboseLogging("INFO")
-			} else {
-				config.DisableVerboseLogging()
-			}
-			return nil
-		},
-	}
-	cmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "enable verbose output")
-	return cmd
+// newTestRootCommand creates a root command for testing (no elevation RunE)
+func newTestRootCommand() *cobra.Command {
+	return newRootCommand(nil)
 }
 
 // newNoOpCommand creates a minimal command for testing PersistentPreRunE
@@ -34,7 +19,9 @@ func newNoOpCommand() *cobra.Command {
 	}
 }
 
-// executeCommand executes a command and returns its output
+// executeCommand executes a command and returns its output.
+// When SilenceErrors is true, error text is appended to the output buffer
+// to match production behavior (where Execute() prints the error).
 func executeCommand(cmd *cobra.Command, args ...string) (string, error) {
 	buf := new(bytes.Buffer)
 	cmd.SetOut(buf)
@@ -42,5 +29,8 @@ func executeCommand(cmd *cobra.Command, args ...string) (string, error) {
 	cmd.SetArgs(args)
 
 	err := cmd.Execute()
+	if err != nil {
+		buf.WriteString(err.Error())
+	}
 	return buf.String(), err
 }

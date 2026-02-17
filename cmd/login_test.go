@@ -155,7 +155,7 @@ func TestLoginCommand(t *testing.T) {
 
 func TestLoginCommandIntegration(t *testing.T) {
 	// Test that login command is properly registered
-	rootCmd := NewRootCommand()
+	rootCmd := newTestRootCommand()
 	loginCmd := NewLoginCommand()
 	rootCmd.AddCommand(loginCmd)
 
