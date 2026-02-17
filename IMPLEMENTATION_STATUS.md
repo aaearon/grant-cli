@@ -504,6 +504,47 @@ Comprehensive code quality sweep addressing issues found during code review.
 
 ---
 
+## Code Review Findings Round 2 (`fix/code-review-findings`)
+
+**Status:** Done
+**Date:** 2026-02-17
+
+Addresses 10 findings (3 HIGH, 4 MEDIUM, 3 LOW) from comprehensive code review.
+
+### HIGH - Structural Fixes
+1. **Double error output (#1)** — Set `SilenceErrors: true` and `SilenceUsage: true` on root command. Cobra no longer prints errors; only `Execute()` prints them.
+2. **Duplicated root command construction (#3)** — Extracted `newRootCommand(runFn)` as single source of truth for flags, `PersistentPreRunE`, and silence settings. `rootCmd`, `NewRootCommandWithDeps`, and `newTestRootCommand` all delegate to it.
+3. **Exported test helper (#10)** — Renamed `NewRootCommand()` to unexported `newTestRootCommand()`. Updated 12 call sites.
+
+### MEDIUM - Design Fixes
+4. **Logout no DI (#4)** — Added `keyringClearer` interface and `NewLogoutCommandWithDeps(clearer)` for deterministic testing. Production path creates real keyring in closure.
+5. **Scattered mocks (#5)** — Consolidated 6 mock types from `root_elevate_test.go`, `login_test.go`, `configure_test.go` into `test_mocks.go`. Added `mockKeyringClearer`.
+6. **Duplicated auth bootstrap (#6)** — Extracted `bootstrapSCAService()` used by both `runElevateProduction()` and `NewStatusCommand()`, removing 24 lines of duplication.
+8. **ConfigDir error propagation (#8)** — Changed `ConfigDir()` and `ConfigPath()` signatures from `string` to `(string, error)`. All 5 call sites updated with error handling.
+
+### LOW - Quality Fixes
+9. **Case-sensitive target match (#9)** — `findMatchingTarget()` now uses `strings.EqualFold` for workspace name and role name comparison.
+11. **SilenceUsage (#11)** — Set on root command via `newRootCommand()` (combined with #1 fix).
+
+### Files Modified
+- `cmd/root.go` — `newRootCommand()`, `bootstrapSCAService()`, `SilenceErrors`/`SilenceUsage`, case-insensitive match
+- `cmd/root_test.go` — Tests for silence flags, `newTestRootCommand`
+- `cmd/root_elevate_test.go` — Removed mock definitions, added case-insensitive test
+- `cmd/test_helpers.go` — Renamed to `newTestRootCommand()`, error text in output
+- `cmd/test_mocks.go` — Consolidated all 7 mock types
+- `cmd/interfaces.go` — Added `keyringClearer` interface
+- `cmd/logout.go` — Added `NewLogoutCommandWithDeps`, `runLogout` takes `keyringClearer`
+- `cmd/logout_test.go` — Deterministic tests with mock clearer
+- `cmd/login_test.go` — Removed mock definition
+- `cmd/configure_test.go` — Removed mock definition
+- `cmd/status.go` — Uses `bootstrapSCAService()`
+- `cmd/favorites.go` — `ConfigPath()` error handling
+- `cmd/configure.go` — `ConfigPath()` error handling
+- `internal/config/config.go` — `ConfigDir()`/`ConfigPath()` return errors
+- `internal/config/config_test.go` — Updated tests for new signatures
+
+---
+
 ## Latest Changes (Phase 7 - UX Simplification)
 
 ### Files Modified
