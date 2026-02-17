@@ -6,12 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/aaearon/grant-cli/internal/sca"
 	sca_models "github.com/aaearon/grant-cli/internal/sca/models"
-	"github.com/cyberark/idsec-sdk-golang/pkg/auth"
 	"github.com/cyberark/idsec-sdk-golang/pkg/models"
-	auth_models "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
-	"github.com/cyberark/idsec-sdk-golang/pkg/profiles"
 	"github.com/spf13/cobra"
 )
 
@@ -22,26 +18,9 @@ func NewStatusCommand() *cobra.Command {
 		Short: "Show authentication state and active SCA sessions",
 		Long:  "Display the current authentication state and list all active elevated sessions.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Load profile
-			loader := profiles.DefaultProfilesLoader()
-			profile, err := (*loader).LoadProfile("grant")
+			ispAuth, svc, profile, err := bootstrapSCAService()
 			if err != nil {
-				return fmt.Errorf("failed to load profile: %w", err)
-			}
-
-			// Create ISP auth
-			ispAuth := auth.NewIdsecISPAuth(true)
-
-			// Authenticate to get token (required before creating SCA service)
-			_, err = ispAuth.Authenticate(profile, nil, &auth_models.IdsecSecret{Secret: ""}, false, true)
-			if err != nil {
-				return fmt.Errorf("authentication failed: %w", err)
-			}
-
-			// Create SCA service
-			svc, err := sca.NewSCAAccessService(ispAuth)
-			if err != nil {
-				return fmt.Errorf("failed to create SCA service: %w", err)
+				return err
 			}
 
 			return runStatus(cmd, ispAuth, svc, profile)

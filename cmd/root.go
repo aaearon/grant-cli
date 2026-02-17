@@ -79,6 +79,29 @@ Examples:
 
 var rootCmd = newRootCommand(runElevateProduction)
 
+// bootstrapSCAService loads the profile, authenticates, and creates the SCA service.
+func bootstrapSCAService() (auth.IdsecAuth, *sca.SCAAccessService, *sdk_models.IdsecProfile, error) {
+	loader := profiles.DefaultProfilesLoader()
+	profile, err := (*loader).LoadProfile("grant")
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to load profile: %w", err)
+	}
+
+	ispAuth := auth.NewIdsecISPAuth(true)
+
+	_, err = ispAuth.Authenticate(profile, nil, &auth_models.IdsecSecret{Secret: ""}, false, true)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("authentication failed: %w", err)
+	}
+
+	svc, err := sca.NewSCAAccessService(ispAuth)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to create SCA service: %w", err)
+	}
+
+	return ispAuth, svc, profile, nil
+}
+
 // runElevateProduction is the production RunE for the root command
 func runElevateProduction(cmd *cobra.Command, args []string) error {
 	flags := &elevateFlags{}
@@ -97,26 +120,9 @@ func runElevateProduction(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Load profile
-	loader := profiles.DefaultProfilesLoader()
-	profile, err := (*loader).LoadProfile("grant")
+	ispAuth, scaService, profile, err := bootstrapSCAService()
 	if err != nil {
-		return fmt.Errorf("failed to load profile: %w", err)
-	}
-
-	// Create ISP authenticator
-	ispAuth := auth.NewIdsecISPAuth(true)
-
-	// Authenticate to get token (required before creating SCA service)
-	_, err = ispAuth.Authenticate(profile, nil, &auth_models.IdsecSecret{Secret: ""}, false, true)
-	if err != nil {
-		return fmt.Errorf("authentication failed: %w", err)
-	}
-
-	// Create SCA service
-	scaService, err := sca.NewSCAAccessService(ispAuth)
-	if err != nil {
-		return fmt.Errorf("failed to create SCA service: %w", err)
+		return err
 	}
 
 	return runElevateWithDeps(cmd, flags, profile, ispAuth, scaService, scaService, &uiSelector{}, cfg)
