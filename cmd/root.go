@@ -88,7 +88,11 @@ func runElevateProduction(cmd *cobra.Command, args []string) error {
 	flags.favorite, _ = cmd.Flags().GetString("favorite")
 
 	// Load config
-	cfg, err := config.Load(config.ConfigPath())
+	cfgPath, err := config.ConfigPath()
+	if err != nil {
+		return fmt.Errorf("failed to determine config path: %w", err)
+	}
+	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
