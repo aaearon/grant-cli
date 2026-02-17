@@ -76,7 +76,7 @@ func TestVersionCommand(t *testing.T) {
 
 func TestVersionCommandIntegration(t *testing.T) {
 	// Test that version command is properly registered
-	rootCmd := NewRootCommand()
+	rootCmd := newTestRootCommand()
 	versionCmd := NewVersionCommand()
 	rootCmd.AddCommand(versionCmd)
 

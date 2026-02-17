@@ -12,20 +12,6 @@ import (
 	"github.com/cyberark/idsec-sdk-golang/pkg/profiles"
 )
 
-// mockAuthenticator implements the subset of auth.IdsecAuth we need for testing
-type mockAuthenticator struct {
-	authenticateFunc func(profile *models.IdsecProfile, authProfile *auth_models.IdsecAuthProfile, secret *auth_models.IdsecSecret, force bool, refreshAuth bool) (*auth_models.IdsecToken, error)
-	token            *auth_models.IdsecToken
-	authErr          error
-}
-
-func (m *mockAuthenticator) Authenticate(profile *models.IdsecProfile, authProfile *auth_models.IdsecAuthProfile, secret *auth_models.IdsecSecret, force bool, refreshAuth bool) (*auth_models.IdsecToken, error) {
-	if m.authenticateFunc != nil {
-		return m.authenticateFunc(profile, authProfile, secret, force, refreshAuth)
-	}
-	return m.token, m.authErr
-}
-
 func TestLoginCommand(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -155,7 +141,7 @@ func TestLoginCommand(t *testing.T) {
 
 func TestLoginCommandIntegration(t *testing.T) {
 	// Test that login command is properly registered
-	rootCmd := NewRootCommand()
+	rootCmd := newTestRootCommand()
 	loginCmd := NewLoginCommand()
 	rootCmd.AddCommand(loginCmd)
 

@@ -28,10 +28,13 @@ type elevateFlags struct {
 	favorite string
 }
 
-var rootCmd = &cobra.Command{
-	Use:   "grant",
-	Short: "Request temporary elevated cloud permissions",
-	Long: `Grant temporary elevated cloud permissions via CyberArk Secure Cloud Access (SCA).
+// newRootCommand creates the root cobra command with the given RunE function.
+// All flag registration and PersistentPreRunE setup is centralized here.
+func newRootCommand(runFn func(*cobra.Command, []string) error) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "grant",
+		Short: "Request temporary elevated cloud permissions",
+		Long: `Grant temporary elevated cloud permissions via CyberArk Secure Cloud Access (SCA).
 
 Running grant with no subcommand requests access elevation.
 
@@ -52,65 +55,8 @@ Examples:
 
   # Specify provider explicitly
   grant --provider azure`,
-	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		if verbose {
-			sdk_config.EnableVerboseLogging("INFO")
-		} else {
-			sdk_config.DisableVerboseLogging()
-		}
-		return nil
-	},
-	RunE: func(cmd *cobra.Command, args []string) error {
-		flags := &elevateFlags{}
-		flags.provider, _ = cmd.Flags().GetString("provider")
-		flags.target, _ = cmd.Flags().GetString("target")
-		flags.role, _ = cmd.Flags().GetString("role")
-		flags.favorite, _ = cmd.Flags().GetString("favorite")
-
-		// Load config
-		cfg, err := config.Load(config.ConfigPath())
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
-
-		// Load profile
-		loader := profiles.DefaultProfilesLoader()
-		profile, err := (*loader).LoadProfile("grant")
-		if err != nil {
-			return fmt.Errorf("failed to load profile: %w", err)
-		}
-
-		// Create ISP authenticator
-		ispAuth := auth.NewIdsecISPAuth(true)
-
-		// Authenticate to get token (required before creating SCA service)
-		_, err = ispAuth.Authenticate(profile, nil, &auth_models.IdsecSecret{Secret: ""}, false, true)
-		if err != nil {
-			return fmt.Errorf("authentication failed: %w", err)
-		}
-
-		// Create SCA service
-		scaService, err := sca.NewSCAAccessService(ispAuth)
-		if err != nil {
-			return fmt.Errorf("failed to create SCA service: %w", err)
-		}
-
-		return runElevateWithDeps(cmd, flags, profile, ispAuth, scaService, scaService, &uiSelector{}, cfg)
-	},
-}
-
-// NewRootCommandWithDeps creates a root command with injected dependencies for testing
-func NewRootCommandWithDeps(
-	authLoader authLoader,
-	eligibilityLister eligibilityLister,
-	elevateService elevateService,
-	selector targetSelector,
-	cfg *config.Config,
-) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "grant",
-		Short: "Request temporary elevated cloud permissions",
-		Long:  "Grant temporary elevated cloud permissions via CyberArk Secure Cloud Access (SCA).",
+		SilenceErrors: true,
+		SilenceUsage:  true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			if verbose {
 				sdk_config.EnableVerboseLogging("INFO")
@@ -119,22 +65,7 @@ func NewRootCommandWithDeps(
 			}
 			return nil
 		},
-		RunE: func(cmd *cobra.Command, args []string) error {
-			flags := &elevateFlags{}
-			flags.provider, _ = cmd.Flags().GetString("provider")
-			flags.target, _ = cmd.Flags().GetString("target")
-			flags.role, _ = cmd.Flags().GetString("role")
-			flags.favorite, _ = cmd.Flags().GetString("favorite")
-
-			// Load SDK profile
-			loader := profiles.DefaultProfilesLoader()
-			profile, err := (*loader).LoadProfile(cfg.Profile)
-			if err != nil {
-				return fmt.Errorf("failed to load profile: %w", err)
-			}
-
-			return runElevateWithDeps(cmd, flags, profile, authLoader, eligibilityLister, elevateService, selector, cfg)
-		},
+		RunE: runFn,
 	}
 
 	cmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "enable verbose output")
@@ -146,6 +77,83 @@ func NewRootCommandWithDeps(
 	return cmd
 }
 
+var rootCmd = newRootCommand(runElevateProduction)
+
+// bootstrapSCAService loads the profile, authenticates, and creates the SCA service.
+func bootstrapSCAService() (auth.IdsecAuth, *sca.SCAAccessService, *sdk_models.IdsecProfile, error) {
+	loader := profiles.DefaultProfilesLoader()
+	profile, err := (*loader).LoadProfile("grant")
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to load profile: %w", err)
+	}
+
+	ispAuth := auth.NewIdsecISPAuth(true)
+
+	_, err = ispAuth.Authenticate(profile, nil, &auth_models.IdsecSecret{Secret: ""}, false, true)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("authentication failed: %w", err)
+	}
+
+	svc, err := sca.NewSCAAccessService(ispAuth)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to create SCA service: %w", err)
+	}
+
+	return ispAuth, svc, profile, nil
+}
+
+// runElevateProduction is the production RunE for the root command
+func runElevateProduction(cmd *cobra.Command, args []string) error {
+	flags := &elevateFlags{}
+	flags.provider, _ = cmd.Flags().GetString("provider")
+	flags.target, _ = cmd.Flags().GetString("target")
+	flags.role, _ = cmd.Flags().GetString("role")
+	flags.favorite, _ = cmd.Flags().GetString("favorite")
+
+	// Load config
+	cfgPath, err := config.ConfigPath()
+	if err != nil {
+		return fmt.Errorf("failed to determine config path: %w", err)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	ispAuth, scaService, profile, err := bootstrapSCAService()
+	if err != nil {
+		return err
+	}
+
+	return runElevateWithDeps(cmd, flags, profile, ispAuth, scaService, scaService, &uiSelector{}, cfg)
+}
+
+// NewRootCommandWithDeps creates a root command with injected dependencies for testing
+func NewRootCommandWithDeps(
+	authLoader authLoader,
+	eligibilityLister eligibilityLister,
+	elevateService elevateService,
+	selector targetSelector,
+	cfg *config.Config,
+) *cobra.Command {
+	return newRootCommand(func(cmd *cobra.Command, args []string) error {
+		flags := &elevateFlags{}
+		flags.provider, _ = cmd.Flags().GetString("provider")
+		flags.target, _ = cmd.Flags().GetString("target")
+		flags.role, _ = cmd.Flags().GetString("role")
+		flags.favorite, _ = cmd.Flags().GetString("favorite")
+
+		// Load SDK profile
+		loader := profiles.DefaultProfilesLoader()
+		profile, err := (*loader).LoadProfile(cfg.Profile)
+		if err != nil {
+			return fmt.Errorf("failed to load profile: %w", err)
+		}
+
+		return runElevateWithDeps(cmd, flags, profile, authLoader, eligibilityLister, elevateService, selector, cfg)
+	})
+}
+
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -154,14 +162,6 @@ func Execute() {
 		}
 		os.Exit(1)
 	}
-}
-
-func init() {
-	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "enable verbose output")
-	rootCmd.Flags().StringP("provider", "p", "", "Cloud provider (default from config, v1: azure only)")
-	rootCmd.Flags().StringP("target", "t", "", "Target name (subscription, resource group, etc.)")
-	rootCmd.Flags().StringP("role", "r", "", "Role name")
-	rootCmd.Flags().StringP("favorite", "f", "", "Use a saved favorite alias")
 }
 
 func runElevateWithDeps(
@@ -303,10 +303,10 @@ func runElevateWithDeps(
 	return nil
 }
 
-// findMatchingTarget finds a target by workspace name and role name
+// findMatchingTarget finds a target by workspace name and role name (case-insensitive)
 func findMatchingTarget(targets []models.AzureEligibleTarget, targetName, roleName string) *models.AzureEligibleTarget {
 	for i := range targets {
-		if targets[i].WorkspaceName == targetName && targets[i].RoleInfo.Name == roleName {
+		if strings.EqualFold(targets[i].WorkspaceName, targetName) && strings.EqualFold(targets[i].RoleInfo.Name, roleName) {
 			return &targets[i]
 		}
 	}

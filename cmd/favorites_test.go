@@ -64,7 +64,7 @@ func TestFavoritesListCommand(t *testing.T) {
 			tt.setupConfig(configPath)
 
 			// Execute command
-			rootCmd := NewRootCommand()
+			rootCmd := newTestRootCommand()
 			favCmd := NewFavoritesCommand()
 			rootCmd.AddCommand(favCmd)
 
@@ -138,7 +138,7 @@ func TestFavoritesRemoveCommand(t *testing.T) {
 			tt.setupConfig(configPath)
 
 			// Execute command
-			rootCmd := NewRootCommand()
+			rootCmd := newTestRootCommand()
 			favCmd := NewFavoritesCommand()
 			rootCmd.AddCommand(favCmd)
 
@@ -201,7 +201,7 @@ func TestFavoritesAddCommand(t *testing.T) {
 			tt.setupConfig(configPath)
 
 			// Execute command
-			rootCmd := NewRootCommand()
+			rootCmd := newTestRootCommand()
 			favCmd := NewFavoritesCommand()
 			rootCmd.AddCommand(favCmd)
 
@@ -228,7 +228,7 @@ func TestFavoritesCommandIntegration(t *testing.T) {
 	_ = config.Save(cfg, configPath)
 
 	// Test that favorites command is properly registered
-	rootCmd := NewRootCommand()
+	rootCmd := newTestRootCommand()
 	favCmd := NewFavoritesCommand()
 	rootCmd.AddCommand(favCmd)
 

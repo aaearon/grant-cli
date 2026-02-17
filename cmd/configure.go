@@ -128,7 +128,10 @@ func runConfigure(cmd *cobra.Command, saver profileSaver, tenantURL, username, m
 	}
 
 	// Save app config
-	cfgPath := config.ConfigPath()
+	cfgPath, err := config.ConfigPath()
+	if err != nil {
+		return fmt.Errorf("failed to determine config path: %w", err)
+	}
 	if err := config.Save(cfg, cfgPath); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}

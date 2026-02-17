@@ -71,15 +71,22 @@ func Save(cfg *Config, path string) error {
 }
 
 // ConfigDir returns the default config directory path.
-func ConfigDir() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".grant")
+func ConfigDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to determine home directory: %w", err)
+	}
+	return filepath.Join(home, ".grant"), nil
 }
 
 // ConfigPath returns the config file path, respecting the GRANT_CONFIG env var.
-func ConfigPath() string {
+func ConfigPath() (string, error) {
 	if p := os.Getenv("GRANT_CONFIG"); p != "" {
-		return p
+		return p, nil
 	}
-	return filepath.Join(ConfigDir(), "config.yaml")
+	dir, err := ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "config.yaml"), nil
 }

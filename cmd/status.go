@@ -6,12 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/aaearon/grant-cli/internal/sca"
 	sca_models "github.com/aaearon/grant-cli/internal/sca/models"
-	"github.com/cyberark/idsec-sdk-golang/pkg/auth"
 	"github.com/cyberark/idsec-sdk-golang/pkg/models"
-	auth_models "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
-	"github.com/cyberark/idsec-sdk-golang/pkg/profiles"
 	"github.com/spf13/cobra"
 )
 
@@ -22,29 +18,12 @@ func NewStatusCommand() *cobra.Command {
 		Short: "Show authentication state and active SCA sessions",
 		Long:  "Display the current authentication state and list all active elevated sessions.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Load profile
-			loader := profiles.DefaultProfilesLoader()
-			profile, err := (*loader).LoadProfile("grant")
+			ispAuth, svc, profile, err := bootstrapSCAService()
 			if err != nil {
-				return fmt.Errorf("failed to load profile: %w", err)
+				return err
 			}
 
-			// Create ISP auth
-			ispAuth := auth.NewIdsecISPAuth(true)
-
-			// Authenticate to get token (required before creating SCA service)
-			_, err = ispAuth.Authenticate(profile, nil, &auth_models.IdsecSecret{Secret: ""}, false, true)
-			if err != nil {
-				return fmt.Errorf("authentication failed: %w", err)
-			}
-
-			// Create SCA service
-			svc, err := sca.NewSCAAccessService(ispAuth)
-			if err != nil {
-				return fmt.Errorf("failed to create SCA service: %w", err)
-			}
-
-			return runStatus(cmd, ispAuth, svc, profile)
+			return runStatus(cmd, ispAuth, svc, svc, profile)
 		},
 	}
 
@@ -54,13 +33,13 @@ func NewStatusCommand() *cobra.Command {
 }
 
 // NewStatusCommandWithDeps creates a status command with injected dependencies for testing
-func NewStatusCommandWithDeps(authLoader authLoader, sessionLister sessionLister) *cobra.Command {
+func NewStatusCommandWithDeps(authLoader authLoader, sessionLister sessionLister, eligLister eligibilityLister) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show authentication state and active SCA sessions",
 		Long:  "Display the current authentication state and list all active elevated sessions.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runStatus(cmd, authLoader, sessionLister, nil)
+			return runStatus(cmd, authLoader, sessionLister, eligLister, nil)
 		},
 	}
 
@@ -69,7 +48,7 @@ func NewStatusCommandWithDeps(authLoader authLoader, sessionLister sessionLister
 	return cmd
 }
 
-func runStatus(cmd *cobra.Command, authLoader authLoader, sessionLister sessionLister, profile *models.IdsecProfile) error {
+func runStatus(cmd *cobra.Command, authLoader authLoader, sessionLister sessionLister, eligLister eligibilityLister, profile *models.IdsecProfile) error {
 	// Load authentication state
 	token, err := authLoader.LoadAuthentication(profile, true)
 	if err != nil {
@@ -104,6 +83,9 @@ func runStatus(cmd *cobra.Command, authLoader authLoader, sessionLister sessionL
 		return nil
 	}
 
+	// Build workspace name map from eligibility data
+	nameMap := buildWorkspaceNameMap(ctx, eligLister, sessions.Response)
+
 	// Group sessions by provider
 	sessionsByProvider := groupSessionsByProvider(sessions.Response)
 
@@ -112,7 +94,7 @@ func runStatus(cmd *cobra.Command, authLoader authLoader, sessionLister sessionL
 	for _, p := range sortedProviders(sessionsByProvider) {
 		fmt.Fprintf(cmd.OutOrStdout(), "%s sessions:\n", formatProviderName(p))
 		for _, session := range sessionsByProvider[p] {
-			fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", formatSession(session))
+			fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", formatSession(session, nameMap))
 		}
 	}
 
@@ -167,10 +149,39 @@ func formatProviderName(provider string) string {
 	}
 }
 
+// buildWorkspaceNameMap fetches eligibility for each unique CSP in sessions
+// and builds a workspaceID -> workspaceName map. Errors are silently ignored
+// (graceful degradation — the raw workspace ID is shown as fallback).
+func buildWorkspaceNameMap(ctx context.Context, eligLister eligibilityLister, sessions []sca_models.SessionInfo) map[string]string {
+	nameMap := make(map[string]string)
+
+	// Collect unique CSPs
+	csps := make(map[sca_models.CSP]bool)
+	for _, s := range sessions {
+		csps[s.CSP] = true
+	}
+
+	// Fetch eligibility for each CSP
+	for csp := range csps {
+		resp, err := eligLister.ListEligibility(ctx, csp)
+		if err != nil || resp == nil {
+			continue
+		}
+		for _, target := range resp.Response {
+			if target.WorkspaceName != "" {
+				nameMap[target.WorkspaceID] = target.WorkspaceName
+			}
+		}
+	}
+
+	return nameMap
+}
+
 // formatSession formats a session for display.
 // The live API's role_id field contains the role display name (e.g., "User Access Administrator").
-// workspace_id contains the ARM resource path.
-func formatSession(session sca_models.SessionInfo) string {
+// workspace_id contains the ARM resource path. If a friendly name is available from
+// the eligibility API, it is shown as "name (path)"; otherwise the raw path is shown.
+func formatSession(session sca_models.SessionInfo, nameMap map[string]string) string {
 	durationMin := session.SessionDuration / 60
 	var durationStr string
 	if durationMin >= 60 {
@@ -179,7 +190,12 @@ func formatSession(session sca_models.SessionInfo) string {
 		durationStr = fmt.Sprintf("%dm", durationMin)
 	}
 
-	return fmt.Sprintf("%s on %s - duration: %s", session.RoleID, session.WorkspaceID, durationStr)
+	workspace := session.WorkspaceID
+	if name, ok := nameMap[session.WorkspaceID]; ok {
+		workspace = fmt.Sprintf("%s (%s)", name, session.WorkspaceID)
+	}
+
+	return fmt.Sprintf("%s on %s - duration: %s", session.RoleID, workspace, durationStr)
 }
 
 func init() {

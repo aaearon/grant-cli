@@ -57,7 +57,10 @@ func runFavoritesAdd(cmd *cobra.Command, args []string) error {
 	name := args[0]
 
 	// Load config
-	cfgPath := config.ConfigPath()
+	cfgPath, err := config.ConfigPath()
+	if err != nil {
+		return fmt.Errorf("failed to determine config path: %w", err)
+	}
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
@@ -112,7 +115,10 @@ func runFavoritesAdd(cmd *cobra.Command, args []string) error {
 
 func runFavoritesList(cmd *cobra.Command, args []string) error {
 	// Load config
-	cfgPath := config.ConfigPath()
+	cfgPath, err := config.ConfigPath()
+	if err != nil {
+		return fmt.Errorf("failed to determine config path: %w", err)
+	}
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
@@ -140,7 +146,10 @@ func runFavoritesRemove(cmd *cobra.Command, args []string) error {
 	name := args[0]
 
 	// Load config
-	cfgPath := config.ConfigPath()
+	cfgPath, err := config.ConfigPath()
+	if err != nil {
+		return fmt.Errorf("failed to determine config path: %w", err)
+	}
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)

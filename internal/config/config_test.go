@@ -197,8 +197,34 @@ func TestConfigPath_Override(t *testing.T) {
 
 	t.Setenv("GRANT_CONFIG", customPath)
 
-	got := ConfigPath()
+	got, err := ConfigPath()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if got != customPath {
 		t.Errorf("ConfigPath() = %q, want %q", got, customPath)
+	}
+}
+
+func TestConfigDir_Error(t *testing.T) {
+	// Override HOME to empty to force error
+	t.Setenv("HOME", "")
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	_, err := ConfigDir()
+	if err == nil {
+		t.Error("expected error when HOME is not set")
+	}
+}
+
+func TestConfigPath_Default(t *testing.T) {
+	t.Setenv("GRANT_CONFIG", "")
+
+	got, err := ConfigPath()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got == "" {
+		t.Error("expected non-empty config path")
 	}
 }

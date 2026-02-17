@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -12,48 +11,6 @@ import (
 	auth_models "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
 	common_models "github.com/cyberark/idsec-sdk-golang/pkg/models/common"
 )
-
-// mockEligibilityLister implements the eligibilityLister interface for testing
-type mockEligibilityLister struct {
-	listFunc func(ctx context.Context, csp models.CSP) (*models.EligibilityResponse, error)
-	response *models.EligibilityResponse
-	listErr  error
-}
-
-func (m *mockEligibilityLister) ListEligibility(ctx context.Context, csp models.CSP) (*models.EligibilityResponse, error) {
-	if m.listFunc != nil {
-		return m.listFunc(ctx, csp)
-	}
-	return m.response, m.listErr
-}
-
-// mockElevateService implements the elevateService interface for testing
-type mockElevateService struct {
-	elevateFunc func(ctx context.Context, req *models.ElevateRequest) (*models.ElevateResponse, error)
-	response    *models.ElevateResponse
-	elevateErr  error
-}
-
-func (m *mockElevateService) Elevate(ctx context.Context, req *models.ElevateRequest) (*models.ElevateResponse, error) {
-	if m.elevateFunc != nil {
-		return m.elevateFunc(ctx, req)
-	}
-	return m.response, m.elevateErr
-}
-
-// mockTargetSelector implements the targetSelector interface for testing
-type mockTargetSelector struct {
-	selectFunc func(targets []models.AzureEligibleTarget) (*models.AzureEligibleTarget, error)
-	target     *models.AzureEligibleTarget
-	selectErr  error
-}
-
-func (m *mockTargetSelector) SelectTarget(targets []models.AzureEligibleTarget) (*models.AzureEligibleTarget, error) {
-	if m.selectFunc != nil {
-		return m.selectFunc(targets)
-	}
-	return m.target, m.selectErr
-}
 
 func TestRootElevate_InteractiveMode(t *testing.T) {
 	tests := []struct {
@@ -239,6 +196,58 @@ func TestRootElevate_DirectMode(t *testing.T) {
 			wantContain: []string{
 				"Elevated to Contributor on Prod-EastUS",
 				"Session ID: session-xyz",
+			},
+			wantErr: false,
+		},
+		{
+			name: "direct mode success with case-insensitive match",
+			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *config.Config) {
+				authLoader := &mockAuthLoader{
+					token: &auth_models.IdsecToken{Token: "test-jwt"},
+				}
+
+				eligibilityLister := &mockEligibilityLister{
+					response: &models.EligibilityResponse{
+						Response: []models.AzureEligibleTarget{
+							{
+								OrganizationID: "org-123",
+								WorkspaceID:    "sub-456",
+								WorkspaceName:  "Prod-EastUS",
+								WorkspaceType:  models.WorkspaceTypeSubscription,
+								RoleInfo: models.RoleInfo{
+									ID:   "role-789",
+									Name: "Contributor",
+								},
+							},
+						},
+						Total: 1,
+					},
+				}
+
+				elevateService := &mockElevateService{
+					response: &models.ElevateResponse{
+						Response: models.ElevateAccessResult{
+							CSP:            models.CSPAzure,
+							OrganizationID: "org-123",
+							Results: []models.ElevateTargetResult{
+								{
+									WorkspaceID: "sub-456",
+									RoleID:      "role-789",
+									SessionID:   "session-ci",
+								},
+							},
+						},
+					},
+				}
+
+				cfg := config.DefaultConfig()
+
+				return authLoader, eligibilityLister, elevateService, cfg
+			},
+			args: []string{"--target", "prod-eastus", "--role", "contributor"},
+			wantContain: []string{
+				"Elevated to Contributor on Prod-EastUS",
+				"Session ID: session-ci",
 			},
 			wantErr: false,
 		},

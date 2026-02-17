@@ -17,13 +17,14 @@ func TestStatusCommand(t *testing.T) {
 	expiresIn := common_models.IdsecRFC3339Time(now.Add(1 * time.Hour))
 
 	tests := []struct {
-		name           string
-		setupAuth      func() *mockAuthLoader
-		setupSvc       func() *mockSessionLister
-		provider       string
-		wantContain    []string
-		wantNotContain []string
-		wantErr        bool
+		name              string
+		setupAuth         func() *mockAuthLoader
+		setupSvc          func() *mockSessionLister
+		setupEligibility  func() *mockEligibilityLister
+		provider          string
+		wantContain       []string
+		wantNotContain    []string
+		wantErr           bool
 	}{
 		{
 			name: "not authenticated",
@@ -35,6 +36,9 @@ func TestStatusCommand(t *testing.T) {
 			},
 			setupSvc: func() *mockSessionLister {
 				return &mockSessionLister{}
+			},
+			setupEligibility: func() *mockEligibilityLister {
+				return &mockEligibilityLister{}
 			},
 			wantContain: []string{
 				"Not authenticated",
@@ -62,6 +66,9 @@ func TestStatusCommand(t *testing.T) {
 					},
 					listErr: nil,
 				}
+			},
+			setupEligibility: func() *mockEligibilityLister {
+				return &mockEligibilityLister{}
 			},
 			wantContain: []string{
 				"Authenticated as: tim@iosharp.com",
@@ -107,12 +114,28 @@ func TestStatusCommand(t *testing.T) {
 					listErr: nil,
 				}
 			},
+			setupEligibility: func() *mockEligibilityLister {
+				return &mockEligibilityLister{
+					response: &sca_models.EligibilityResponse{
+						Response: []sca_models.AzureEligibleTarget{
+							{
+								WorkspaceID:   "providers/Microsoft.Management/managementGroups/29cb7961-e16d-42c7-8ade-1794bbb76782",
+								WorkspaceName: "Tenant Root Group",
+							},
+							{
+								WorkspaceID:   "/subscriptions/sub-2",
+								WorkspaceName: "My Subscription",
+							},
+						},
+					},
+				}
+			},
 			wantContain: []string{
 				"Authenticated as: tim@iosharp.com",
 				"Azure sessions:",
-				"Contributor on providers/Microsoft.Management/managementGroups/29cb7961",
+				"Contributor on Tenant Root Group (providers/Microsoft.Management/managementGroups/29cb7961",
 				"duration: 1h 12m",
-				"Owner on /subscriptions/sub-2",
+				"Owner on My Subscription (/subscriptions/sub-2)",
 				"duration: 25m",
 			},
 			wantErr: false,
@@ -152,11 +175,20 @@ func TestStatusCommand(t *testing.T) {
 					},
 				}
 			},
+			setupEligibility: func() *mockEligibilityLister {
+				return &mockEligibilityLister{
+					response: &sca_models.EligibilityResponse{
+						Response: []sca_models.AzureEligibleTarget{
+							{WorkspaceID: "/subscriptions/sub-1", WorkspaceName: "Test Subscription"},
+						},
+					},
+				}
+			},
 			provider: "azure",
 			wantContain: []string{
 				"Authenticated as: tim@iosharp.com",
 				"Azure sessions:",
-				"Reader on /subscriptions/sub-1",
+				"Reader on Test Subscription (/subscriptions/sub-1)",
 			},
 			wantErr: false,
 		},
@@ -198,10 +230,19 @@ func TestStatusCommand(t *testing.T) {
 					listErr: nil,
 				}
 			},
+			setupEligibility: func() *mockEligibilityLister {
+				return &mockEligibilityLister{
+					response: &sca_models.EligibilityResponse{
+						Response: []sca_models.AzureEligibleTarget{
+							{WorkspaceID: "/subscriptions/sub-1", WorkspaceName: "Dev Subscription"},
+						},
+					},
+				}
+			},
 			wantContain: []string{
 				"Authenticated as: user@example.com",
 				"Azure sessions:",
-				"Contributor on /subscriptions/sub-1",
+				"Contributor on Dev Subscription (/subscriptions/sub-1)",
 				"AWS sessions:",
 				"Administrator on arn:aws:iam::123456789012:role/Admin",
 			},
@@ -236,6 +277,9 @@ func TestStatusCommand(t *testing.T) {
 					},
 					listErr: nil,
 				}
+			},
+			setupEligibility: func() *mockEligibilityLister {
+				return &mockEligibilityLister{}
 			},
 			wantContain: []string{
 				"duration: 45m",
@@ -272,6 +316,9 @@ func TestStatusCommand(t *testing.T) {
 					listErr: nil,
 				}
 			},
+			setupEligibility: func() *mockEligibilityLister {
+				return &mockEligibilityLister{}
+			},
 			wantContain: []string{
 				"duration: 2h 30m",
 			},
@@ -294,6 +341,9 @@ func TestStatusCommand(t *testing.T) {
 					sessions: nil,
 					listErr:  errors.New("API error: service unavailable"),
 				}
+			},
+			setupEligibility: func() *mockEligibilityLister {
+				return &mockEligibilityLister{}
 			},
 			wantContain: []string{
 				"failed to list sessions",
@@ -331,9 +381,62 @@ func TestStatusCommand(t *testing.T) {
 					listErr: nil,
 				}
 			},
+			setupEligibility: func() *mockEligibilityLister {
+				return &mockEligibilityLister{
+					response: &sca_models.EligibilityResponse{
+						Response: []sca_models.AzureEligibleTarget{
+							{
+								WorkspaceID:   "providers/Microsoft.Management/managementGroups/29cb7961-e16d-42c7-8ade-1794bbb76782",
+								WorkspaceName: "Tenant Root Group",
+							},
+						},
+					},
+				}
+			},
 			wantContain: []string{
 				"Authenticated as: tim@iosharp.com",
 				"Azure sessions:",
+				"User Access Administrator on Tenant Root Group (providers/Microsoft.Management/managementGroups/29cb7961",
+				"duration: 1h 0m",
+			},
+			wantErr: false,
+		},
+		{
+			name: "eligibility fetch fails - graceful degradation",
+			setupAuth: func() *mockAuthLoader {
+				return &mockAuthLoader{
+					token: &auth_models.IdsecToken{
+						Token:     "test-jwt",
+						Username:  "tim@iosharp.com",
+						ExpiresIn: expiresIn,
+					},
+					loadErr: nil,
+				}
+			},
+			setupSvc: func() *mockSessionLister {
+				return &mockSessionLister{
+					sessions: &sca_models.SessionsResponse{
+						Response: []sca_models.SessionInfo{
+							{
+								SessionID:       "session-1",
+								UserID:          "tim@iosharp.com",
+								CSP:             sca_models.CSPAzure,
+								WorkspaceID:     "providers/Microsoft.Management/managementGroups/29cb7961-e16d-42c7-8ade-1794bbb76782",
+								RoleID:          "User Access Administrator",
+								SessionDuration: 3600,
+							},
+						},
+						Total: 1,
+					},
+					listErr: nil,
+				}
+			},
+			setupEligibility: func() *mockEligibilityLister {
+				return &mockEligibilityLister{
+					listErr: errors.New("eligibility API unavailable"),
+				}
+			},
+			wantContain: []string{
 				"User Access Administrator on providers/Microsoft.Management/managementGroups/29cb7961",
 				"duration: 1h 0m",
 			},
@@ -354,6 +457,9 @@ func TestStatusCommand(t *testing.T) {
 			setupSvc: func() *mockSessionLister {
 				return &mockSessionLister{}
 			},
+			setupEligibility: func() *mockEligibilityLister {
+				return &mockEligibilityLister{}
+			},
 			provider: "invalid",
 			wantContain: []string{
 				"invalid provider",
@@ -367,7 +473,8 @@ func TestStatusCommand(t *testing.T) {
 			// Create command with mock dependencies
 			authLoader := tt.setupAuth()
 			sessionLister := tt.setupSvc()
-			cmd := NewStatusCommandWithDeps(authLoader, sessionLister)
+			eligibilityLister := tt.setupEligibility()
+			cmd := NewStatusCommandWithDeps(authLoader, sessionLister, eligibilityLister)
 
 			// Set provider flag if specified
 			if tt.provider != "" {
@@ -404,7 +511,7 @@ func TestStatusCommand(t *testing.T) {
 
 func TestStatusCommandIntegration(t *testing.T) {
 	// Test that status command is properly registered
-	rootCmd := NewRootCommand()
+	rootCmd := newTestRootCommand()
 	statusCmd := NewStatusCommand()
 	rootCmd.AddCommand(statusCmd)
 
