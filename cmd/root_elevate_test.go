@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -12,48 +11,6 @@ import (
 	auth_models "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
 	common_models "github.com/cyberark/idsec-sdk-golang/pkg/models/common"
 )
-
-// mockEligibilityLister implements the eligibilityLister interface for testing
-type mockEligibilityLister struct {
-	listFunc func(ctx context.Context, csp models.CSP) (*models.EligibilityResponse, error)
-	response *models.EligibilityResponse
-	listErr  error
-}
-
-func (m *mockEligibilityLister) ListEligibility(ctx context.Context, csp models.CSP) (*models.EligibilityResponse, error) {
-	if m.listFunc != nil {
-		return m.listFunc(ctx, csp)
-	}
-	return m.response, m.listErr
-}
-
-// mockElevateService implements the elevateService interface for testing
-type mockElevateService struct {
-	elevateFunc func(ctx context.Context, req *models.ElevateRequest) (*models.ElevateResponse, error)
-	response    *models.ElevateResponse
-	elevateErr  error
-}
-
-func (m *mockElevateService) Elevate(ctx context.Context, req *models.ElevateRequest) (*models.ElevateResponse, error) {
-	if m.elevateFunc != nil {
-		return m.elevateFunc(ctx, req)
-	}
-	return m.response, m.elevateErr
-}
-
-// mockTargetSelector implements the targetSelector interface for testing
-type mockTargetSelector struct {
-	selectFunc func(targets []models.AzureEligibleTarget) (*models.AzureEligibleTarget, error)
-	target     *models.AzureEligibleTarget
-	selectErr  error
-}
-
-func (m *mockTargetSelector) SelectTarget(targets []models.AzureEligibleTarget) (*models.AzureEligibleTarget, error) {
-	if m.selectFunc != nil {
-		return m.selectFunc(targets)
-	}
-	return m.target, m.selectErr
-}
 
 func TestRootElevate_InteractiveMode(t *testing.T) {
 	tests := []struct {

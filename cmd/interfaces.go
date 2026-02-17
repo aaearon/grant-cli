@@ -32,3 +32,8 @@ type targetSelector interface {
 type sessionLister interface {
 	ListSessions(ctx context.Context, csp *models.CSP) (*models.SessionsResponse, error)
 }
+
+// keyringClearer interface for clearing keyring passwords
+type keyringClearer interface {
+	ClearAllPasswords() error
+}

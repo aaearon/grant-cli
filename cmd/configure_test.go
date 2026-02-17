@@ -11,19 +11,6 @@ import (
 	auth_models "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
 )
 
-// mockProfileSaver implements profileSaver interface for testing
-type mockProfileSaver struct {
-	saveFunc func(*models.IdsecProfile) error
-	saveErr  error
-}
-
-func (m *mockProfileSaver) SaveProfile(profile *models.IdsecProfile) error {
-	if m.saveFunc != nil {
-		return m.saveFunc(profile)
-	}
-	return m.saveErr
-}
-
 func TestConfigureCommand(t *testing.T) {
 	tests := []struct {
 		name          string
