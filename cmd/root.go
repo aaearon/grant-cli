@@ -164,7 +164,6 @@ func Execute() {
 	}
 }
 
-
 func runElevateWithDeps(
 	cmd *cobra.Command,
 	flags *elevateFlags,

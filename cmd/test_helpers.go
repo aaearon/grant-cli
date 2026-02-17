@@ -30,7 +30,7 @@ func executeCommand(cmd *cobra.Command, args ...string) (string, error) {
 
 	err := cmd.Execute()
 	if err != nil {
-		buf.WriteString(err.Error())
+		buf.WriteString(err.Error() + "\n")
 	}
 	return buf.String(), err
 }
