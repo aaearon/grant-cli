@@ -105,6 +105,7 @@ func TestVerboseHintSuppressedForArgErrors(t *testing.T) {
 			// Simulate what Execute() does
 			root.SetArgs(tt.args)
 			passedArgValidation = false
+			defer func() { passedArgValidation = false }()
 			err := root.Execute()
 
 			var hint string
@@ -130,6 +131,7 @@ func TestVerboseHintSuppressedForUnknownSubcommand(t *testing.T) {
 
 	root.SetArgs([]string{"nonexistent-command"})
 	passedArgValidation = false
+	defer func() { passedArgValidation = false }()
 	err := root.Execute()
 
 	if err == nil {
@@ -148,6 +150,7 @@ func TestVerboseHintShownForRuntimeErrors(t *testing.T) {
 
 	root.SetArgs([]string{})
 	passedArgValidation = false
+	defer func() { passedArgValidation = false }()
 	err := root.Execute()
 
 	if err == nil {

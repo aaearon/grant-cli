@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/cyberark/idsec-sdk-golang/pkg/models"
-	auth_models "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
-	common_models "github.com/cyberark/idsec-sdk-golang/pkg/models/common"
+	authmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
+	commonmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/common"
 	"github.com/cyberark/idsec-sdk-golang/pkg/profiles"
 )
 
@@ -22,9 +22,9 @@ func TestLoginCommand(t *testing.T) {
 		{
 			name: "successful authentication",
 			setupAuth: func() authenticator {
-				expiresIn := common_models.IdsecRFC3339Time(time.Now().Add(1 * time.Hour))
+				expiresIn := commonmodels.IdsecRFC3339Time(time.Now().Add(1 * time.Hour))
 				return &mockAuthenticator{
-					token: &auth_models.IdsecToken{
+					token: &authmodels.IdsecToken{
 						Token:     "test-jwt-token",
 						Username:  "test.user@example.com",
 						ExpiresIn: expiresIn,
@@ -71,10 +71,10 @@ func TestLoginCommand(t *testing.T) {
 			name: "token with no expiry",
 			setupAuth: func() authenticator {
 				return &mockAuthenticator{
-					token: &auth_models.IdsecToken{
+					token: &authmodels.IdsecToken{
 						Token:     "test-jwt-token",
 						Username:  "test.user@example.com",
-						ExpiresIn: common_models.IdsecRFC3339Time{},
+						ExpiresIn: commonmodels.IdsecRFC3339Time{},
 					},
 					authErr: nil,
 				}
@@ -96,11 +96,11 @@ func TestLoginCommand(t *testing.T) {
 			// Create a minimal profile file
 			profile := &models.IdsecProfile{
 				ProfileName: "grant",
-				AuthProfiles: map[string]*auth_models.IdsecAuthProfile{
+				AuthProfiles: map[string]*authmodels.IdsecAuthProfile{
 					"isp": {
 						Username:   "test.user@example.com",
-						AuthMethod: auth_models.Identity,
-						AuthMethodSettings: &auth_models.IdentityIdsecAuthMethodSettings{
+						AuthMethod: authmodels.Identity,
+						AuthMethodSettings: &authmodels.IdentityIdsecAuthMethodSettings{
 							IdentityURL:            "https://example.cyberark.cloud",
 							IdentityMFAMethod:      "",
 							IdentityMFAInteractive: true,

@@ -1,7 +1,7 @@
 # grant
 
 ## Project
-- **Language:** Go 1.24+
+- **Language:** Go 1.25+
 - **Module:** `github.com/aaearon/grant-cli`
 - **Sole dependency:** `github.com/cyberark/idsec-sdk-golang` — zero new Go module deps (all libs reused from SDK dep tree)
 
@@ -49,9 +49,8 @@ Custom `SCAAccessService` follows SDK conventions:
 - Test files co-located as `_test.go`
 
 ## CLI
-- `spf13/cobra` + `spf13/viper` for CLI framework
+- `spf13/cobra` for CLI framework
 - `Iilun/survey/v2` for interactive prompts
-- `fatih/color` for terminal output
 
 ## Verbose / Logging
 - `--verbose` / `-v` global flag wired via `PersistentPreRunE` in `cmd/root.go`

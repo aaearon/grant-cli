@@ -45,11 +45,6 @@ func GetFavorite(cfg *Config, name string) (Favorite, error) {
 	return fav, nil
 }
 
-// GetFavorite is a convenience method to retrieve a favorite by name.
-func (c *Config) GetFavorite(name string) (Favorite, error) {
-	return GetFavorite(c, name)
-}
-
 // ListFavorites returns all favorites sorted alphabetically by name.
 func ListFavorites(cfg *Config) []FavoriteEntry {
 	entries := make([]FavoriteEntry, 0, len(cfg.Favorites))

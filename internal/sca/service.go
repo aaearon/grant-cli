@@ -86,6 +86,19 @@ func (s *SCAAccessService) ServiceConfig() services.IdsecServiceConfig {
 	return ServiceConfig()
 }
 
+// checkResponse returns an error if the HTTP response status is not 200 OK.
+// It reads up to 4 KB of the response body to include in the error message.
+func checkResponse(resp *http.Response, operation string) error {
+	if resp.StatusCode == http.StatusOK {
+		return nil
+	}
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if readErr != nil {
+		body = []byte("(failed to read response body)")
+	}
+	return fmt.Errorf("%s failed with status %d: %s", operation, resp.StatusCode, string(body))
+}
+
 // ListEligibility retrieves eligible targets for the specified CSP.
 // GET /api/access/{CSP}/eligibility
 func (s *SCAAccessService) ListEligibility(ctx context.Context, csp models.CSP) (*models.EligibilityResponse, error) {
@@ -97,12 +110,8 @@ func (s *SCAAccessService) ListEligibility(ctx context.Context, csp models.CSP) 
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		body, readErr := io.ReadAll(resp.Body)
-		if readErr != nil {
-			body = []byte("(failed to read response body)")
-		}
-		return nil, fmt.Errorf("eligibility request failed with status %d: %s", resp.StatusCode, string(body))
+	if err := checkResponse(resp, "eligibility request"); err != nil {
+		return nil, err
 	}
 
 	var result models.EligibilityResponse
@@ -129,12 +138,8 @@ func (s *SCAAccessService) Elevate(ctx context.Context, req *models.ElevateReque
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		body, readErr := io.ReadAll(resp.Body)
-		if readErr != nil {
-			body = []byte("(failed to read response body)")
-		}
-		return nil, fmt.Errorf("elevate request failed with status %d: %s", resp.StatusCode, string(body))
+	if err := checkResponse(resp, "elevate request"); err != nil {
+		return nil, err
 	}
 
 	var result models.ElevateResponse
@@ -161,12 +166,8 @@ func (s *SCAAccessService) ListSessions(ctx context.Context, csp *models.CSP) (*
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		body, readErr := io.ReadAll(resp.Body)
-		if readErr != nil {
-			body = []byte("(failed to read response body)")
-		}
-		return nil, fmt.Errorf("sessions request failed with status %d: %s", resp.StatusCode, string(body))
+	if err := checkResponse(resp, "sessions request"); err != nil {
+		return nil, err
 	}
 
 	var result models.SessionsResponse

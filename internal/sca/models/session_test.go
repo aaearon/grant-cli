@@ -6,6 +6,7 @@ import (
 )
 
 func TestSessionInfo_JSONUnmarshal(t *testing.T) {
+	t.Parallel()
 	// Real API format: snake_case field names, role_id contains display name
 	jsonInput := `{
 		"session_id": "session-abc-123",
@@ -42,6 +43,7 @@ func TestSessionInfo_JSONUnmarshal(t *testing.T) {
 }
 
 func TestSessionsResponse_Multiple(t *testing.T) {
+	t.Parallel()
 	// Real API format with multiple sessions
 	jsonInput := `{
 		"response": [
@@ -115,6 +117,7 @@ func TestSessionsResponse_Multiple(t *testing.T) {
 }
 
 func TestSessionsResponse_Empty(t *testing.T) {
+	t.Parallel()
 	jsonInput := `{
 		"response": [],
 		"total": 0
@@ -139,6 +142,7 @@ func TestSessionsResponse_Empty(t *testing.T) {
 }
 
 func TestSessionInfo_RealAPIPayload(t *testing.T) {
+	t.Parallel()
 	// Exact payload captured from live SCA API on 2026-02-10
 	jsonInput := `{
 		"response": [

@@ -9,16 +9,11 @@ import (
 
 	"github.com/aaearon/grant-cli/internal/config"
 	"github.com/cyberark/idsec-sdk-golang/pkg/models"
-	auth_models "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
+	authmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
 	"github.com/cyberark/idsec-sdk-golang/pkg/profiles"
 	survey "github.com/Iilun/survey/v2"
 	"github.com/spf13/cobra"
 )
-
-// profileSaver interface for dependency injection
-type profileSaver interface {
-	SaveProfile(profile *models.IdsecProfile) error
-}
 
 // NewConfigureCommand creates the configure command
 func NewConfigureCommand() *cobra.Command {
@@ -39,7 +34,7 @@ MFA method selection is handled interactively during login.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Use the default file system profile loader
 			loader := &profiles.FileSystemProfilesLoader{}
-			return runConfigure(cmd, loader, "", "", "")
+			return runConfigure(cmd, loader, "", "")
 		},
 	}
 
@@ -47,21 +42,20 @@ MFA method selection is handled interactively during login.`,
 }
 
 // NewConfigureCommandWithDeps creates a configure command with injected dependencies for testing
-func NewConfigureCommandWithDeps(saver profileSaver, tenantURL, username, mfaMethod string) *cobra.Command {
+func NewConfigureCommandWithDeps(saver profileSaver, tenantURL, username string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "configure",
 		Short: "Configure grant with CyberArk tenant credentials",
 		Long:  "Configure grant by providing your CyberArk tenant URL and username.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Ignore mfaMethod parameter - always use empty string
-			return runConfigure(cmd, saver, tenantURL, username, "")
+			return runConfigure(cmd, saver, tenantURL, username)
 		},
 	}
 
 	return cmd
 }
 
-func runConfigure(cmd *cobra.Command, saver profileSaver, tenantURL, username, mfaMethod string) error {
+func runConfigure(cmd *cobra.Command, saver profileSaver, tenantURL, username string) error {
 	// Only prompt if values are not provided (interactive mode only when both are empty)
 	promptNeeded := tenantURL == "" && username == ""
 
@@ -94,11 +88,11 @@ func runConfigure(cmd *cobra.Command, saver profileSaver, tenantURL, username, m
 	profile := &models.IdsecProfile{
 		ProfileName:        "grant",
 		ProfileDescription: "SCA CLI Profile",
-		AuthProfiles: map[string]*auth_models.IdsecAuthProfile{
+		AuthProfiles: map[string]*authmodels.IdsecAuthProfile{
 			"isp": {
 				Username:   username,
-				AuthMethod: auth_models.Identity,
-				AuthMethodSettings: &auth_models.IdentityIdsecAuthMethodSettings{
+				AuthMethod: authmodels.Identity,
+				AuthMethodSettings: &authmodels.IdentityIdsecAuthMethodSettings{
 					IdentityURL:            tenantURL,
 					IdentityMFAMethod:      "", // Always empty - SDK handles MFA interactively
 					IdentityMFAInteractive: true,
@@ -130,7 +124,7 @@ func runConfigure(cmd *cobra.Command, saver profileSaver, tenantURL, username, m
 	// Save app config
 	cfgPath, err := config.ConfigPath()
 	if err != nil {
-		return fmt.Errorf("failed to determine config path: %w", err)
+		return err
 	}
 	if err := config.Save(cfg, cfgPath); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
@@ -163,8 +157,4 @@ func validateTenantURL(tenantURL string) error {
 	}
 
 	return nil
-}
-
-func init() {
-	rootCmd.AddCommand(NewConfigureCommand())
 }

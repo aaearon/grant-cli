@@ -217,6 +217,43 @@ func TestConfigDir_Error(t *testing.T) {
 	}
 }
 
+func TestLoadDefaultWithPath_Success(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	t.Setenv("GRANT_CONFIG", configPath)
+
+	cfg := DefaultConfig()
+	_ = Save(cfg, configPath)
+
+	loaded, path, err := LoadDefaultWithPath()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if path != configPath {
+		t.Errorf("path = %q, want %q", path, configPath)
+	}
+	if loaded.Profile != "grant" {
+		t.Errorf("profile = %q, want %q", loaded.Profile, "grant")
+	}
+}
+
+func TestLoadDefaultWithPath_FileNotFound(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "nonexistent", "config.yaml")
+	t.Setenv("GRANT_CONFIG", configPath)
+
+	cfg, path, err := LoadDefaultWithPath()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if path != configPath {
+		t.Errorf("path = %q, want %q", path, configPath)
+	}
+	if cfg.Profile != "grant" {
+		t.Errorf("expected default config, got profile = %q", cfg.Profile)
+	}
+}
+
 func TestConfigPath_Default(t *testing.T) {
 	t.Setenv("GRANT_CONFIG", "")
 

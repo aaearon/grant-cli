@@ -3,10 +3,11 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 
-	sca_models "github.com/aaearon/grant-cli/internal/sca/models"
+	scamodels "github.com/aaearon/grant-cli/internal/sca/models"
 	"github.com/cyberark/idsec-sdk-golang/pkg/models"
 	"github.com/spf13/cobra"
 )
@@ -61,7 +62,7 @@ func runStatus(cmd *cobra.Command, authLoader authLoader, sessionLister sessionL
 
 	// Parse provider filter if specified
 	provider, _ := cmd.Flags().GetString("provider")
-	var cspFilter *sca_models.CSP
+	var cspFilter *scamodels.CSP
 	if provider != "" {
 		csp, err := parseProvider(provider)
 		if err != nil {
@@ -71,7 +72,8 @@ func runStatus(cmd *cobra.Command, authLoader authLoader, sessionLister sessionL
 	}
 
 	// List sessions
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
+	defer cancel()
 	sessions, err := sessionLister.ListSessions(ctx, cspFilter)
 	if err != nil {
 		return fmt.Errorf("failed to list sessions: %w", err)
@@ -84,7 +86,7 @@ func runStatus(cmd *cobra.Command, authLoader authLoader, sessionLister sessionL
 	}
 
 	// Build workspace name map from eligibility data
-	nameMap := buildWorkspaceNameMap(ctx, eligLister, sessions.Response)
+	nameMap := buildWorkspaceNameMap(ctx, eligLister, sessions.Response, cmd.ErrOrStderr())
 
 	// Group sessions by provider
 	sessionsByProvider := groupSessionsByProvider(sessions.Response)
@@ -102,22 +104,22 @@ func runStatus(cmd *cobra.Command, authLoader authLoader, sessionLister sessionL
 }
 
 // parseProvider converts a provider string to a CSP enum
-func parseProvider(provider string) (sca_models.CSP, error) {
+func parseProvider(provider string) (scamodels.CSP, error) {
 	switch strings.ToUpper(provider) {
 	case "AZURE":
-		return sca_models.CSPAzure, nil
+		return scamodels.CSPAzure, nil
 	case "AWS":
-		return sca_models.CSPAWS, nil
+		return scamodels.CSPAWS, nil
 	case "GCP":
-		return sca_models.CSPGCP, nil
+		return scamodels.CSPGCP, nil
 	default:
 		return "", fmt.Errorf("invalid provider %q: must be one of: azure, aws, gcp", provider)
 	}
 }
 
 // groupSessionsByProvider groups sessions by their CSP
-func groupSessionsByProvider(sessions []sca_models.SessionInfo) map[string][]sca_models.SessionInfo {
-	grouped := make(map[string][]sca_models.SessionInfo)
+func groupSessionsByProvider(sessions []scamodels.SessionInfo) map[string][]scamodels.SessionInfo {
+	grouped := make(map[string][]scamodels.SessionInfo)
 	for _, session := range sessions {
 		providerName := string(session.CSP)
 		grouped[providerName] = append(grouped[providerName], session)
@@ -126,7 +128,7 @@ func groupSessionsByProvider(sessions []sca_models.SessionInfo) map[string][]sca
 }
 
 // sortedProviders returns provider names in sorted order
-func sortedProviders(sessionsByProvider map[string][]sca_models.SessionInfo) []string {
+func sortedProviders(sessionsByProvider map[string][]scamodels.SessionInfo) []string {
 	providers := make([]string, 0, len(sessionsByProvider))
 	for provider := range sessionsByProvider {
 		providers = append(providers, provider)
@@ -152,19 +154,25 @@ func formatProviderName(provider string) string {
 // buildWorkspaceNameMap fetches eligibility for each unique CSP in sessions
 // and builds a workspaceID -> workspaceName map. Errors are silently ignored
 // (graceful degradation — the raw workspace ID is shown as fallback).
-func buildWorkspaceNameMap(ctx context.Context, eligLister eligibilityLister, sessions []sca_models.SessionInfo) map[string]string {
+func buildWorkspaceNameMap(ctx context.Context, eligLister eligibilityLister, sessions []scamodels.SessionInfo, errWriter io.Writer) map[string]string {
 	nameMap := make(map[string]string)
 
 	// Collect unique CSPs
-	csps := make(map[sca_models.CSP]bool)
+	csps := make(map[scamodels.CSP]bool)
 	for _, s := range sessions {
 		csps[s.CSP] = true
 	}
 
 	// Fetch eligibility for each CSP
 	for csp := range csps {
+		if ctx.Err() != nil {
+			break
+		}
 		resp, err := eligLister.ListEligibility(ctx, csp)
 		if err != nil || resp == nil {
+			if verbose && err != nil {
+				fmt.Fprintf(errWriter, "Warning: failed to fetch names for %s: %v\n", csp, err)
+			}
 			continue
 		}
 		for _, target := range resp.Response {
@@ -181,7 +189,7 @@ func buildWorkspaceNameMap(ctx context.Context, eligLister eligibilityLister, se
 // The live API's role_id field contains the role display name (e.g., "User Access Administrator").
 // workspace_id contains the ARM resource path. If a friendly name is available from
 // the eligibility API, it is shown as "name (path)"; otherwise the raw path is shown.
-func formatSession(session sca_models.SessionInfo, nameMap map[string]string) string {
+func formatSession(session scamodels.SessionInfo, nameMap map[string]string) string {
 	durationMin := session.SessionDuration / 60
 	var durationStr string
 	if durationMin >= 60 {
@@ -196,8 +204,4 @@ func formatSession(session sca_models.SessionInfo, nameMap map[string]string) st
 	}
 
 	return fmt.Sprintf("%s on %s - duration: %s", session.RoleID, workspace, durationStr)
-}
-
-func init() {
-	rootCmd.AddCommand(NewStatusCommand())
 }

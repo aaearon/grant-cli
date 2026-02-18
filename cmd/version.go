@@ -18,13 +18,13 @@ func NewVersionCommand() *cobra.Command {
 		Use:   "version",
 		Short: "Print version information",
 		Long:  "Print the version, commit hash, and build date of grant",
-		Run: func(cmd *cobra.Command, args []string) {
-			printVersion(cmd)
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return printVersion(cmd)
 		},
 	}
 }
 
-func printVersion(cmd *cobra.Command) {
+func printVersion(cmd *cobra.Command) error {
 	v := version
 	if v == "" {
 		v = "dev"
@@ -41,8 +41,5 @@ func printVersion(cmd *cobra.Command) {
 	}
 
 	fmt.Fprintf(cmd.OutOrStdout(), "grant version %s\ncommit: %s\nbuilt: %s\n", v, c, d)
-}
-
-func init() {
-	rootCmd.AddCommand(NewVersionCommand())
+	return nil
 }

@@ -6,6 +6,7 @@ import (
 )
 
 func TestAzureEligibleTarget_JSONUnmarshal(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name            string
 		jsonInput       string
@@ -58,6 +59,7 @@ func TestAzureEligibleTarget_JSONUnmarshal(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			var target AzureEligibleTarget
 			if err := json.Unmarshal([]byte(tt.jsonInput), &target); err != nil {
 				t.Fatalf("unexpected unmarshal error: %v", err)
@@ -86,6 +88,7 @@ func TestAzureEligibleTarget_JSONUnmarshal(t *testing.T) {
 }
 
 func TestAzureEligibleTarget_JSONUnmarshal_RoleFieldFallback(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name         string
 		jsonInput    string
@@ -129,6 +132,7 @@ func TestAzureEligibleTarget_JSONUnmarshal_RoleFieldFallback(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			var target AzureEligibleTarget
 			if err := json.Unmarshal([]byte(tt.jsonInput), &target); err != nil {
 				t.Fatalf("unexpected unmarshal error: %v", err)
@@ -148,6 +152,7 @@ func TestAzureEligibleTarget_JSONUnmarshal_RoleFieldFallback(t *testing.T) {
 }
 
 func TestEligibilityResponse_Pagination(t *testing.T) {
+	t.Parallel()
 	jsonInput := `{
 		"response": [
 			{
@@ -206,6 +211,7 @@ func TestEligibilityResponse_Pagination(t *testing.T) {
 }
 
 func TestEligibilityResponse_Empty(t *testing.T) {
+	t.Parallel()
 	jsonInput := `{
 		"response": [],
 		"total": 0
@@ -230,6 +236,7 @@ func TestEligibilityResponse_Empty(t *testing.T) {
 }
 
 func TestWorkspaceType_Values(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		constant WorkspaceType
 		want     string
@@ -243,6 +250,7 @@ func TestWorkspaceType_Values(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.want, func(t *testing.T) {
+			t.Parallel()
 			if string(tt.constant) != tt.want {
 				t.Errorf("WorkspaceType constant = %q, want %q", tt.constant, tt.want)
 			}
@@ -251,6 +259,7 @@ func TestWorkspaceType_Values(t *testing.T) {
 }
 
 func TestCSP_Values(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		constant CSP
 		want     string
@@ -262,6 +271,7 @@ func TestCSP_Values(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.want, func(t *testing.T) {
+			t.Parallel()
 			if string(tt.constant) != tt.want {
 				t.Errorf("CSP constant = %q, want %q", tt.constant, tt.want)
 			}

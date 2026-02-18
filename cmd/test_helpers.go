@@ -1,3 +1,5 @@
+// NOTE: Do not use t.Parallel() in cmd/ tests due to package-level state
+// (verbose, passedArgValidation) that is mutated during test execution.
 package cmd
 
 import (
@@ -33,4 +35,20 @@ func executeCommand(cmd *cobra.Command, args ...string) (string, error) {
 		buf.WriteString(err.Error() + "\n")
 	}
 	return buf.String(), err
+}
+
+// executeWithHint simulates Execute() logic without os.Exit, returning the error output.
+// Used for testing the verbose hint behavior.
+func executeWithHint(cmd *cobra.Command, args []string) string {
+	passedArgValidation = false
+	cmd.SetArgs(args)
+	err := cmd.Execute()
+	if err == nil {
+		return ""
+	}
+	out := err.Error() + "\n"
+	if !verbose && passedArgValidation {
+		out += "Hint: re-run with --verbose for more details\n"
+	}
+	return out
 }

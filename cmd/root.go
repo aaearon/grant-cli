@@ -5,19 +5,26 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/aaearon/grant-cli/internal/config"
 	"github.com/aaearon/grant-cli/internal/sca"
 	"github.com/aaearon/grant-cli/internal/sca/models"
 	"github.com/aaearon/grant-cli/internal/ui"
 	"github.com/cyberark/idsec-sdk-golang/pkg/auth"
-	sdk_config "github.com/cyberark/idsec-sdk-golang/pkg/config"
-	sdk_models "github.com/cyberark/idsec-sdk-golang/pkg/models"
-	auth_models "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
+	sdkconfig "github.com/cyberark/idsec-sdk-golang/pkg/config"
+	sdkmodels "github.com/cyberark/idsec-sdk-golang/pkg/models"
+	authmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
 	"github.com/cyberark/idsec-sdk-golang/pkg/profiles"
 	"github.com/spf13/cobra"
 )
 
+// apiTimeout is the default timeout for SCA API requests.
+const apiTimeout = 30 * time.Second
+
+// verbose and passedArgValidation are package-level by design: the CLI binary
+// runs a single command per process, so there is no concurrent access.
+// They are NOT safe for concurrent use and must not be shared across goroutines.
 var verbose bool
 
 // passedArgValidation is set to true in PersistentPreRunE.
@@ -65,9 +72,9 @@ Examples:
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			passedArgValidation = true
 			if verbose {
-				sdk_config.EnableVerboseLogging("INFO")
+				sdkconfig.EnableVerboseLogging("INFO")
 			} else {
-				sdk_config.DisableVerboseLogging()
+				sdkconfig.DisableVerboseLogging()
 			}
 			return nil
 		},
@@ -80,13 +87,16 @@ Examples:
 	cmd.Flags().StringP("role", "r", "", "Role name")
 	cmd.Flags().StringP("favorite", "f", "", "Use a saved favorite (see 'grant favorites list')")
 
+	cmd.MarkFlagsMutuallyExclusive("favorite", "target")
+	cmd.MarkFlagsMutuallyExclusive("favorite", "role")
+
 	return cmd
 }
 
 var rootCmd = newRootCommand(runElevateProduction)
 
 // bootstrapSCAService loads the profile, authenticates, and creates the SCA service.
-func bootstrapSCAService() (auth.IdsecAuth, *sca.SCAAccessService, *sdk_models.IdsecProfile, error) {
+func bootstrapSCAService() (auth.IdsecAuth, *sca.SCAAccessService, *sdkmodels.IdsecProfile, error) {
 	loader := profiles.DefaultProfilesLoader()
 	profile, err := (*loader).LoadProfile("grant")
 	if err != nil {
@@ -95,7 +105,7 @@ func bootstrapSCAService() (auth.IdsecAuth, *sca.SCAAccessService, *sdk_models.I
 
 	ispAuth := auth.NewIdsecISPAuth(true)
 
-	_, err = ispAuth.Authenticate(profile, nil, &auth_models.IdsecSecret{Secret: ""}, false, true)
+	_, err = ispAuth.Authenticate(profile, nil, &authmodels.IdsecSecret{Secret: ""}, false, true)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("authentication failed: %w", err)
 	}
@@ -108,22 +118,23 @@ func bootstrapSCAService() (auth.IdsecAuth, *sca.SCAAccessService, *sdk_models.I
 	return ispAuth, svc, profile, nil
 }
 
-// runElevateProduction is the production RunE for the root command
-func runElevateProduction(cmd *cobra.Command, args []string) error {
+// parseElevateFlags reads the elevation flags from the command.
+func parseElevateFlags(cmd *cobra.Command) *elevateFlags {
 	flags := &elevateFlags{}
 	flags.provider, _ = cmd.Flags().GetString("provider")
 	flags.target, _ = cmd.Flags().GetString("target")
 	flags.role, _ = cmd.Flags().GetString("role")
 	flags.favorite, _ = cmd.Flags().GetString("favorite")
+	return flags
+}
 
-	// Load config
-	cfgPath, err := config.ConfigPath()
+// runElevateProduction is the production RunE for the root command
+func runElevateProduction(cmd *cobra.Command, args []string) error {
+	flags := parseElevateFlags(cmd)
+
+	cfg, _, err := config.LoadDefaultWithPath()
 	if err != nil {
-		return fmt.Errorf("failed to determine config path: %w", err)
-	}
-	cfg, err := config.Load(cfgPath)
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+		return err
 	}
 
 	ispAuth, scaService, profile, err := bootstrapSCAService()
@@ -134,8 +145,10 @@ func runElevateProduction(cmd *cobra.Command, args []string) error {
 	return runElevateWithDeps(cmd, flags, profile, ispAuth, scaService, scaService, &uiSelector{}, cfg)
 }
 
-// NewRootCommandWithDeps creates a root command with injected dependencies for testing
+// NewRootCommandWithDeps creates a root command with injected dependencies for testing.
+// It accepts a pre-loaded profile to avoid filesystem access during tests.
 func NewRootCommandWithDeps(
+	profile *sdkmodels.IdsecProfile,
 	authLoader authLoader,
 	eligibilityLister eligibilityLister,
 	elevateService elevateService,
@@ -143,19 +156,7 @@ func NewRootCommandWithDeps(
 	cfg *config.Config,
 ) *cobra.Command {
 	return newRootCommand(func(cmd *cobra.Command, args []string) error {
-		flags := &elevateFlags{}
-		flags.provider, _ = cmd.Flags().GetString("provider")
-		flags.target, _ = cmd.Flags().GetString("target")
-		flags.role, _ = cmd.Flags().GetString("role")
-		flags.favorite, _ = cmd.Flags().GetString("favorite")
-
-		// Load SDK profile
-		loader := profiles.DefaultProfilesLoader()
-		profile, err := (*loader).LoadProfile(cfg.Profile)
-		if err != nil {
-			return fmt.Errorf("failed to load profile: %w", err)
-		}
-
+		flags := parseElevateFlags(cmd)
 		return runElevateWithDeps(cmd, flags, profile, authLoader, eligibilityLister, elevateService, selector, cfg)
 	})
 }
@@ -163,46 +164,31 @@ func NewRootCommandWithDeps(
 func Execute() {
 	passedArgValidation = false
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(rootCmd.ErrOrStderr(), err)
 		if !verbose && passedArgValidation {
-			fmt.Fprintln(os.Stderr, "Hint: re-run with --verbose for more details")
+			fmt.Fprintln(rootCmd.ErrOrStderr(), "Hint: re-run with --verbose for more details")
 		}
 		os.Exit(1)
 	}
 }
 
-// executeWithHint simulates Execute() logic without os.Exit, returning the error output.
-// Used for testing the verbose hint behavior.
-func executeWithHint(cmd *cobra.Command, args []string) string {
-	passedArgValidation = false
-	cmd.SetArgs(args)
-	err := cmd.Execute()
-	if err == nil {
-		return ""
-	}
-	out := err.Error() + "\n"
-	if !verbose && passedArgValidation {
-		out += "Hint: re-run with --verbose for more details\n"
-	}
-	return out
-}
-
 func runElevateWithDeps(
 	cmd *cobra.Command,
 	flags *elevateFlags,
-	profile *sdk_models.IdsecProfile,
+	profile *sdkmodels.IdsecProfile,
 	authLoader authLoader,
 	eligibilityLister eligibilityLister,
 	elevateService elevateService,
 	selector targetSelector,
 	cfg *config.Config,
 ) error {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
+	defer cancel()
 
 	// Check authentication state
 	_, err := authLoader.LoadAuthentication(profile, true)
 	if err != nil {
-		return fmt.Errorf("not authenticated, run 'grant login' first")
+		return fmt.Errorf("not authenticated, run 'grant login' first: %w", err)
 	}
 
 	// Determine execution mode
@@ -213,7 +199,7 @@ func runElevateWithDeps(
 	if flags.favorite != "" {
 		// Favorite mode
 		isFavoriteMode = true
-		fav, err := cfg.GetFavorite(flags.favorite)
+		fav, err := config.GetFavorite(cfg, flags.favorite)
 		if err != nil {
 			return fmt.Errorf("favorite %q not found, run 'grant favorites list'", flags.favorite)
 		}
@@ -250,11 +236,6 @@ func runElevateWithDeps(
 
 	// Convert provider to CSP
 	csp := models.CSP(strings.ToUpper(provider))
-
-	// Check if eligibilityLister is available
-	if eligibilityLister == nil {
-		return fmt.Errorf("eligibility service not available")
-	}
 
 	// Fetch eligibility list
 	eligibilityResp, err := eligibilityLister.ListEligibility(ctx, csp)

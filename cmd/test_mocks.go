@@ -4,18 +4,18 @@ import (
 	"context"
 
 	"github.com/aaearon/grant-cli/internal/sca/models"
-	sdk_models "github.com/cyberark/idsec-sdk-golang/pkg/models"
-	auth_models "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
+	sdkmodels "github.com/cyberark/idsec-sdk-golang/pkg/models"
+	authmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
 )
 
 // mockAuthLoader implements the authLoader interface for testing
 type mockAuthLoader struct {
-	loadFunc func(profile *sdk_models.IdsecProfile, cacheAuthentication bool) (*auth_models.IdsecToken, error)
-	token    *auth_models.IdsecToken
+	loadFunc func(profile *sdkmodels.IdsecProfile, cacheAuthentication bool) (*authmodels.IdsecToken, error)
+	token    *authmodels.IdsecToken
 	loadErr  error
 }
 
-func (m *mockAuthLoader) LoadAuthentication(profile *sdk_models.IdsecProfile, cacheAuthentication bool) (*auth_models.IdsecToken, error) {
+func (m *mockAuthLoader) LoadAuthentication(profile *sdkmodels.IdsecProfile, cacheAuthentication bool) (*authmodels.IdsecToken, error) {
 	if m.loadFunc != nil {
 		return m.loadFunc(profile, cacheAuthentication)
 	}
@@ -80,12 +80,12 @@ func (m *mockTargetSelector) SelectTarget(targets []models.AzureEligibleTarget) 
 
 // mockAuthenticator implements the authenticator interface for testing
 type mockAuthenticator struct {
-	authenticateFunc func(profile *sdk_models.IdsecProfile, authProfile *auth_models.IdsecAuthProfile, secret *auth_models.IdsecSecret, force bool, refreshAuth bool) (*auth_models.IdsecToken, error)
-	token            *auth_models.IdsecToken
+	authenticateFunc func(profile *sdkmodels.IdsecProfile, authProfile *authmodels.IdsecAuthProfile, secret *authmodels.IdsecSecret, force bool, refreshAuth bool) (*authmodels.IdsecToken, error)
+	token            *authmodels.IdsecToken
 	authErr          error
 }
 
-func (m *mockAuthenticator) Authenticate(profile *sdk_models.IdsecProfile, authProfile *auth_models.IdsecAuthProfile, secret *auth_models.IdsecSecret, force bool, refreshAuth bool) (*auth_models.IdsecToken, error) {
+func (m *mockAuthenticator) Authenticate(profile *sdkmodels.IdsecProfile, authProfile *authmodels.IdsecAuthProfile, secret *authmodels.IdsecSecret, force bool, refreshAuth bool) (*authmodels.IdsecToken, error) {
 	if m.authenticateFunc != nil {
 		return m.authenticateFunc(profile, authProfile, secret, force, refreshAuth)
 	}
@@ -94,11 +94,11 @@ func (m *mockAuthenticator) Authenticate(profile *sdk_models.IdsecProfile, authP
 
 // mockProfileSaver implements profileSaver interface for testing
 type mockProfileSaver struct {
-	saveFunc func(*sdk_models.IdsecProfile) error
+	saveFunc func(*sdkmodels.IdsecProfile) error
 	saveErr  error
 }
 
-func (m *mockProfileSaver) SaveProfile(profile *sdk_models.IdsecProfile) error {
+func (m *mockProfileSaver) SaveProfile(profile *sdkmodels.IdsecProfile) error {
 	if m.saveFunc != nil {
 		return m.saveFunc(profile)
 	}
