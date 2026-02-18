@@ -75,6 +75,11 @@ func runFavoritesAddProduction(cmd *cobra.Command, args []string) error {
 		return runFavoritesAddWithDeps(cmd, args, nil, nil)
 	}
 
+	// Validate: partial flags are always an error (fast fail before auth)
+	if (target != "" && role == "") || (target == "" && role != "") {
+		return fmt.Errorf("both --target and --role must be provided")
+	}
+
 	// Interactive path: check duplicate before auth (fast fail)
 	name := args[0]
 	cfgPath, err := config.ConfigPath()
