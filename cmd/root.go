@@ -243,9 +243,7 @@ func fetchEligibility(ctx context.Context, eligLister eligibilityLister, provide
 		return nil, fmt.Errorf("no eligible %s targets found, check your SCA policies", strings.ToLower(provider))
 	}
 	targets := make([]models.EligibleTarget, len(resp.Response))
-	for i, t := range resp.Response {
-		targets[i] = t
-	}
+	copy(targets, resp.Response)
 	return targets, nil
 }
 
