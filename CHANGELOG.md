@@ -6,6 +6,17 @@ All notable changes to this project will be documented in this file.
 
 ### Refactored
 
+- Accept `*IdsecProfile` directly in `NewRootCommandWithDeps` to eliminate filesystem access during tests
+- Wrap original error in authentication check (`runElevateWithDeps`) instead of discarding it
+- Extract `checkResponse` helper in SCA service to deduplicate HTTP error handling across 3 endpoints
+- Add safety comments about package-level state and `t.Parallel()` restriction in `cmd/` tests
+
+### Fixed
+
+- CLAUDE.md documenting Go 1.24+ when `go.mod` requires Go 1.25+
+
+### Previously Refactored
+
 - Remove dead `mfaMethod` parameter from configure command signatures
 - Remove inconsistent nil check for `eligibilityLister` in root command
 - Rename snake_case import aliases to Go-idiomatic single-word style (`sdkconfig`, `sdkmodels`, `authmodels`, `scamodels`, `commonmodels`)

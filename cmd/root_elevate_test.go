@@ -119,7 +119,7 @@ func TestRootElevate_InteractiveMode(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			authLoader, eligibilityLister, elevateService, selector, cfg := tt.setupMocks()
 
-			cmd := NewRootCommandWithDeps(authLoader, eligibilityLister, elevateService, selector, cfg)
+			cmd := NewRootCommandWithDeps(nil, authLoader, eligibilityLister, elevateService, selector, cfg)
 
 			output, err := executeCommand(cmd, tt.args...)
 
@@ -345,7 +345,7 @@ func TestRootElevate_DirectMode(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			authLoader, eligibilityLister, elevateService, cfg := tt.setupMocks()
 
-			cmd := NewRootCommandWithDeps(authLoader, eligibilityLister, elevateService, nil, cfg)
+			cmd := NewRootCommandWithDeps(nil, authLoader, eligibilityLister, elevateService, nil, cfg)
 
 			output, err := executeCommand(cmd, tt.args...)
 
@@ -479,7 +479,7 @@ func TestRootElevate_FavoriteMode(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			authLoader, eligibilityLister, elevateService, cfg := tt.setupMocks()
 
-			cmd := NewRootCommandWithDeps(authLoader, eligibilityLister, elevateService, nil, cfg)
+			cmd := NewRootCommandWithDeps(nil, authLoader, eligibilityLister, elevateService, nil, cfg)
 
 			output, err := executeCommand(cmd, tt.args...)
 
@@ -566,7 +566,7 @@ func TestRootElevate_ProviderValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			authLoader, eligibilityLister, cfg := tt.setupMocks()
 
-			cmd := NewRootCommandWithDeps(authLoader, eligibilityLister, nil, nil, cfg)
+			cmd := NewRootCommandWithDeps(nil, authLoader, eligibilityLister, nil, nil, cfg)
 
 			output, err := executeCommand(cmd, tt.args...)
 
@@ -607,6 +607,7 @@ func TestRootElevate_AuthenticationErrors(t *testing.T) {
 			wantContain: []string{
 				"not authenticated",
 				"run 'grant login' first",
+				"no cached token",
 			},
 			wantErr: true,
 		},
@@ -616,7 +617,7 @@ func TestRootElevate_AuthenticationErrors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			authLoader, cfg := tt.setupMocks()
 
-			cmd := NewRootCommandWithDeps(authLoader, nil, nil, nil, cfg)
+			cmd := NewRootCommandWithDeps(nil, authLoader, nil, nil, nil, cfg)
 
 			output, err := executeCommand(cmd, tt.args...)
 
@@ -730,7 +731,7 @@ func TestRootElevate_ElevationErrors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			authLoader, eligibilityLister, elevateService, cfg := tt.setupMocks()
 
-			cmd := NewRootCommandWithDeps(authLoader, eligibilityLister, elevateService, nil, cfg)
+			cmd := NewRootCommandWithDeps(nil, authLoader, eligibilityLister, elevateService, nil, cfg)
 
 			output, err := executeCommand(cmd, tt.args...)
 
@@ -752,7 +753,7 @@ func TestRootElevate_ElevationErrors(t *testing.T) {
 
 func TestRootElevate_UsageAndFlags(t *testing.T) {
 	cfg := config.DefaultConfig()
-	cmd := NewRootCommandWithDeps(&mockAuthLoader{}, nil, nil, nil, cfg)
+	cmd := NewRootCommandWithDeps(nil, &mockAuthLoader{}, nil, nil, nil, cfg)
 
 	// Verify command metadata
 	if cmd.Use != "grant" {

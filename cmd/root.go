@@ -145,8 +145,10 @@ func runElevateProduction(cmd *cobra.Command, args []string) error {
 	return runElevateWithDeps(cmd, flags, profile, ispAuth, scaService, scaService, &uiSelector{}, cfg)
 }
 
-// NewRootCommandWithDeps creates a root command with injected dependencies for testing
+// NewRootCommandWithDeps creates a root command with injected dependencies for testing.
+// It accepts a pre-loaded profile to avoid filesystem access during tests.
 func NewRootCommandWithDeps(
+	profile *sdkmodels.IdsecProfile,
 	authLoader authLoader,
 	eligibilityLister eligibilityLister,
 	elevateService elevateService,
@@ -155,14 +157,6 @@ func NewRootCommandWithDeps(
 ) *cobra.Command {
 	return newRootCommand(func(cmd *cobra.Command, args []string) error {
 		flags := parseElevateFlags(cmd)
-
-		// Load SDK profile
-		loader := profiles.DefaultProfilesLoader()
-		profile, err := (*loader).LoadProfile(cfg.Profile)
-		if err != nil {
-			return fmt.Errorf("failed to load profile: %w", err)
-		}
-
 		return runElevateWithDeps(cmd, flags, profile, authLoader, eligibilityLister, elevateService, selector, cfg)
 	})
 }
@@ -194,7 +188,7 @@ func runElevateWithDeps(
 	// Check authentication state
 	_, err := authLoader.LoadAuthentication(profile, true)
 	if err != nil {
-		return fmt.Errorf("not authenticated, run 'grant login' first")
+		return fmt.Errorf("not authenticated, run 'grant login' first: %w", err)
 	}
 
 	// Determine execution mode

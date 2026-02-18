@@ -1,3 +1,5 @@
+// NOTE: Do not use t.Parallel() in cmd/ tests due to package-level state
+// (verbose, passedArgValidation) that is mutated during test execution.
 package cmd
 
 import (

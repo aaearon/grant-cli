@@ -1,7 +1,7 @@
 # grant
 
 ## Project
-- **Language:** Go 1.24+
+- **Language:** Go 1.25+
 - **Module:** `github.com/aaearon/grant-cli`
 - **Sole dependency:** `github.com/cyberark/idsec-sdk-golang` — zero new Go module deps (all libs reused from SDK dep tree)
 
