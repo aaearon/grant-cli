@@ -21,5 +21,8 @@ func ParseAWSCredentials(s string) (*AWSCredentials, error) {
 	if err := json.Unmarshal([]byte(s), &creds); err != nil {
 		return nil, fmt.Errorf("failed to parse AWS credentials: %w", err)
 	}
+	if creds.AccessKeyID == "" || creds.SecretAccessKey == "" || creds.SessionToken == "" {
+		return nil, fmt.Errorf("incomplete AWS credentials: missing required fields")
+	}
 	return &creds, nil
 }

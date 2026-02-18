@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -185,6 +186,9 @@ func fetchEligibility(ctx context.Context, eligLister eligibilityLister, provide
 		for _, csp := range supportedCSPs {
 			resp, err := eligLister.ListEligibility(ctx, csp)
 			if err != nil {
+				if verbose {
+					fmt.Fprintf(os.Stderr, "[verbose] %s eligibility query failed: %v\n", csp, err)
+				}
 				continue
 			}
 			for _, t := range resp.Response {
@@ -198,14 +202,14 @@ func fetchEligibility(ctx context.Context, eligLister eligibilityLister, provide
 		return all, nil
 	}
 
-	switch strings.ToLower(provider) {
-	case "azure", "aws":
-		// supported
-	default:
-		return nil, fmt.Errorf("provider %q is not supported, supported providers: azure, aws", provider)
-	}
-
 	csp := models.CSP(strings.ToUpper(provider))
+	if !slices.Contains(supportedCSPs, csp) {
+		var names []string
+		for _, s := range supportedCSPs {
+			names = append(names, strings.ToLower(string(s)))
+		}
+		return nil, fmt.Errorf("provider %q is not supported, supported providers: %s", provider, strings.Join(names, ", "))
+	}
 	resp, err := eligLister.ListEligibility(ctx, csp)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch eligible targets: %w", err)

@@ -13,6 +13,17 @@ All notable changes to this project will be documented in this file.
 - `WorkspaceTypeAccount` workspace type for AWS accounts
 - `AWSCredentials` model for parsing `accessCredentials` response
 
+### Fixed
+
+- Validate AWS credential fields are non-empty in `ParseAWSCredentials()` — prevents silent empty exports
+- Provider validation in `fetchEligibility()` now uses `supportedCSPs` instead of hardcoded switch
+- Log per-CSP eligibility errors in verbose mode when `--provider` is omitted
+
+### Removed
+
+- Unused `CSPGCP` constant (re-add when GCP is implemented)
+- GCP references from `grant status` provider flag help and `parseProvider()`
+
 ### Changed
 
 - Renamed `AzureEligibleTarget` to `EligibleTarget` (CSP-agnostic)

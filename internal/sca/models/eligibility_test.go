@@ -286,7 +286,6 @@ func TestCSP_Values(t *testing.T) {
 	}{
 		{CSPAzure, "AZURE"},
 		{CSPAWS, "AWS"},
-		{CSPGCP, "GCP"},
 	}
 
 	for _, tt := range tests {

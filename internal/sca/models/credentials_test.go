@@ -70,6 +70,16 @@ func TestParseAWSCredentials(t *testing.T) {
 			input:   `{not json}`,
 			wantErr: true,
 		},
+		{
+			name:    "empty credential fields",
+			input:   `{"aws_access_key":"","aws_secret_access_key":"","aws_session_token":""}`,
+			wantErr: true,
+		},
+		{
+			name:    "partial credential fields - missing session token",
+			input:   `{"aws_access_key":"AKIA","aws_secret_access_key":"secret","aws_session_token":""}`,
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
