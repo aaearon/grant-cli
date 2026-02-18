@@ -37,3 +37,8 @@ type sessionLister interface {
 type keyringClearer interface {
 	ClearAllPasswords() error
 }
+
+// namePrompter interface for prompting the user for a favorite name
+type namePrompter interface {
+	PromptName() (string, error)
+}

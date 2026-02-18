@@ -45,13 +45,13 @@ func TestFavoritesListCommand(t *testing.T) {
 				cfg := config.DefaultConfig()
 				_ = config.Save(cfg, path)
 			},
-			wantContain: []string{"No favorites saved"},
+			wantContain: []string{"No favorites saved", "grant favorites add"},
 			wantErr:     false,
 		},
 		{
 			name:        "list with no config file",
 			setupConfig: func(path string) {},
-			wantContain: []string{"No favorites saved"},
+			wantContain: []string{"No favorites saved", "grant favorites add"},
 			wantErr:     false,
 		},
 	}
@@ -125,8 +125,9 @@ func TestFavoritesRemoveCommand(t *testing.T) {
 				cfg := config.DefaultConfig()
 				_ = config.Save(cfg, path)
 			},
-			args:    []string{},
-			wantErr: true,
+			args:        []string{},
+			wantErr:     true,
+			wantContain: []string{"requires a favorite name", "grant favorites list"},
 		},
 	}
 
@@ -170,13 +171,14 @@ func TestFavoritesAddCommand(t *testing.T) {
 		wantContain []string
 	}{
 		{
-			name: "add without name argument",
+			name: "add without name in non-interactive mode requires name",
 			setupConfig: func(path string) {
 				cfg := config.DefaultConfig()
 				_ = config.Save(cfg, path)
 			},
-			args:    []string{},
-			wantErr: true,
+			args:        []string{"--target", "sub-123", "--role", "Contributor"},
+			wantErr:     true,
+			wantContain: []string{"name is required"},
 		},
 		{
 			name: "add duplicate favorite name",
@@ -407,13 +409,14 @@ func TestFavoritesAddInteractiveMode(t *testing.T) {
 	}
 
 	tests := []struct {
-		name        string
-		setupConfig func(string)
-		eligLister  eligibilityLister
-		selector    targetSelector
-		args        []string
-		wantContain []string
-		wantErr     bool
+		name         string
+		setupConfig  func(string)
+		eligLister   eligibilityLister
+		selector     targetSelector
+		namePrompter namePrompter
+		args         []string
+		wantContain  []string
+		wantErr      bool
 	}{
 		{
 			name: "success - selects target from eligibility",
@@ -552,6 +555,83 @@ func TestFavoritesAddInteractiveMode(t *testing.T) {
 			wantContain: []string{"Added favorite", "myfav", "azure/sub-123/Contributor"},
 			wantErr:     false,
 		},
+		{
+			name: "no name - interactive prompts for name after selection",
+			setupConfig: func(path string) {
+				cfg := config.DefaultConfig()
+				_ = config.Save(cfg, path)
+			},
+			eligLister: &mockEligibilityLister{
+				response: &models.EligibilityResponse{
+					Response: twoTargets,
+					Total:    2,
+				},
+			},
+			selector: &mockTargetSelector{
+				target: &twoTargets[0],
+			},
+			namePrompter: &mockNamePrompter{name: "my-fav"},
+			args:         []string{},
+			wantContain:  []string{"Added favorite", "my-fav", "azure/Prod-EastUS/Contributor"},
+			wantErr:      false,
+		},
+		{
+			name: "no name - prompted name is duplicate",
+			setupConfig: func(path string) {
+				cfg := config.DefaultConfig()
+				_ = config.AddFavorite(cfg, "existing", config.Favorite{
+					Provider: "azure",
+					Target:   "sub-old",
+					Role:     "Reader",
+				})
+				_ = config.Save(cfg, path)
+			},
+			eligLister: &mockEligibilityLister{
+				response: &models.EligibilityResponse{
+					Response: twoTargets,
+					Total:    2,
+				},
+			},
+			selector: &mockTargetSelector{
+				target: &twoTargets[0],
+			},
+			namePrompter: &mockNamePrompter{name: "existing"},
+			args:         []string{},
+			wantContain:  []string{"already exists"},
+			wantErr:      true,
+		},
+		{
+			name: "no name - prompter error",
+			setupConfig: func(path string) {
+				cfg := config.DefaultConfig()
+				_ = config.Save(cfg, path)
+			},
+			eligLister: &mockEligibilityLister{
+				response: &models.EligibilityResponse{
+					Response: twoTargets,
+					Total:    2,
+				},
+			},
+			selector: &mockTargetSelector{
+				target: &twoTargets[0],
+			},
+			namePrompter: &mockNamePrompter{promptErr: errors.New("user cancelled")},
+			args:         []string{},
+			wantContain:  []string{"failed to read favorite name"},
+			wantErr:      true,
+		},
+		{
+			name: "no name with flags - non-interactive requires name",
+			setupConfig: func(path string) {
+				cfg := config.DefaultConfig()
+				_ = config.Save(cfg, path)
+			},
+			eligLister: nil,
+			selector:   nil,
+			args:       []string{"--target", "sub-123", "--role", "Contributor"},
+			wantContain: []string{"name is required"},
+			wantErr:     true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -563,7 +643,7 @@ func TestFavoritesAddInteractiveMode(t *testing.T) {
 			tt.setupConfig(configPath)
 
 			rootCmd := newTestRootCommand()
-			favCmd := NewFavoritesCommandWithDeps(tt.eligLister, tt.selector)
+			favCmd := NewFavoritesCommandWithDeps(tt.eligLister, tt.selector, tt.namePrompter)
 			rootCmd.AddCommand(favCmd)
 
 			cmdArgs := append([]string{"favorites", "add"}, tt.args...)

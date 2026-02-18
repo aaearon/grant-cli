@@ -117,3 +117,17 @@ func (m *mockKeyringClearer) ClearAllPasswords() error {
 	}
 	return m.clearErr
 }
+
+// mockNamePrompter implements namePrompter interface for testing
+type mockNamePrompter struct {
+	promptFunc func() (string, error)
+	name       string
+	promptErr  error
+}
+
+func (m *mockNamePrompter) PromptName() (string, error) {
+	if m.promptFunc != nil {
+		return m.promptFunc()
+	}
+	return m.name, m.promptErr
+}

@@ -20,6 +20,11 @@ import (
 
 var verbose bool
 
+// passedArgValidation is set to true in PersistentPreRunE.
+// If an arg/flag validation error occurs, PersistentPreRunE never runs,
+// so this stays false — allowing Execute() to suppress the verbose hint.
+var passedArgValidation bool
+
 // elevateFlags holds the command-line flags for elevation
 type elevateFlags struct {
 	provider string
@@ -58,6 +63,7 @@ Examples:
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			passedArgValidation = true
 			if verbose {
 				sdk_config.EnableVerboseLogging("INFO")
 			} else {
@@ -72,7 +78,7 @@ Examples:
 	cmd.Flags().StringP("provider", "p", "", "Cloud provider (default from config, v1: azure only)")
 	cmd.Flags().StringP("target", "t", "", "Target name (subscription, resource group, etc.)")
 	cmd.Flags().StringP("role", "r", "", "Role name")
-	cmd.Flags().StringP("favorite", "f", "", "Use a saved favorite alias")
+	cmd.Flags().StringP("favorite", "f", "", "Use a saved favorite (see 'grant favorites list')")
 
 	return cmd
 }
@@ -155,13 +161,30 @@ func NewRootCommandWithDeps(
 }
 
 func Execute() {
+	passedArgValidation = false
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		if !verbose {
+		if !verbose && passedArgValidation {
 			fmt.Fprintln(os.Stderr, "Hint: re-run with --verbose for more details")
 		}
 		os.Exit(1)
 	}
+}
+
+// executeWithHint simulates Execute() logic without os.Exit, returning the error output.
+// Used for testing the verbose hint behavior.
+func executeWithHint(cmd *cobra.Command, args []string) string {
+	passedArgValidation = false
+	cmd.SetArgs(args)
+	err := cmd.Execute()
+	if err == nil {
+		return ""
+	}
+	out := err.Error() + "\n"
+	if !verbose && passedArgValidation {
+		out += "Hint: re-run with --verbose for more details\n"
+	}
+	return out
 }
 
 func runElevateWithDeps(
