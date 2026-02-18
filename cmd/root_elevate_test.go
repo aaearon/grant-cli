@@ -1014,6 +1014,32 @@ func TestRootElevate_UsageAndFlags(t *testing.T) {
 	}
 }
 
+func TestFetchEligibility_SingleProviderOmitsCSPTag(t *testing.T) {
+	lister := &mockEligibilityLister{
+		response: &models.EligibilityResponse{
+			Response: []models.EligibleTarget{
+				{
+					WorkspaceName: "Prod-EastUS",
+					WorkspaceType: models.WorkspaceTypeSubscription,
+					RoleInfo:      models.RoleInfo{ID: "role-1", Name: "Contributor"},
+				},
+			},
+			Total: 1,
+		},
+	}
+
+	targets, err := fetchEligibility(context.Background(), lister, "azure")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, tgt := range targets {
+		if tgt.CSP != "" {
+			t.Errorf("expected empty CSP on single-provider fetch, got %q", tgt.CSP)
+		}
+	}
+}
+
 func TestFetchEligibility_ConcurrentExecution(t *testing.T) {
 	awsTarget := models.EligibleTarget{
 		WorkspaceName: "AWS Sandbox",

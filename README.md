@@ -1,14 +1,16 @@
 # grant
 
-A CLI tool for elevating Azure permissions via CyberArk Secure Cloud Access (SCA) — without leaving the terminal.
+A CLI tool for elevating cloud permissions (Azure, AWS) via CyberArk Secure Cloud Access (SCA) — without leaving the terminal.
 
 ## Overview
 
-`grant` enables terminal-based Azure permission elevation through CyberArk SCA. It wraps the `idsec-sdk-golang` SDK for authentication and builds a custom SCA Access API client for JIT role elevation.
+`grant` enables terminal-based cloud permission elevation (Azure, AWS) through CyberArk SCA. It wraps the `idsec-sdk-golang` SDK for authentication and builds a custom SCA Access API client for JIT role elevation.
 
 **Key Features:**
+- Multi-CSP support (Azure, AWS) with concurrent eligibility queries
 - Interactive permission elevation with fuzzy search
 - Direct elevation with target and role flags
+- AWS credential export via `grant env` for shell integration
 - Favorites management for frequently used roles
 - Session status monitoring
 - Secure token storage in system keyring
@@ -90,11 +92,16 @@ Running `grant` with no subcommand elevates cloud permissions (the core behavior
 | Command | Description |
 |---------|-------------|
 | `configure` | Configure or reconfigure Identity URL and username (optional — `login` auto-configures on first run) |
+| `env` | Perform elevation and output AWS credential export statements (for `eval $(grant env)`) |
 | `login` | Authenticate to CyberArk Identity (auto-configures on first run, MFA handled interactively) |
 | `logout` | Clear cached tokens from keyring |
 | `status` | Show authentication state and active SCA sessions |
 | `favorites` | Manage saved role favorites (add/list/remove) |
 | `version` | Print version information |
+
+### Global Flags
+
+- `--verbose, -v` — Enable verbose output, including request/response details and timing
 
 ### configure
 
@@ -111,6 +118,23 @@ This command:
 - Prompts for username
 
 **Note:** This command is optional. Running `grant login` for the first time automatically runs configuration. Use `configure` to change your Identity URL or username.
+
+### env
+
+Perform elevation and output AWS credential export statements for shell evaluation.
+
+```bash
+eval $(grant env --provider aws)
+eval $(grant env --provider aws --target "MyAccount" --role "AdminAccess")
+eval $(grant env --favorite my-aws-admin)
+```
+
+This command:
+- Performs the full elevation flow (interactive, direct, or favorite mode)
+- Outputs only shell `export` statements (no human-readable messages)
+- Designed for AWS elevations — returns an error for Azure (which doesn't return credentials)
+
+Supports the same flags as the root command: `--provider`, `--target`, `--role`, `--favorite`.
 
 ### login
 
@@ -145,8 +169,9 @@ Running `grant` with no subcommand requests JIT (just-in-time) permission elevat
 
 **Interactive mode** — select from eligible targets:
 ```bash
-grant
-grant --provider azure  # explicit provider
+grant                    # show all providers
+grant --provider azure   # Azure only
+grant --provider aws     # AWS only
 ```
 
 **Direct mode** — specify target and role:
@@ -162,11 +187,10 @@ grant -f dev-reader
 ```
 
 **Flags:**
-- `--provider, -p` — Cloud provider (default: `azure`, v1 supports Azure only)
-- `--target, -t` — Target name (subscription, resource group, management group, directory, or resource)
-- `--role, -r` — Role name (e.g., "Contributor", "Reader", "Owner")
+- `--provider, -p` — Cloud provider: `azure`, `aws` (omit to show all providers)
+- `--target, -t` — Target name (subscription, resource group, account, etc.)
+- `--role, -r` — Role name (e.g., "Contributor", "Reader", "AdministratorAccess")
 - `--favorite, -f` — Use a saved favorite alias (combines provider, target, and role)
-- `--duration, -d` — Requested session duration in hours (subject to policy limits)
 
 **Target matching:**
 - Matches by workspace name (case-insensitive, partial match)
@@ -174,7 +198,8 @@ grant -f dev-reader
 - Shows workspace type (subscription, resource group, etc.) and available roles
 
 **How it works:**
-For Azure, SCA creates a JIT Azure RBAC role assignment. Your existing `az` CLI session automatically picks up the elevated permissions — no credentials are returned.
+- **Azure:** SCA creates a JIT Azure RBAC role assignment. Your existing `az` CLI session automatically picks up the elevated permissions — no credentials are returned.
+- **AWS:** SCA returns temporary AWS credentials (access key, secret key, session token). Use `grant env` to export them: `eval $(grant env --provider aws)`
 
 ### status
 
@@ -182,7 +207,8 @@ Display authentication state and active elevation sessions.
 
 ```bash
 grant status
-grant status --provider azure  # filter by provider
+grant status --provider azure  # filter by Azure
+grant status --provider aws    # filter by AWS
 ```
 
 **Output includes:**
@@ -260,22 +286,22 @@ Application settings including default provider and favorites.
 
 ```yaml
 profile: grant              # SDK profile name
-default_provider: azure       # Default cloud provider
+default_provider: azure     # Default cloud provider
 
 favorites:
   prod-contrib:
     provider: azure
     target: "Prod-EastUS"
     role: "Contributor"
-  dev-reader:
-    provider: azure
-    target: "Dev-Subscription"
-    role: "Reader"
+  aws-admin:
+    provider: aws
+    target: "Production"
+    role: "AdministratorAccess"
 ```
 
 **Fields:**
 - `profile` — Name of the SDK profile in `~/.idsec_profiles/` (default: `grant`)
-- `default_provider` — Default cloud provider for elevation (default: `azure`)
+- `default_provider` — Default cloud provider for elevation (used when `--provider` is omitted)
 - `favorites` — Map of favorite names to provider/target/role combinations
 
 ### SDK Profile (`~/.idsec_profiles/grant.json`)
@@ -296,19 +322,30 @@ CyberArk Identity SDK profile containing Identity URL and authentication prefere
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `GRANT_CONFIG` | Custom path to app config YAML | `~/.grant/config.yaml` |
+| `IDSEC_LOG_LEVEL` | SDK log level (`DEBUG`, `INFO`, `CRITICAL`) — overrides `--verbose` | Not set |
 | `HOME` | User home directory (used for config paths) | System default |
 
 ## How It Works
 
 ### Azure Elevation Flow
 
-1. **List Eligibility:** Queries SCA API for roles you're eligible to activate
+1. **List Eligibility:** Queries SCA API for Azure roles you're eligible to activate
 2. **Request Elevation:** Submits elevation request with target and role
 3. **JIT Activation:** SCA creates a time-limited Azure RBAC role assignment
 4. **Automatic Access:** Your existing `az` CLI picks up the new role assignment
-5. **Session Expiry:** Role assignment automatically expires (default: 8 hours, policy-controlled)
+5. **Session Expiry:** Role assignment automatically expires (policy-controlled)
 
 **Important:** No Azure credentials are returned to you. SCA manages the Azure role assignment behind the scenes. Your Azure CLI session uses its existing authentication but gains the new role assignment.
+
+### AWS Elevation Flow
+
+1. **List Eligibility:** Queries SCA API for AWS roles you're eligible to activate
+2. **Request Elevation:** Submits elevation request with account and role
+3. **Credential Issuance:** SCA returns temporary AWS credentials (access key, secret key, session token)
+4. **Export Credentials:** Use `eval $(grant env --provider aws)` to export credentials to your shell
+5. **Session Expiry:** Credentials automatically expire (policy-controlled)
+
+**Important:** AWS credentials are returned directly. Export them using `grant env` or manually set the environment variables shown in the elevation output.
 
 ### Authentication Flow
 
@@ -362,12 +399,13 @@ az login
 
 ### "No eligible targets found"
 
-**Cause:** Either you have no SCA policies granting access, or your policies don't grant Azure access.
+**Cause:** Either you have no SCA policies granting access, or your policies don't grant access for the specified provider.
 
 **Solution:**
 1. Contact your CyberArk administrator to verify SCA policies
-2. Ensure policies grant you access to Azure targets
-3. Verify you're using the correct provider: `grant --provider azure`
+2. Ensure policies grant you access to the cloud provider (Azure, AWS)
+3. Try without `--provider` to see all available targets: `grant`
+4. Or specify a provider explicitly: `grant --provider azure` or `grant --provider aws`
 
 ### "Failed to elevate" or partial success
 
@@ -376,8 +414,7 @@ az login
 **Solution:**
 1. Check active sessions: `grant status`
 2. Verify the target name and role name are correct
-3. Try with different duration: `grant --duration 4`
-4. Contact your CyberArk administrator if role should be available
+3. Contact your CyberArk administrator if role should be available or if you've reached session limits
 
 ### Interactive selection doesn't appear
 
@@ -389,14 +426,26 @@ Use direct mode with explicit flags:
 grant --target "MyTarget" --role "Contributor"
 ```
 
-### "Error: invalid provider" (v1)
+### "Error: provider not supported"
 
-**Cause:** Version 1.x only supports Azure.
+**Cause:** The specified provider is not supported. Currently supported: `azure`, `aws`.
 
 **Solution:**
-Use `--provider azure` (or omit the flag, as Azure is the default):
+Use a supported provider:
 ```bash
 grant --provider azure
+grant --provider aws
+grant  # omit to see all providers
+```
+
+### "grant env is only supported for AWS elevations"
+
+**Cause:** `grant env` was used for an Azure elevation. Azure doesn't return credentials.
+
+**Solution:**
+For Azure, use `grant` directly. For AWS, specify the provider:
+```bash
+eval $(grant env --provider aws)
 ```
 
 ### Token expired or invalid during operation

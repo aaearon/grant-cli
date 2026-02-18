@@ -211,7 +211,7 @@ func runFavoritesAddWithDeps(cmd *cobra.Command, args []string, eligLister eligi
 		}
 
 		// Ensure CSP is set on selected target
-		resolveTargetCSP(selectedTarget, allTargets)
+		resolveTargetCSP(selectedTarget, allTargets, provider)
 
 		if provider != "" {
 			fav.Provider = provider

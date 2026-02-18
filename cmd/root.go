@@ -244,17 +244,20 @@ func fetchEligibility(ctx context.Context, eligLister eligibilityLister, provide
 	}
 	targets := make([]models.EligibleTarget, len(resp.Response))
 	for i, t := range resp.Response {
-		t.CSP = csp
 		targets[i] = t
 	}
 	return targets, nil
 }
 
 // resolveTargetCSP ensures the CSP field is set on a selected target.
-// findMatchingTarget returns a pointer into allTargets (CSP already set),
-// but interactive selectors may return a separate struct without CSP.
-func resolveTargetCSP(target *models.EligibleTarget, allTargets []models.EligibleTarget) {
+// When provider is specified, it is used directly. Otherwise CSP is resolved
+// from allTargets (set during multi-CSP fetch).
+func resolveTargetCSP(target *models.EligibleTarget, allTargets []models.EligibleTarget, provider string) {
 	if target.CSP != "" {
+		return
+	}
+	if provider != "" {
+		target.CSP = models.CSP(strings.ToUpper(provider))
 		return
 	}
 	for _, t := range allTargets {
@@ -350,7 +353,7 @@ func resolveAndElevate(
 	}
 
 	// Ensure CSP is set on selected target
-	resolveTargetCSP(selectedTarget, allTargets)
+	resolveTargetCSP(selectedTarget, allTargets, provider)
 
 	// Build elevation request
 	req := &models.ElevateRequest{
