@@ -15,6 +15,32 @@ A CLI tool for elevating cloud permissions (Azure, AWS) via CyberArk Secure Clou
 - Session status monitoring
 - Secure token storage in system keyring
 
+## Usage
+
+```bash
+# Authenticate (one-time setup)
+grant login
+
+# Elevate permissions interactively (shows all providers)
+grant
+
+# Elevate for a specific provider
+grant --provider azure
+grant --provider aws
+
+# Direct elevation with target and role
+grant --provider azure --target "Prod-EastUS" --role "Contributor"
+
+# Export AWS credentials to your shell
+eval $(grant env --provider aws)
+
+# Use a saved favorite
+grant --favorite prod-contrib
+
+# Check active sessions
+grant status
+```
+
 ## Installation
 
 ### Binary Releases (Recommended)
