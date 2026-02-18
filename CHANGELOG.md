@@ -4,9 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-### Added
+## [0.2.1] - 2026-02-18
 
-- Demo GIFs in README showing interactive elevation and `grant env` workflow
+### Fixed
+
+- Interactive selector UI (arrows, highlighting) was written to stdout, breaking `eval $(grant env ...)` — now redirected to stderr
 
 ## [0.2.0] - 2026-02-18
 
