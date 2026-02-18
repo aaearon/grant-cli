@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -425,9 +426,11 @@ func TestFavoritesAddInteractiveMode(t *testing.T) {
 				_ = config.Save(cfg, path)
 			},
 			eligLister: &mockEligibilityLister{
-				response: &models.EligibilityResponse{
-					Response: twoTargets,
-					Total:    2,
+				listFunc: func(_ context.Context, csp models.CSP) (*models.EligibilityResponse, error) {
+					if csp == models.CSPAzure {
+						return &models.EligibilityResponse{Response: twoTargets, Total: 2}, nil
+					}
+					return &models.EligibilityResponse{}, nil
 				},
 			},
 			selector: &mockTargetSelector{
@@ -463,9 +466,11 @@ func TestFavoritesAddInteractiveMode(t *testing.T) {
 				_ = config.Save(cfg, path)
 			},
 			eligLister: &mockEligibilityLister{
-				response: &models.EligibilityResponse{
-					Response: twoTargets,
-					Total:    2,
+				listFunc: func(_ context.Context, csp models.CSP) (*models.EligibilityResponse, error) {
+					if csp == models.CSPAzure {
+						return &models.EligibilityResponse{Response: twoTargets, Total: 2}, nil
+					}
+					return &models.EligibilityResponse{}, nil
 				},
 			},
 			selector: &mockTargetSelector{
@@ -561,9 +566,11 @@ func TestFavoritesAddInteractiveMode(t *testing.T) {
 				_ = config.Save(cfg, path)
 			},
 			eligLister: &mockEligibilityLister{
-				response: &models.EligibilityResponse{
-					Response: twoTargets,
-					Total:    2,
+				listFunc: func(_ context.Context, csp models.CSP) (*models.EligibilityResponse, error) {
+					if csp == models.CSPAzure {
+						return &models.EligibilityResponse{Response: twoTargets, Total: 2}, nil
+					}
+					return &models.EligibilityResponse{}, nil
 				},
 			},
 			selector: &mockTargetSelector{
