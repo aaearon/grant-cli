@@ -11,3 +11,4 @@ dist/
 *.Zone.Identifier
 *:Zone.Identifier
 poc/
+.redact-patterns
