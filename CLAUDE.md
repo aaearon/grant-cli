@@ -37,7 +37,7 @@ Custom `SCAAccessService` follows SDK conventions:
 - **Base URL:** `https://{subdomain}.sca.{platform_domain}/api`
 - **Endpoints:**
   - `GET /api/access/{CSP}/eligibility` — list eligible targets
-  - `POST /api/access/elevate` — request JIT elevation
+  - `POST /api/access/elevate` — request JIT elevation (AWS responses include `accessCredentials` JSON string)
   - `GET /api/access/sessions` — list active sessions
 - **Headers:** `Authorization: Bearer {jwt}`, `X-API-Version: 2.0`, `Content-Type: application/json`
 
@@ -51,6 +51,9 @@ Custom `SCAAccessService` follows SDK conventions:
 ## CLI
 - `spf13/cobra` for CLI framework
 - `Iilun/survey/v2` for interactive prompts
+- `grant env` — performs elevation, outputs only `export` statements (no human text); usage: `eval $(grant env --provider aws)`
+- Multi-CSP: omitting `--provider` fetches eligibility from all supported CSPs and merges results
+- `fetchEligibility()` and `resolveTargetCSP()` in `cmd/root.go` — shared by root, env, and favorites
 
 ## Verbose / Logging
 - `--verbose` / `-v` global flag wired via `PersistentPreRunE` in `cmd/root.go`

@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- AWS elevation support (`--provider aws`)
+- `grant env` command for AWS credential export: `eval $(grant env --provider aws)`
+- Multi-CSP: omitting `--provider` fetches eligibility from all providers and shows combined results
+- Provider label `(azure)` / `(aws)` in interactive selector when showing all providers
+- `WorkspaceTypeAccount` workspace type for AWS accounts
+- `AWSCredentials` model for parsing `accessCredentials` response
+
+### Changed
+
+- Renamed `AzureEligibleTarget` to `EligibleTarget` (CSP-agnostic)
+- Provider validation accepts `azure` and `aws` (was azure-only)
+- Elevation output shows AWS export statements when credentials are present
+- UI selector normalizes workspace type display (case-insensitive)
+- `--provider` flag no longer defaults to Azure; omit to see all providers
+
 ### Refactored
 
 - Accept `*IdsecProfile` directly in `NewRootCommandWithDeps` to eliminate filesystem access during tests
