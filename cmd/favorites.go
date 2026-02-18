@@ -1,10 +1,12 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"strings"
 
-	"github.com/Iilun/survey/v2"
 	"github.com/aaearon/grant-cli/internal/config"
+	"github.com/aaearon/grant-cli/internal/sca/models"
 	"github.com/spf13/cobra"
 )
 
@@ -23,13 +25,32 @@ func NewFavoritesCommand() *cobra.Command {
 	return cmd
 }
 
-func newFavoritesAddCommand() *cobra.Command {
+// NewFavoritesCommandWithDeps creates the favorites command with injected dependencies for testing
+func NewFavoritesCommandWithDeps(eligLister eligibilityLister, sel targetSelector) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "favorites",
+		Short: "Manage saved elevation favorites",
+		Long:  "Add, list, and remove saved elevation target favorites for quick access.",
+	}
+
+	cmd.AddCommand(newFavoritesAddCommandWithRunner(func(c *cobra.Command, args []string) error {
+		return runFavoritesAddWithDeps(c, args, eligLister, sel)
+	}))
+	cmd.AddCommand(newFavoritesListCommand())
+	cmd.AddCommand(newFavoritesRemoveCommand())
+
+	return cmd
+}
+
+// newFavoritesAddCommandWithRunner creates the add command with a custom RunE function.
+// All flag registration is centralized here.
+func newFavoritesAddCommandWithRunner(runFn func(*cobra.Command, []string) error) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "add <name>",
 		Short: "Add a new favorite",
-		Long:  "Add a new elevation target as a favorite, either interactively or via --target and --role flags.",
+		Long:  "Add a new elevation target as a favorite, either by selecting from eligible targets or via --target and --role flags.",
 		Args:  cobra.ExactArgs(1),
-		RunE:  runFavoritesAdd,
+		RunE:  runFn,
 	}
 
 	cmd.Flags().StringP("provider", "p", "", "Cloud provider (default from config, v1: azure only)")
@@ -39,27 +60,47 @@ func newFavoritesAddCommand() *cobra.Command {
 	return cmd
 }
 
-func newFavoritesListCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:   "list",
-		Short: "List all favorites",
-		Long:  "Display all saved elevation target favorites.",
-		Args:  cobra.NoArgs,
-		RunE:  runFavoritesList,
-	}
+func newFavoritesAddCommand() *cobra.Command {
+	return newFavoritesAddCommandWithRunner(runFavoritesAddProduction)
 }
 
-func newFavoritesRemoveCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:   "remove <name>",
-		Short: "Remove a favorite",
-		Long:  "Remove a saved elevation target favorite by name.",
-		Args:  cobra.ExactArgs(1),
-		RunE:  runFavoritesRemove,
+// runFavoritesAddProduction is the production RunE for favorites add.
+// It handles auth bootstrapping for interactive mode and delegates to runFavoritesAddWithDeps.
+func runFavoritesAddProduction(cmd *cobra.Command, args []string) error {
+	target, _ := cmd.Flags().GetString("target")
+	role, _ := cmd.Flags().GetString("role")
+
+	if target != "" && role != "" {
+		// Non-interactive: no auth needed
+		return runFavoritesAddWithDeps(cmd, args, nil, nil)
 	}
+
+	// Interactive path: check duplicate before auth (fast fail)
+	name := args[0]
+	cfgPath, err := config.ConfigPath()
+	if err != nil {
+		return fmt.Errorf("failed to determine config path: %w", err)
+	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+	if _, err := config.GetFavorite(cfg, name); err == nil {
+		return fmt.Errorf("favorite %q already exists", name)
+	}
+
+	// Bootstrap auth and SCA service
+	_, scaService, _, err := bootstrapSCAService()
+	if err != nil {
+		return err
+	}
+
+	return runFavoritesAddWithDeps(cmd, args, scaService, &uiSelector{})
 }
 
-func runFavoritesAdd(cmd *cobra.Command, args []string) error {
+// runFavoritesAddWithDeps contains the core logic for favorites add.
+// When eligLister and sel are nil, it uses the non-interactive flag path.
+func runFavoritesAddWithDeps(cmd *cobra.Command, args []string, eligLister eligibilityLister, sel targetSelector) error {
 	name := args[0]
 
 	// Load config
@@ -90,7 +131,7 @@ func runFavoritesAdd(cmd *cobra.Command, args []string) error {
 	var fav config.Favorite
 
 	if target != "" && role != "" {
-		// Non-interactive mode: use flags
+		// Non-interactive mode: use flags directly
 		fav.Target = target
 		fav.Role = role
 		fav.Provider = provider
@@ -98,33 +139,38 @@ func runFavoritesAdd(cmd *cobra.Command, args []string) error {
 			fav.Provider = cfg.DefaultProvider
 		}
 	} else {
-		// Interactive mode: survey prompts
-		providerDefault := cfg.DefaultProvider
-		if provider != "" {
-			providerDefault = provider
+		// Interactive mode: select from eligible targets
+		if provider == "" {
+			provider = cfg.DefaultProvider
 		}
 
-		providerPrompt := &survey.Input{
-			Message: "Provider:",
-			Default: providerDefault,
-		}
-		if err := survey.AskOne(providerPrompt, &fav.Provider); err != nil {
-			return fmt.Errorf("provider prompt failed: %w", err)
+		// Validate provider (v1 only accepts azure)
+		if strings.ToLower(provider) != "azure" {
+			return fmt.Errorf("provider %q is not supported in this version, supported providers: azure", provider)
 		}
 
-		targetPrompt := &survey.Input{
-			Message: "Target (e.g., subscription ID):",
-		}
-		if err := survey.AskOne(targetPrompt, &fav.Target, survey.WithValidator(survey.Required)); err != nil {
-			return fmt.Errorf("target prompt failed: %w", err)
+		csp := models.CSP(strings.ToUpper(provider))
+		ctx := context.Background()
+
+		// Fetch eligibility
+		eligibilityResp, err := eligLister.ListEligibility(ctx, csp)
+		if err != nil {
+			return fmt.Errorf("failed to fetch eligible targets: %w", err)
 		}
 
-		rolePrompt := &survey.Input{
-			Message: "Role (e.g., Contributor, Reader):",
+		if len(eligibilityResp.Response) == 0 {
+			return fmt.Errorf("no eligible %s targets found, check your SCA policies", strings.ToLower(provider))
 		}
-		if err := survey.AskOne(rolePrompt, &fav.Role, survey.WithValidator(survey.Required)); err != nil {
-			return fmt.Errorf("role prompt failed: %w", err)
+
+		// Interactive selection
+		selectedTarget, err := sel.SelectTarget(eligibilityResp.Response)
+		if err != nil {
+			return fmt.Errorf("target selection failed: %w", err)
 		}
+
+		fav.Provider = provider
+		fav.Target = selectedTarget.WorkspaceName
+		fav.Role = selectedTarget.RoleInfo.Name
 	}
 
 	// Add favorite
@@ -139,6 +185,26 @@ func runFavoritesAdd(cmd *cobra.Command, args []string) error {
 
 	fmt.Fprintf(cmd.OutOrStdout(), "Added favorite %q: %s/%s/%s\n", name, fav.Provider, fav.Target, fav.Role)
 	return nil
+}
+
+func newFavoritesListCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "List all favorites",
+		Long:  "Display all saved elevation target favorites.",
+		Args:  cobra.NoArgs,
+		RunE:  runFavoritesList,
+	}
+}
+
+func newFavoritesRemoveCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "remove <name>",
+		Short: "Remove a favorite",
+		Long:  "Remove a saved elevation target favorite by name.",
+		Args:  cobra.ExactArgs(1),
+		RunE:  runFavoritesRemove,
+	}
 }
 
 func runFavoritesList(cmd *cobra.Command, args []string) error {

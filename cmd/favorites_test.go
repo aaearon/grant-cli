@@ -1,11 +1,13 @@
 package cmd
 
 import (
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/aaearon/grant-cli/internal/config"
+	"github.com/aaearon/grant-cli/internal/sca/models"
 )
 
 func TestFavoritesListCommand(t *testing.T) {
@@ -383,5 +385,199 @@ func TestFavoritesParentCommand(t *testing.T) {
 		if !found {
 			t.Errorf("expected subcommand %q not found", expected)
 		}
+	}
+}
+
+func TestFavoritesAddInteractiveMode(t *testing.T) {
+	twoTargets := []models.AzureEligibleTarget{
+		{
+			OrganizationID: "org-123",
+			WorkspaceID:    "sub-456",
+			WorkspaceName:  "Prod-EastUS",
+			WorkspaceType:  models.WorkspaceTypeSubscription,
+			RoleInfo:       models.RoleInfo{ID: "role-789", Name: "Contributor"},
+		},
+		{
+			OrganizationID: "org-123",
+			WorkspaceID:    "sub-abc",
+			WorkspaceName:  "Dev-WestEU",
+			WorkspaceType:  models.WorkspaceTypeSubscription,
+			RoleInfo:       models.RoleInfo{ID: "role-def", Name: "Reader"},
+		},
+	}
+
+	tests := []struct {
+		name        string
+		setupConfig func(string)
+		eligLister  eligibilityLister
+		selector    targetSelector
+		args        []string
+		wantContain []string
+		wantErr     bool
+	}{
+		{
+			name: "success - selects target from eligibility",
+			setupConfig: func(path string) {
+				cfg := config.DefaultConfig()
+				_ = config.Save(cfg, path)
+			},
+			eligLister: &mockEligibilityLister{
+				response: &models.EligibilityResponse{
+					Response: twoTargets,
+					Total:    2,
+				},
+			},
+			selector: &mockTargetSelector{
+				target: &twoTargets[0],
+			},
+			args:        []string{"myfav"},
+			wantContain: []string{"Added favorite", "myfav", "azure/Prod-EastUS/Contributor"},
+			wantErr:     false,
+		},
+		{
+			name: "success - provider from flag",
+			setupConfig: func(path string) {
+				cfg := config.DefaultConfig()
+				_ = config.Save(cfg, path)
+			},
+			eligLister: &mockEligibilityLister{
+				response: &models.EligibilityResponse{
+					Response: twoTargets,
+					Total:    2,
+				},
+			},
+			selector: &mockTargetSelector{
+				target: &twoTargets[0],
+			},
+			args:        []string{"myfav", "--provider", "azure"},
+			wantContain: []string{"Added favorite", "myfav", "azure/Prod-EastUS/Contributor"},
+			wantErr:     false,
+		},
+		{
+			name: "success - provider defaults from config",
+			setupConfig: func(path string) {
+				cfg := config.DefaultConfig()
+				cfg.DefaultProvider = "azure"
+				_ = config.Save(cfg, path)
+			},
+			eligLister: &mockEligibilityLister{
+				response: &models.EligibilityResponse{
+					Response: twoTargets,
+					Total:    2,
+				},
+			},
+			selector: &mockTargetSelector{
+				target: &twoTargets[1],
+			},
+			args:        []string{"myfav"},
+			wantContain: []string{"Added favorite", "myfav", "azure/Dev-WestEU/Reader"},
+			wantErr:     false,
+		},
+		{
+			name: "eligibility fetch fails",
+			setupConfig: func(path string) {
+				cfg := config.DefaultConfig()
+				_ = config.Save(cfg, path)
+			},
+			eligLister: &mockEligibilityLister{
+				listErr: errors.New("API error: unauthorized"),
+			},
+			selector:    &mockTargetSelector{},
+			args:        []string{"myfav"},
+			wantContain: []string{"failed to fetch eligible targets"},
+			wantErr:     true,
+		},
+		{
+			name: "no eligible targets",
+			setupConfig: func(path string) {
+				cfg := config.DefaultConfig()
+				_ = config.Save(cfg, path)
+			},
+			eligLister: &mockEligibilityLister{
+				response: &models.EligibilityResponse{
+					Response: []models.AzureEligibleTarget{},
+					Total:    0,
+				},
+			},
+			selector:    &mockTargetSelector{},
+			args:        []string{"myfav"},
+			wantContain: []string{"no eligible"},
+			wantErr:     true,
+		},
+		{
+			name: "selector cancelled",
+			setupConfig: func(path string) {
+				cfg := config.DefaultConfig()
+				_ = config.Save(cfg, path)
+			},
+			eligLister: &mockEligibilityLister{
+				response: &models.EligibilityResponse{
+					Response: twoTargets,
+					Total:    2,
+				},
+			},
+			selector: &mockTargetSelector{
+				selectErr: errors.New("user cancelled"),
+			},
+			args:        []string{"myfav"},
+			wantContain: []string{"target selection failed"},
+			wantErr:     true,
+		},
+		{
+			name: "duplicate name",
+			setupConfig: func(path string) {
+				cfg := config.DefaultConfig()
+				_ = config.AddFavorite(cfg, "myfav", config.Favorite{
+					Provider: "azure",
+					Target:   "existing-sub",
+					Role:     "Reader",
+				})
+				_ = config.Save(cfg, path)
+			},
+			eligLister:  nil, // should not be called
+			selector:    nil, // should not be called
+			args:        []string{"myfav"},
+			wantContain: []string{"already exists"},
+			wantErr:     true,
+		},
+		{
+			name: "flags bypass eligibility",
+			setupConfig: func(path string) {
+				cfg := config.DefaultConfig()
+				_ = config.Save(cfg, path)
+			},
+			eligLister:  nil, // nil — should not be called
+			selector:    nil, // nil — should not be called
+			args:        []string{"myfav", "--target", "sub-123", "--role", "Contributor"},
+			wantContain: []string{"Added favorite", "myfav", "azure/sub-123/Contributor"},
+			wantErr:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			configPath := filepath.Join(tmpDir, "config.yaml")
+			t.Setenv("GRANT_CONFIG", configPath)
+
+			tt.setupConfig(configPath)
+
+			rootCmd := newTestRootCommand()
+			favCmd := NewFavoritesCommandWithDeps(tt.eligLister, tt.selector)
+			rootCmd.AddCommand(favCmd)
+
+			cmdArgs := append([]string{"favorites", "add"}, tt.args...)
+			output, err := executeCommand(rootCmd, cmdArgs...)
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			for _, want := range tt.wantContain {
+				if !strings.Contains(output, want) {
+					t.Errorf("output missing %q\ngot:\n%s", want, output)
+				}
+			}
+		})
 	}
 }

@@ -603,6 +603,35 @@ Added `--provider/-p`, `--target/-t`, `--role/-r` flags to `favorites add`. When
 
 ---
 
+## Feature: Eligibility-Based Interactive Favorites Add (`feat/favorites-add-eligibility`)
+
+**Status:** Done
+**Date:** 2026-02-18
+
+### Problem
+
+`grant favorites add <name>` interactive mode used three free-text `survey.Input` prompts (provider, target, role), requiring users to type exact names from memory. The root elevation command already had a much better UX with eligibility-based interactive selection.
+
+### Solution
+
+Replaced the survey prompts with the same eligibility-based `ui.SelectTarget()` flow used by the root elevation command. Interactive mode now fetches eligible targets from SCA and presents a fuzzy-searchable selector. Non-interactive flag path (`--target` + `--role`) unchanged and does NOT require auth.
+
+### Implementation
+
+- `newFavoritesAddCommandWithRunner()` — shared command builder centralizing flag registration
+- `NewFavoritesCommandWithDeps(eligLister, selector)` — DI constructor for testing
+- `runFavoritesAddProduction()` — production RunE: checks duplicate before auth, bootstraps SCA service for interactive mode
+- `runFavoritesAddWithDeps()` — core logic: non-interactive flag path or eligibility-based interactive selection
+- Removed `survey` import from `favorites.go` — all interactive selection handled by `ui.SelectTarget()`
+- Reuses `bootstrapSCAService()`, `uiSelector`, existing interfaces/mocks
+
+### Tests
+
+- 8 new unit test cases in `TestFavoritesAddInteractiveMode` (success, provider flag, config default, eligibility fails, no targets, selector cancelled, duplicate name, flags bypass)
+- `TestIntegration_FavoritesAddInteractiveRequiresAuth` — binary-level test
+
+---
+
 ## Claude Skill: grant-login
 
 **Location:** `.claude/skills/grant-login/SKILL.md`
