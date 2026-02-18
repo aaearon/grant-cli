@@ -86,6 +86,81 @@ func TestRootElevate_InteractiveMode(t *testing.T) {
 			wantContain: []string{
 				"Elevated to Contributor on Prod-EastUS",
 				"Session ID: session-abc",
+				"az CLI session",
+			},
+			wantErr: false,
+		},
+		{
+			name: "AWS elevation success with credentials",
+			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *mockTargetSelector, *config.Config) {
+				authLoader := &mockAuthLoader{
+					token: &authmodels.IdsecToken{
+						Token:     "test-jwt",
+						Username:  "test@example.com",
+						ExpiresIn: commonmodels.IdsecRFC3339Time(time.Now().Add(1 * time.Hour)),
+					},
+				}
+
+				eligibilityLister := &mockEligibilityLister{
+					response: &models.EligibilityResponse{
+						Response: []models.EligibleTarget{
+							{
+								OrganizationID: "o-abc123",
+								WorkspaceID:    "123456789012",
+								WorkspaceName:  "AWS Management",
+								WorkspaceType:  models.WorkspaceTypeAccount,
+								RoleInfo: models.RoleInfo{
+									ID:   "arn:aws:iam::123456789012:role/AdminAccess",
+									Name: "AdminAccess",
+								},
+							},
+						},
+						Total: 1,
+					},
+				}
+
+				credsJSON := `{"aws_access_key":"ASIAXXX","aws_secret_access_key":"secretkey","aws_session_token":"tokenval"}`
+				elevateService := &mockElevateService{
+					response: &models.ElevateResponse{
+						Response: models.ElevateAccessResult{
+							CSP:            models.CSPAWS,
+							OrganizationID: "o-abc123",
+							Results: []models.ElevateTargetResult{
+								{
+									WorkspaceID:       "123456789012",
+									RoleID:            "AdminAccess",
+									SessionID:         "session-aws-1",
+									AccessCredentials: &credsJSON,
+								},
+							},
+						},
+					},
+				}
+
+				selector := &mockTargetSelector{
+					target: &models.EligibleTarget{
+						OrganizationID: "o-abc123",
+						WorkspaceID:    "123456789012",
+						WorkspaceName:  "AWS Management",
+						WorkspaceType:  models.WorkspaceTypeAccount,
+						RoleInfo: models.RoleInfo{
+							ID:   "arn:aws:iam::123456789012:role/AdminAccess",
+							Name: "AdminAccess",
+						},
+					},
+				}
+
+				cfg := config.DefaultConfig()
+
+				return authLoader, eligibilityLister, elevateService, selector, cfg
+			},
+			args: []string{"--provider", "aws"},
+			wantContain: []string{
+				"Elevated to AdminAccess on AWS Management",
+				"Session ID: session-aws-1",
+				"AWS_ACCESS_KEY_ID='ASIAXXX'",
+				"AWS_SECRET_ACCESS_KEY='secretkey'",
+				"AWS_SESSION_TOKEN='tokenval'",
 			},
 			wantErr: false,
 		},
