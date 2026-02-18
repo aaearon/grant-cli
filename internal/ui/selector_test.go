@@ -67,6 +67,26 @@ func TestFormatTargetOption(t *testing.T) {
 			},
 			want: "Account: Acme AWS Management / Role: AdministratorAccess",
 		},
+		{
+			name: "subscription with CSP tag",
+			target: models.EligibleTarget{
+				CSP:           models.CSPAzure,
+				WorkspaceName: "Prod Sub",
+				WorkspaceType: models.WorkspaceTypeSubscription,
+				RoleInfo:      models.RoleInfo{ID: "7", Name: "Reader"},
+			},
+			want: "Subscription: Prod Sub / Role: Reader (azure)",
+		},
+		{
+			name: "account with CSP tag",
+			target: models.EligibleTarget{
+				CSP:           models.CSPAWS,
+				WorkspaceName: "Dev Account",
+				WorkspaceType: models.WorkspaceTypeAccount,
+				RoleInfo:      models.RoleInfo{ID: "8", Name: "ReadOnly"},
+			},
+			want: "Account: Dev Account / Role: ReadOnly (aws)",
+		},
 	}
 
 	for _, tt := range tests {

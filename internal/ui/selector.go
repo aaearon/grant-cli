@@ -28,7 +28,11 @@ func FormatTargetOption(target models.EligibleTarget) string {
 	default:
 		prefix = string(target.WorkspaceType)
 	}
-	return fmt.Sprintf("%s: %s / Role: %s", prefix, target.WorkspaceName, target.RoleInfo.Name)
+	base := fmt.Sprintf("%s: %s / Role: %s", prefix, target.WorkspaceName, target.RoleInfo.Name)
+	if target.CSP != "" {
+		return fmt.Sprintf("%s (%s)", base, strings.ToLower(string(target.CSP)))
+	}
+	return base
 }
 
 // BuildOptions builds a sorted list of display options from eligible targets.
