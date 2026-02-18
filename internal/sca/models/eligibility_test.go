@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestAzureEligibleTarget_JSONUnmarshal(t *testing.T) {
+func TestEligibleTarget_JSONUnmarshal(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name            string
@@ -60,7 +60,7 @@ func TestAzureEligibleTarget_JSONUnmarshal(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			var target AzureEligibleTarget
+			var target EligibleTarget
 			if err := json.Unmarshal([]byte(tt.jsonInput), &target); err != nil {
 				t.Fatalf("unexpected unmarshal error: %v", err)
 			}
@@ -87,7 +87,7 @@ func TestAzureEligibleTarget_JSONUnmarshal(t *testing.T) {
 	}
 }
 
-func TestAzureEligibleTarget_JSONUnmarshal_RoleFieldFallback(t *testing.T) {
+func TestEligibleTarget_JSONUnmarshal_RoleFieldFallback(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name         string
@@ -133,7 +133,7 @@ func TestAzureEligibleTarget_JSONUnmarshal_RoleFieldFallback(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			var target AzureEligibleTarget
+			var target EligibleTarget
 			if err := json.Unmarshal([]byte(tt.jsonInput), &target); err != nil {
 				t.Fatalf("unexpected unmarshal error: %v", err)
 			}

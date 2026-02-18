@@ -415,7 +415,7 @@ grant/
 │       ├── service.go                # SCAAccessService with ListEligibility, Elevate, ListSessions
 │       ├── service_test.go           # 10 tests
 │       └── models/
-│           ├── eligibility.go        # CSP, WorkspaceType, RoleInfo, AzureEligibleTarget (custom UnmarshalJSON), EligibilityResponse
+│           ├── eligibility.go        # CSP, WorkspaceType, RoleInfo, EligibleTarget (custom UnmarshalJSON), EligibilityResponse
 │           ├── eligibility_test.go   # 6 tests
 │           ├── root.go               # ElevateTarget, ElevateRequest, ErrorInfo, ElevateTargetResult, ElevateAccessResult, ElevateResponse
 │           ├── root_elevate_test.go  # 6 tests

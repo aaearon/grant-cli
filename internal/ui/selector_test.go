@@ -10,12 +10,12 @@ func TestFormatTargetOption(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name   string
-		target models.AzureEligibleTarget
+		target models.EligibleTarget
 		want   string
 	}{
 		{
 			name: "subscription",
-			target: models.AzureEligibleTarget{
+			target: models.EligibleTarget{
 				WorkspaceName: "Production Sub",
 				WorkspaceType: models.WorkspaceTypeSubscription,
 				RoleInfo:      models.RoleInfo{ID: "1", Name: "Owner"},
@@ -24,7 +24,7 @@ func TestFormatTargetOption(t *testing.T) {
 		},
 		{
 			name: "resource group",
-			target: models.AzureEligibleTarget{
+			target: models.EligibleTarget{
 				WorkspaceName: "rg-web-prod",
 				WorkspaceType: models.WorkspaceTypeResourceGroup,
 				RoleInfo:      models.RoleInfo{ID: "2", Name: "Contributor"},
@@ -33,7 +33,7 @@ func TestFormatTargetOption(t *testing.T) {
 		},
 		{
 			name: "management group",
-			target: models.AzureEligibleTarget{
+			target: models.EligibleTarget{
 				WorkspaceName: "Corp MG",
 				WorkspaceType: models.WorkspaceTypeManagementGroup,
 				RoleInfo:      models.RoleInfo{ID: "3", Name: "Reader"},
@@ -42,7 +42,7 @@ func TestFormatTargetOption(t *testing.T) {
 		},
 		{
 			name: "directory",
-			target: models.AzureEligibleTarget{
+			target: models.EligibleTarget{
 				WorkspaceName: "Contoso",
 				WorkspaceType: models.WorkspaceTypeDirectory,
 				RoleInfo:      models.RoleInfo{ID: "4", Name: "Global Administrator"},
@@ -51,7 +51,7 @@ func TestFormatTargetOption(t *testing.T) {
 		},
 		{
 			name: "resource (fallback to resource type)",
-			target: models.AzureEligibleTarget{
+			target: models.EligibleTarget{
 				WorkspaceName: "vm-prod-001",
 				WorkspaceType: models.WorkspaceTypeResource,
 				RoleInfo:      models.RoleInfo{ID: "5", Name: "Contributor"},
@@ -75,17 +75,17 @@ func TestBuildOptions(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name    string
-		targets []models.AzureEligibleTarget
+		targets []models.EligibleTarget
 		want    []string
 	}{
 		{
 			name:    "empty list",
-			targets: []models.AzureEligibleTarget{},
+			targets: []models.EligibleTarget{},
 			want:    []string{},
 		},
 		{
 			name: "single target",
-			targets: []models.AzureEligibleTarget{
+			targets: []models.EligibleTarget{
 				{
 					WorkspaceName: "Sub A",
 					WorkspaceType: models.WorkspaceTypeSubscription,
@@ -96,7 +96,7 @@ func TestBuildOptions(t *testing.T) {
 		},
 		{
 			name: "multiple targets sorted by workspace name",
-			targets: []models.AzureEligibleTarget{
+			targets: []models.EligibleTarget{
 				{
 					WorkspaceName: "Sub C",
 					WorkspaceType: models.WorkspaceTypeSubscription,
@@ -121,7 +121,7 @@ func TestBuildOptions(t *testing.T) {
 		},
 		{
 			name: "mixed workspace types sorted",
-			targets: []models.AzureEligibleTarget{
+			targets: []models.EligibleTarget{
 				{
 					WorkspaceName: "RG Zebra",
 					WorkspaceType: models.WorkspaceTypeResourceGroup,
@@ -158,7 +158,7 @@ func TestBuildOptions(t *testing.T) {
 
 func TestFindTargetByDisplay(t *testing.T) {
 	t.Parallel()
-	targets := []models.AzureEligibleTarget{
+	targets := []models.EligibleTarget{
 		{
 			OrganizationID: "org1",
 			WorkspaceID:    "sub1",
@@ -177,9 +177,9 @@ func TestFindTargetByDisplay(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		targets []models.AzureEligibleTarget
+		targets []models.EligibleTarget
 		display string
-		want    *models.AzureEligibleTarget
+		want    *models.EligibleTarget
 		wantErr bool
 	}{
 		{
@@ -205,7 +205,7 @@ func TestFindTargetByDisplay(t *testing.T) {
 		},
 		{
 			name:    "empty targets",
-			targets: []models.AzureEligibleTarget{},
+			targets: []models.EligibleTarget{},
 			display: "Subscription: Test / Role: Owner",
 			want:    nil,
 			wantErr: true,

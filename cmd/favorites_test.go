@@ -391,7 +391,7 @@ func TestFavoritesParentCommand(t *testing.T) {
 }
 
 func TestFavoritesAddInteractiveMode(t *testing.T) {
-	twoTargets := []models.AzureEligibleTarget{
+	twoTargets := []models.EligibleTarget{
 		{
 			OrganizationID: "org-123",
 			WorkspaceID:    "sub-456",
@@ -498,7 +498,7 @@ func TestFavoritesAddInteractiveMode(t *testing.T) {
 			},
 			eligLister: &mockEligibilityLister{
 				response: &models.EligibilityResponse{
-					Response: []models.AzureEligibleTarget{},
+					Response: []models.EligibleTarget{},
 					Total:    0,
 				},
 			},

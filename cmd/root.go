@@ -248,7 +248,7 @@ func runElevateWithDeps(
 	}
 
 	// Resolve target based on mode
-	var selectedTarget *models.AzureEligibleTarget
+	var selectedTarget *models.EligibleTarget
 
 	if isFavoriteMode || (targetName != "" && roleName != "") {
 		// Direct or favorite mode - find matching target
@@ -308,7 +308,7 @@ func runElevateWithDeps(
 }
 
 // findMatchingTarget finds a target by workspace name and role name (case-insensitive)
-func findMatchingTarget(targets []models.AzureEligibleTarget, targetName, roleName string) *models.AzureEligibleTarget {
+func findMatchingTarget(targets []models.EligibleTarget, targetName, roleName string) *models.EligibleTarget {
 	for i := range targets {
 		if strings.EqualFold(targets[i].WorkspaceName, targetName) && strings.EqualFold(targets[i].RoleInfo.Name, roleName) {
 			return &targets[i]
@@ -320,6 +320,6 @@ func findMatchingTarget(targets []models.AzureEligibleTarget, targetName, roleNa
 // uiSelector wraps the ui.SelectTarget function to implement the targetSelector interface
 type uiSelector struct{}
 
-func (s *uiSelector) SelectTarget(targets []models.AzureEligibleTarget) (*models.AzureEligibleTarget, error) {
+func (s *uiSelector) SelectTarget(targets []models.EligibleTarget) (*models.EligibleTarget, error) {
 	return ui.SelectTarget(targets)
 }

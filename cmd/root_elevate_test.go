@@ -33,7 +33,7 @@ func TestRootElevate_InteractiveMode(t *testing.T) {
 
 				eligibilityLister := &mockEligibilityLister{
 					response: &models.EligibilityResponse{
-						Response: []models.AzureEligibleTarget{
+						Response: []models.EligibleTarget{
 							{
 								OrganizationID: "org-123",
 								WorkspaceID:    "sub-456",
@@ -66,7 +66,7 @@ func TestRootElevate_InteractiveMode(t *testing.T) {
 				}
 
 				selector := &mockTargetSelector{
-					target: &models.AzureEligibleTarget{
+					target: &models.EligibleTarget{
 						OrganizationID: "org-123",
 						WorkspaceID:    "sub-456",
 						WorkspaceName:  "Prod-EastUS",
@@ -98,7 +98,7 @@ func TestRootElevate_InteractiveMode(t *testing.T) {
 
 				eligibilityLister := &mockEligibilityLister{
 					response: &models.EligibilityResponse{
-						Response: []models.AzureEligibleTarget{},
+						Response: []models.EligibleTarget{},
 						Total:    0,
 					},
 				}
@@ -156,7 +156,7 @@ func TestRootElevate_DirectMode(t *testing.T) {
 
 				eligibilityLister := &mockEligibilityLister{
 					response: &models.EligibilityResponse{
-						Response: []models.AzureEligibleTarget{
+						Response: []models.EligibleTarget{
 							{
 								OrganizationID: "org-123",
 								WorkspaceID:    "sub-456",
@@ -208,7 +208,7 @@ func TestRootElevate_DirectMode(t *testing.T) {
 
 				eligibilityLister := &mockEligibilityLister{
 					response: &models.EligibilityResponse{
-						Response: []models.AzureEligibleTarget{
+						Response: []models.EligibleTarget{
 							{
 								OrganizationID: "org-123",
 								WorkspaceID:    "sub-456",
@@ -260,7 +260,7 @@ func TestRootElevate_DirectMode(t *testing.T) {
 
 				eligibilityLister := &mockEligibilityLister{
 					response: &models.EligibilityResponse{
-						Response: []models.AzureEligibleTarget{
+						Response: []models.EligibleTarget{
 							{
 								WorkspaceName: "Dev-WestEU",
 								RoleInfo:      models.RoleInfo{Name: "Reader"},
@@ -289,7 +289,7 @@ func TestRootElevate_DirectMode(t *testing.T) {
 
 				eligibilityLister := &mockEligibilityLister{
 					response: &models.EligibilityResponse{
-						Response: []models.AzureEligibleTarget{
+						Response: []models.EligibleTarget{
 							{
 								WorkspaceName: "Prod-EastUS",
 								RoleInfo:      models.RoleInfo{Name: "Reader"},
@@ -382,7 +382,7 @@ func TestRootElevate_FavoriteMode(t *testing.T) {
 
 				eligibilityLister := &mockEligibilityLister{
 					response: &models.EligibilityResponse{
-						Response: []models.AzureEligibleTarget{
+						Response: []models.EligibleTarget{
 							{
 								OrganizationID: "org-123",
 								WorkspaceID:    "sub-456",
@@ -547,7 +547,7 @@ func TestRootElevate_ProviderValidation(t *testing.T) {
 				}
 				eligibilityLister := &mockEligibilityLister{
 					response: &models.EligibilityResponse{
-						Response: []models.AzureEligibleTarget{},
+						Response: []models.EligibleTarget{},
 						Total:    0,
 					},
 				}
@@ -654,7 +654,7 @@ func TestRootElevate_ElevationErrors(t *testing.T) {
 
 				eligibilityLister := &mockEligibilityLister{
 					response: &models.EligibilityResponse{
-						Response: []models.AzureEligibleTarget{
+						Response: []models.EligibleTarget{
 							{
 								OrganizationID: "org-123",
 								WorkspaceID:    "sub-456",

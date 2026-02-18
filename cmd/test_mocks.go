@@ -66,12 +66,12 @@ func (m *mockElevateService) Elevate(ctx context.Context, req *models.ElevateReq
 
 // mockTargetSelector implements the targetSelector interface for testing
 type mockTargetSelector struct {
-	selectFunc func(targets []models.AzureEligibleTarget) (*models.AzureEligibleTarget, error)
-	target     *models.AzureEligibleTarget
+	selectFunc func(targets []models.EligibleTarget) (*models.EligibleTarget, error)
+	target     *models.EligibleTarget
 	selectErr  error
 }
 
-func (m *mockTargetSelector) SelectTarget(targets []models.AzureEligibleTarget) (*models.AzureEligibleTarget, error) {
+func (m *mockTargetSelector) SelectTarget(targets []models.EligibleTarget) (*models.EligibleTarget, error) {
 	if m.selectFunc != nil {
 		return m.selectFunc(targets)
 	}
