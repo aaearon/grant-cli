@@ -24,13 +24,19 @@ func NewFavoritesCommand() *cobra.Command {
 }
 
 func newFavoritesAddCommand() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "add <name>",
 		Short: "Add a new favorite",
-		Long:  "Interactively add a new elevation target as a favorite.",
+		Long:  "Add a new elevation target as a favorite, either interactively or via --target and --role flags.",
 		Args:  cobra.ExactArgs(1),
 		RunE:  runFavoritesAdd,
 	}
+
+	cmd.Flags().StringP("provider", "p", "", "Cloud provider (default from config, v1: azure only)")
+	cmd.Flags().StringP("target", "t", "", "Target name (subscription, resource group, etc.)")
+	cmd.Flags().StringP("role", "r", "", "Role name")
+
+	return cmd
 }
 
 func newFavoritesListCommand() *cobra.Command {
@@ -71,32 +77,54 @@ func runFavoritesAdd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("favorite %q already exists", name)
 	}
 
-	// Interactive prompts
+	// Read flags
+	provider, _ := cmd.Flags().GetString("provider")
+	target, _ := cmd.Flags().GetString("target")
+	role, _ := cmd.Flags().GetString("role")
+
+	// Validate: target and role must both be provided or both omitted
+	if (target != "" && role == "") || (target == "" && role != "") {
+		return fmt.Errorf("both --target and --role must be provided")
+	}
+
 	var fav config.Favorite
 
-	// Provider prompt (default to config.DefaultProvider)
-	providerPrompt := &survey.Input{
-		Message: "Provider:",
-		Default: cfg.DefaultProvider,
-	}
-	if err := survey.AskOne(providerPrompt, &fav.Provider); err != nil {
-		return fmt.Errorf("provider prompt failed: %w", err)
-	}
+	if target != "" && role != "" {
+		// Non-interactive mode: use flags
+		fav.Target = target
+		fav.Role = role
+		fav.Provider = provider
+		if fav.Provider == "" {
+			fav.Provider = cfg.DefaultProvider
+		}
+	} else {
+		// Interactive mode: survey prompts
+		providerDefault := cfg.DefaultProvider
+		if provider != "" {
+			providerDefault = provider
+		}
 
-	// Target prompt
-	targetPrompt := &survey.Input{
-		Message: "Target (e.g., subscription ID):",
-	}
-	if err := survey.AskOne(targetPrompt, &fav.Target, survey.WithValidator(survey.Required)); err != nil {
-		return fmt.Errorf("target prompt failed: %w", err)
-	}
+		providerPrompt := &survey.Input{
+			Message: "Provider:",
+			Default: providerDefault,
+		}
+		if err := survey.AskOne(providerPrompt, &fav.Provider); err != nil {
+			return fmt.Errorf("provider prompt failed: %w", err)
+		}
 
-	// Role prompt
-	rolePrompt := &survey.Input{
-		Message: "Role (e.g., Contributor, Reader):",
-	}
-	if err := survey.AskOne(rolePrompt, &fav.Role, survey.WithValidator(survey.Required)); err != nil {
-		return fmt.Errorf("role prompt failed: %w", err)
+		targetPrompt := &survey.Input{
+			Message: "Target (e.g., subscription ID):",
+		}
+		if err := survey.AskOne(targetPrompt, &fav.Target, survey.WithValidator(survey.Required)); err != nil {
+			return fmt.Errorf("target prompt failed: %w", err)
+		}
+
+		rolePrompt := &survey.Input{
+			Message: "Role (e.g., Contributor, Reader):",
+		}
+		if err := survey.AskOne(rolePrompt, &fav.Role, survey.WithValidator(survey.Required)); err != nil {
+			return fmt.Errorf("role prompt failed: %w", err)
+		}
 	}
 
 	// Add favorite

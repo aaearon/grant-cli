@@ -195,14 +195,19 @@ grant status --provider azure  # filter by provider
 
 Manage saved role combinations for quick elevation.
 
-**Add a favorite:**
+**Add a favorite (interactive):**
 ```bash
 grant favorites add <name>
 ```
-This interactively prompts for:
-- Provider (default: azure)
-- Target name
-- Role name
+This interactively prompts for provider, target, and role.
+
+**Add a favorite (non-interactive):**
+```bash
+grant favorites add <name> --target "Prod-EastUS" --role "Contributor"
+grant favorites add <name> -t "MyResourceGroup" -r "Owner" -p azure
+```
+When `--target` and `--role` are both provided, interactive prompts are skipped.
+Provider defaults to the config value (azure) if omitted.
 
 **List favorites:**
 ```bash

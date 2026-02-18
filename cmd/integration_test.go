@@ -181,6 +181,40 @@ func TestIntegration_FavoritesList(t *testing.T) {
 	}
 }
 
+func TestIntegration_FavoritesAddWithFlags(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+	env := append(os.Environ(), "GRANT_CONFIG="+configPath)
+
+	// Add a favorite via flags
+	cmd := exec.Command(getBinaryPath(), "favorites", "add", "test-fav", "--target", "sub-123", "--role", "Contributor")
+	cmd.Env = env
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("favorites add with flags failed: %v\nOutput: %s", err, output)
+	}
+
+	outputStr := string(output)
+	if !strings.Contains(outputStr, "Added favorite") {
+		t.Errorf("expected output to contain 'Added favorite', got:\n%s", outputStr)
+	}
+
+	// Verify via favorites list
+	cmd = exec.Command(getBinaryPath(), "favorites", "list")
+	cmd.Env = env
+	output, err = cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("favorites list failed: %v\nOutput: %s", err, output)
+	}
+
+	outputStr = string(output)
+	for _, want := range []string{"test-fav", "azure/sub-123/Contributor"} {
+		if !strings.Contains(outputStr, want) {
+			t.Errorf("favorites list missing %q, got:\n%s", want, outputStr)
+		}
+	}
+}
+
 func TestIntegration_InvalidCommand(t *testing.T) {
 	cmd := exec.Command(getBinaryPath(), "nonexistent-command")
 	output, err := cmd.CombinedOutput()
