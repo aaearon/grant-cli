@@ -108,6 +108,11 @@ func runFavoritesAddProduction(cmd *cobra.Command, args []string) error {
 	target, _ := cmd.Flags().GetString("target")
 	role, _ := cmd.Flags().GetString("role")
 
+	// Validate: target and role must both be provided or both omitted
+	if (target != "" && role == "") || (target == "" && role != "") {
+		return fmt.Errorf("both --target and --role must be provided")
+	}
+
 	if target != "" && role != "" {
 		// Non-interactive: no auth needed
 		return runFavoritesAddWithDeps(cmd, args, nil, nil, nil, nil)

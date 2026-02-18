@@ -14,6 +14,7 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - CLAUDE.md documenting Go 1.24+ when `go.mod` requires Go 1.25+
+- `favorites add` with partial flags (`--target` without `--role`) hitting auth before flag validation in CI
 
 ### Previously Refactored
 
