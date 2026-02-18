@@ -37,6 +37,25 @@ func TestEligibleTarget_JSONUnmarshal(t *testing.T) {
 			wantRoleName:    "User Access Administrator",
 		},
 		{
+			name: "AWS account workspace type",
+			jsonInput: `{
+				"organizationId": "o-abc123def456",
+				"workspaceId": "123456789012",
+				"workspaceName": "Acme AWS Management",
+				"workspaceType": "account",
+				"roleInfo": {
+					"id": "arn:aws:iam::123456789012:role/AdministratorAccess",
+					"name": "AdministratorAccess"
+				}
+			}`,
+			wantOrgID:       "o-abc123def456",
+			wantWorkspaceID: "123456789012",
+			wantName:        "Acme AWS Management",
+			wantType:        WorkspaceTypeAccount,
+			wantRoleID:      "arn:aws:iam::123456789012:role/AdministratorAccess",
+			wantRoleName:    "AdministratorAccess",
+		},
+		{
 			name: "subscription workspace type",
 			jsonInput: `{
 				"organizationId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
@@ -246,6 +265,7 @@ func TestWorkspaceType_Values(t *testing.T) {
 		{WorkspaceTypeSubscription, "SUBSCRIPTION"},
 		{WorkspaceTypeManagementGroup, "MANAGEMENT_GROUP"},
 		{WorkspaceTypeDirectory, "DIRECTORY"},
+		{WorkspaceTypeAccount, "account"},
 	}
 
 	for _, tt := range tests {

@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/Iilun/survey/v2"
 	"github.com/aaearon/grant-cli/internal/sca/models"
@@ -11,17 +12,19 @@ import (
 // FormatTargetOption formats an eligible target into a display string.
 func FormatTargetOption(target models.EligibleTarget) string {
 	var prefix string
-	switch target.WorkspaceType {
-	case models.WorkspaceTypeSubscription:
+	switch strings.ToLower(string(target.WorkspaceType)) {
+	case "subscription":
 		prefix = "Subscription"
-	case models.WorkspaceTypeResourceGroup:
+	case "resource_group":
 		prefix = "Resource Group"
-	case models.WorkspaceTypeManagementGroup:
+	case "management_group":
 		prefix = "Management Group"
-	case models.WorkspaceTypeDirectory:
+	case "directory":
 		prefix = "Directory"
-	case models.WorkspaceTypeResource:
+	case "resource":
 		prefix = "Resource"
+	case "account":
+		prefix = "Account"
 	default:
 		prefix = string(target.WorkspaceType)
 	}

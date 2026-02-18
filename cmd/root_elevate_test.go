@@ -508,22 +508,6 @@ func TestRootElevate_ProviderValidation(t *testing.T) {
 		wantErr     bool
 	}{
 		{
-			name: "invalid provider - v1 only accepts azure",
-			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *config.Config) {
-				authLoader := &mockAuthLoader{
-					token: &authmodels.IdsecToken{Token: "test-jwt"},
-				}
-				cfg := config.DefaultConfig()
-				return authLoader, nil, cfg
-			},
-			args: []string{"--provider", "aws"},
-			wantContain: []string{
-				`provider "aws" is not supported in this version`,
-				"supported providers: azure",
-			},
-			wantErr: true,
-		},
-		{
 			name: "invalid provider - gcp",
 			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *config.Config) {
 				authLoader := &mockAuthLoader{
@@ -534,8 +518,29 @@ func TestRootElevate_ProviderValidation(t *testing.T) {
 			},
 			args: []string{"--provider", "gcp"},
 			wantContain: []string{
-				`provider "gcp" is not supported in this version`,
-				"supported providers: azure",
+				`provider "gcp" is not supported`,
+				"supported providers: azure, aws",
+			},
+			wantErr: true,
+		},
+		{
+			name: "valid provider - aws explicit",
+			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *config.Config) {
+				authLoader := &mockAuthLoader{
+					token: &authmodels.IdsecToken{Token: "test-jwt"},
+				}
+				eligibilityLister := &mockEligibilityLister{
+					response: &models.EligibilityResponse{
+						Response: []models.EligibleTarget{},
+						Total:    0,
+					},
+				}
+				cfg := config.DefaultConfig()
+				return authLoader, eligibilityLister, cfg
+			},
+			args: []string{"--provider", "aws"},
+			wantContain: []string{
+				"no eligible aws targets found",
 			},
 			wantErr: true,
 		},

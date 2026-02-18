@@ -20,6 +20,7 @@ const (
 	WorkspaceTypeSubscription    WorkspaceType = "SUBSCRIPTION"
 	WorkspaceTypeManagementGroup WorkspaceType = "MANAGEMENT_GROUP"
 	WorkspaceTypeDirectory       WorkspaceType = "DIRECTORY"
+	WorkspaceTypeAccount         WorkspaceType = "account"
 )
 
 // RoleInfo contains the ID and name of a role.

@@ -66,7 +66,8 @@ Examples:
   grant --favorite prod-contrib
 
   # Specify provider explicitly
-  grant --provider azure`,
+  grant --provider azure
+  grant --provider aws`,
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
@@ -82,7 +83,7 @@ Examples:
 	}
 
 	cmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "enable verbose output")
-	cmd.Flags().StringP("provider", "p", "", "Cloud provider (default from config, v1: azure only)")
+	cmd.Flags().StringP("provider", "p", "", "Cloud provider: azure, aws (default from config)")
 	cmd.Flags().StringP("target", "t", "", "Target name (subscription, resource group, etc.)")
 	cmd.Flags().StringP("role", "r", "", "Role name")
 	cmd.Flags().StringP("favorite", "f", "", "Use a saved favorite (see 'grant favorites list')")
@@ -229,9 +230,12 @@ func runElevateWithDeps(
 		}
 	}
 
-	// Validate provider (v1 only accepts azure)
-	if strings.ToLower(provider) != "azure" {
-		return fmt.Errorf("provider %q is not supported in this version, supported providers: azure", provider)
+	// Validate provider
+	switch strings.ToLower(provider) {
+	case "azure", "aws":
+		// supported
+	default:
+		return fmt.Errorf("provider %q is not supported, supported providers: azure, aws", provider)
 	}
 
 	// Convert provider to CSP

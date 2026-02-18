@@ -58,6 +58,15 @@ func TestFormatTargetOption(t *testing.T) {
 			},
 			want: "Resource: vm-prod-001 / Role: Contributor",
 		},
+		{
+			name: "account (AWS)",
+			target: models.EligibleTarget{
+				WorkspaceName: "Acme AWS Management",
+				WorkspaceType: models.WorkspaceTypeAccount,
+				RoleInfo:      models.RoleInfo{ID: "6", Name: "AdministratorAccess"},
+			},
+			want: "Account: Acme AWS Management / Role: AdministratorAccess",
+		},
 	}
 
 	for _, tt := range tests {

@@ -78,7 +78,7 @@ func newFavoritesAddCommandWithRunner(runFn func(*cobra.Command, []string) error
 		RunE: runFn,
 	}
 
-	cmd.Flags().StringP("provider", "p", "", "Cloud provider (default from config, v1: azure only)")
+	cmd.Flags().StringP("provider", "p", "", "Cloud provider: azure, aws (default from config)")
 	cmd.Flags().StringP("target", "t", "", "Target name (subscription, resource group, etc.)")
 	cmd.Flags().StringP("role", "r", "", "Role name")
 
@@ -201,9 +201,12 @@ func runFavoritesAddWithDeps(cmd *cobra.Command, args []string, eligLister eligi
 			provider = cfg.DefaultProvider
 		}
 
-		// Validate provider (v1 only accepts azure)
-		if strings.ToLower(provider) != "azure" {
-			return fmt.Errorf("provider %q is not supported in this version, supported providers: azure", provider)
+		// Validate provider
+		switch strings.ToLower(provider) {
+		case "azure", "aws":
+			// supported
+		default:
+			return fmt.Errorf("provider %q is not supported, supported providers: azure, aws", provider)
 		}
 
 		csp := models.CSP(strings.ToUpper(provider))
