@@ -24,6 +24,10 @@ All notable changes to this project will be documented in this file.
 - Unused `CSPGCP` constant (re-add when GCP is implemented)
 - GCP references from `grant status` provider flag help and `parseProvider()`
 
+### Performance
+
+- Parallelize multi-CSP eligibility queries — all providers fetched concurrently when `--provider` is omitted
+
 ### Changed
 
 - Renamed `AzureEligibleTarget` to `EligibleTarget` (CSP-agnostic)

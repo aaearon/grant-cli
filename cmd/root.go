@@ -6,6 +6,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aaearon/grant-cli/internal/config"
@@ -182,17 +183,41 @@ var supportedCSPs = []models.CSP{models.CSPAzure, models.CSPAWS}
 // Each returned target has its CSP field set.
 func fetchEligibility(ctx context.Context, eligLister eligibilityLister, provider string) ([]models.EligibleTarget, error) {
 	if provider == "" {
-		var all []models.EligibleTarget
+		type cspResult struct {
+			targets []models.EligibleTarget
+			csp     models.CSP
+			err     error
+		}
+
+		results := make(chan cspResult, len(supportedCSPs))
+		var wg sync.WaitGroup
 		for _, csp := range supportedCSPs {
-			resp, err := eligLister.ListEligibility(ctx, csp)
-			if err != nil {
+			wg.Add(1)
+			go func(csp models.CSP) {
+				defer wg.Done()
+				resp, err := eligLister.ListEligibility(ctx, csp)
+				if err != nil {
+					results <- cspResult{csp: csp, err: err}
+					return
+				}
+				results <- cspResult{targets: resp.Response, csp: csp}
+			}(csp)
+		}
+		go func() {
+			wg.Wait()
+			close(results)
+		}()
+
+		var all []models.EligibleTarget
+		for r := range results {
+			if r.err != nil {
 				if verbose {
-					fmt.Fprintf(os.Stderr, "[verbose] %s eligibility query failed: %v\n", csp, err)
+					fmt.Fprintf(os.Stderr, "[verbose] %s eligibility query failed: %v\n", r.csp, r.err)
 				}
 				continue
 			}
-			for _, t := range resp.Response {
-				t.CSP = csp
+			for _, t := range r.targets {
+				t.CSP = r.csp
 				all = append(all, t)
 			}
 		}
