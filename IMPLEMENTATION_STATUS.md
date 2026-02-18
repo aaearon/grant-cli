@@ -175,7 +175,7 @@ type httpClient interface {
 
 7. **`cmd/favorites.go`** — Favorites management
    - Parent command with three subcommands:
-     - `add <name>` — interactive prompts for provider/target/role
+     - `add <name>` — interactive prompts or `--target`/`--role` flags for non-interactive use
      - `list` — displays all favorites
      - `remove <name>` — removes a favorite
 
@@ -572,6 +572,63 @@ Cross-reference sessions with the eligibility API (`GET /api/access/{CSP}/eligib
 
 - `cmd/status.go` — `buildWorkspaceNameMap()`, updated `formatSession()` signature, `runStatus()` and `NewStatusCommandWithDeps()` accept `eligibilityLister`
 - `cmd/status_test.go` — Added `setupEligibility` to all test cases, updated assertions for `"name (path)"` format, added `"eligibility fetch fails - graceful degradation"` test case
+
+---
+
+## Feature: Non-Interactive Favorites Add (`feat/favorites-add-flags`)
+
+**Status:** Done
+**Date:** 2026-02-18
+
+### Problem
+
+`grant favorites add <name>` required interactive survey prompts, preventing scripting and automation.
+
+### Solution
+
+Added `--provider/-p`, `--target/-t`, `--role/-r` flags to `favorites add`. When `--target` and `--role` are both provided, interactive prompts are skipped. Provider defaults to config value when omitted. Mirrors the root elevation command's flag pattern.
+
+### Implementation
+
+- `newFavoritesAddCommand()` — registers `--provider`, `--target`, `--role` flags
+- `runFavoritesAdd()` — mode branching: non-interactive when both `--target` and `--role` set, interactive otherwise
+- Validation: providing only one of `--target`/`--role` returns error
+- When `--provider` is set without `--target`/`--role`, it's used as the survey prompt default
+
+### Tests
+
+- 7 new unit test cases in `TestFavoritesAddCommand` (flag success, validation errors, duplicate with flags)
+- `TestFavoritesAddWithFlagsPersistence` — verifies config reload after flag-based add
+- `TestIntegration_FavoritesAddWithFlags` — binary-level test with `favorites list` verification
+
+---
+
+## Feature: Eligibility-Based Interactive Favorites Add (`feat/favorites-add-eligibility`)
+
+**Status:** Done
+**Date:** 2026-02-18
+
+### Problem
+
+`grant favorites add <name>` interactive mode used three free-text `survey.Input` prompts (provider, target, role), requiring users to type exact names from memory. The root elevation command already had a much better UX with eligibility-based interactive selection.
+
+### Solution
+
+Replaced the survey prompts with the same eligibility-based `ui.SelectTarget()` flow used by the root elevation command. Interactive mode now fetches eligible targets from SCA and presents a fuzzy-searchable selector. Non-interactive flag path (`--target` + `--role`) unchanged and does NOT require auth.
+
+### Implementation
+
+- `newFavoritesAddCommandWithRunner()` — shared command builder centralizing flag registration
+- `NewFavoritesCommandWithDeps(eligLister, selector)` — DI constructor for testing
+- `runFavoritesAddProduction()` — production RunE: checks duplicate before auth, bootstraps SCA service for interactive mode
+- `runFavoritesAddWithDeps()` — core logic: non-interactive flag path or eligibility-based interactive selection
+- Removed `survey` import from `favorites.go` — all interactive selection handled by `ui.SelectTarget()`
+- Reuses `bootstrapSCAService()`, `uiSelector`, existing interfaces/mocks
+
+### Tests
+
+- 8 new unit test cases in `TestFavoritesAddInteractiveMode` (success, provider flag, config default, eligibility fails, no targets, selector cancelled, duplicate name, flags bypass)
+- `TestIntegration_FavoritesAddInteractiveRequiresAuth` — binary-level test
 
 ---
 

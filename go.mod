@@ -3,6 +3,7 @@ module github.com/aaearon/grant-cli
 go 1.25.0
 
 require (
+	github.com/Iilun/survey/v2 v2.5.3
 	github.com/cyberark/idsec-sdk-golang v0.1.14
 	github.com/spf13/cobra v1.9.1
 	gopkg.in/yaml.v3 v3.0.1
@@ -12,7 +13,6 @@ require (
 	github.com/99designs/go-keychain v0.0.0-20191008050251-8e49817e8af4 // indirect
 	github.com/99designs/keyring v1.2.2 // indirect
 	github.com/EDDYCJY/fake-useragent v0.2.0 // indirect
-	github.com/Iilun/survey/v2 v2.5.3 // indirect
 	github.com/PuerkitoBio/goquery v1.10.3 // indirect
 	github.com/andybalholm/cascadia v1.3.3 // indirect
 	github.com/blang/semver v3.5.1+incompatible // indirect

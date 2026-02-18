@@ -60,7 +60,7 @@ func TestIntegration_Help(t *testing.T) {
 		{
 			name:     "configure help",
 			args:     []string{"configure", "--help"},
-			wantText: []string{"configure", "tenant URL", "username"},
+			wantText: []string{"configure", "Identity URL", "username"},
 		},
 	}
 
@@ -178,6 +178,71 @@ func TestIntegration_FavoritesList(t *testing.T) {
 	if !strings.Contains(outputStr, "No favorites") && strings.TrimSpace(outputStr) != "" {
 		// If it's not empty and doesn't say "No favorites", it should at least be valid output
 		t.Logf("Favorites list output: %s", outputStr)
+	}
+}
+
+func TestIntegration_FavoritesAddWithFlags(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "config.yaml")
+	env := append(os.Environ(), "GRANT_CONFIG="+configPath)
+
+	// Add a favorite via flags
+	cmd := exec.Command(getBinaryPath(), "favorites", "add", "test-fav", "--target", "sub-123", "--role", "Contributor")
+	cmd.Env = env
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("favorites add with flags failed: %v\nOutput: %s", err, output)
+	}
+
+	outputStr := string(output)
+	if !strings.Contains(outputStr, "Added favorite") {
+		t.Errorf("expected output to contain 'Added favorite', got:\n%s", outputStr)
+	}
+
+	// Verify via favorites list
+	cmd = exec.Command(getBinaryPath(), "favorites", "list")
+	cmd.Env = env
+	output, err = cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("favorites list failed: %v\nOutput: %s", err, output)
+	}
+
+	outputStr = string(output)
+	for _, want := range []string{"test-fav", "azure/sub-123/Contributor"} {
+		if !strings.Contains(outputStr, want) {
+			t.Errorf("favorites list missing %q, got:\n%s", want, outputStr)
+		}
+	}
+}
+
+func TestIntegration_FavoritesAddInteractiveRequiresAuth(t *testing.T) {
+	tempDir := t.TempDir()
+
+	cmd := exec.Command(getBinaryPath(), "favorites", "add", "test-fav")
+	cmd.Env = append(os.Environ(), "GRANT_CONFIG="+filepath.Join(tempDir, "config.yaml"))
+	cmd.Env = append(cmd.Env, "HOME="+tempDir) // Isolate from real credentials
+
+	output, err := cmd.CombinedOutput()
+
+	// Should fail — interactive mode needs auth
+	if err == nil {
+		t.Errorf("Expected favorites add interactive to fail without auth, but it succeeded.\nOutput: %s", output)
+	}
+
+	outputStr := string(output)
+
+	// Should contain an auth-related error (profile not found, auth failed, etc.)
+	errorKeywords := []string{"error", "Error", "failed", "Failed", "not found", "profile"}
+	foundError := false
+	for _, keyword := range errorKeywords {
+		if strings.Contains(outputStr, keyword) {
+			foundError = true
+			break
+		}
+	}
+
+	if !foundError {
+		t.Errorf("Expected auth-related error for interactive favorites add, got:\n%s", outputStr)
 	}
 }
 

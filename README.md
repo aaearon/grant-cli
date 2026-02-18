@@ -195,14 +195,19 @@ grant status --provider azure  # filter by provider
 
 Manage saved role combinations for quick elevation.
 
-**Add a favorite:**
+**Add a favorite (interactive):**
 ```bash
 grant favorites add <name>
 ```
-This interactively prompts for:
-- Provider (default: azure)
-- Target name
-- Role name
+Fetches your eligible targets from SCA and presents an interactive selector with fuzzy search — the same experience as `grant` elevation. Select a target/role combination and it's saved as a favorite.
+
+**Add a favorite (non-interactive):**
+```bash
+grant favorites add <name> --target "Prod-EastUS" --role "Contributor"
+grant favorites add <name> -t "MyResourceGroup" -r "Owner" -p azure
+```
+When `--target` and `--role` are both provided, the interactive selector is skipped and no authentication is required.
+Provider defaults to the config value (azure) if omitted.
 
 **List favorites:**
 ```bash
@@ -217,22 +222,22 @@ grant favorites remove <name>
 
 **Example workflow:**
 ```bash
-# Add a favorite
+# Add a favorite interactively (select from eligible targets)
 $ grant favorites add prod-contrib
-Provider: azure
-Target: Prod-EastUS
-Role: Contributor
-Favorite 'prod-contrib' added successfully.
+? Select target: Subscription: Prod-EastUS / Role: Contributor
+Added favorite "prod-contrib": azure/Prod-EastUS/Contributor
+
+# Add a favorite non-interactively (no auth required)
+$ grant favorites add dev-reader --target "Dev-WestEU" --role "Reader"
+Added favorite "dev-reader": azure/Dev-WestEU/Reader
 
 # Use the favorite
 $ grant --favorite prod-contrib
 
 # List favorites
 $ grant favorites list
-prod-contrib:
-  Provider: azure
-  Target: Prod-EastUS
-  Role: Contributor
+prod-contrib: azure/Prod-EastUS/Contributor
+dev-reader: azure/Dev-WestEU/Reader
 ```
 
 ### version
