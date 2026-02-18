@@ -27,7 +27,7 @@ Usage:
 		RunE:          runFn,
 	}
 
-	cmd.Flags().StringP("provider", "p", "", "Cloud provider: azure, aws (default from config)")
+	cmd.Flags().StringP("provider", "p", "", "Cloud provider: azure, aws (omit to show all)")
 	cmd.Flags().StringP("target", "t", "", "Target name (account, subscription, etc.)")
 	cmd.Flags().StringP("role", "r", "", "Role name")
 	cmd.Flags().StringP("favorite", "f", "", "Use a saved favorite (see 'grant favorites list')")

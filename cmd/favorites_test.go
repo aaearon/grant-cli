@@ -457,10 +457,9 @@ func TestFavoritesAddInteractiveMode(t *testing.T) {
 			wantErr:     false,
 		},
 		{
-			name: "success - provider defaults from config",
+			name: "success - no provider flag (multi-CSP)",
 			setupConfig: func(path string) {
 				cfg := config.DefaultConfig()
-				cfg.DefaultProvider = "azure"
 				_ = config.Save(cfg, path)
 			},
 			eligLister: &mockEligibilityLister{
@@ -486,7 +485,7 @@ func TestFavoritesAddInteractiveMode(t *testing.T) {
 				listErr: errors.New("API error: unauthorized"),
 			},
 			selector:    &mockTargetSelector{},
-			args:        []string{"myfav"},
+			args:        []string{"myfav", "--provider", "azure"},
 			wantContain: []string{"failed to fetch eligible targets"},
 			wantErr:     true,
 		},

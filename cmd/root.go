@@ -83,7 +83,7 @@ Examples:
 	}
 
 	cmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "enable verbose output")
-	cmd.Flags().StringP("provider", "p", "", "Cloud provider: azure, aws (default from config)")
+	cmd.Flags().StringP("provider", "p", "", "Cloud provider: azure, aws (omit to show all)")
 	cmd.Flags().StringP("target", "t", "", "Target name (subscription, resource group, etc.)")
 	cmd.Flags().StringP("role", "r", "", "Role name")
 	cmd.Flags().StringP("favorite", "f", "", "Use a saved favorite (see 'grant favorites list')")
@@ -173,6 +173,69 @@ func Execute() {
 	}
 }
 
+// supportedCSPs lists the cloud providers supported for elevation.
+var supportedCSPs = []models.CSP{models.CSPAzure, models.CSPAWS}
+
+// fetchEligibility retrieves eligible targets. When provider is empty, all
+// supported CSPs are queried and results merged. When set, only that CSP is queried.
+// Each returned target has its CSP field set.
+func fetchEligibility(ctx context.Context, eligLister eligibilityLister, provider string) ([]models.EligibleTarget, error) {
+	if provider == "" {
+		var all []models.EligibleTarget
+		for _, csp := range supportedCSPs {
+			resp, err := eligLister.ListEligibility(ctx, csp)
+			if err != nil {
+				continue
+			}
+			for _, t := range resp.Response {
+				t.CSP = csp
+				all = append(all, t)
+			}
+		}
+		if len(all) == 0 {
+			return nil, fmt.Errorf("no eligible targets found, check your SCA policies")
+		}
+		return all, nil
+	}
+
+	switch strings.ToLower(provider) {
+	case "azure", "aws":
+		// supported
+	default:
+		return nil, fmt.Errorf("provider %q is not supported, supported providers: azure, aws", provider)
+	}
+
+	csp := models.CSP(strings.ToUpper(provider))
+	resp, err := eligLister.ListEligibility(ctx, csp)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch eligible targets: %w", err)
+	}
+	if len(resp.Response) == 0 {
+		return nil, fmt.Errorf("no eligible %s targets found, check your SCA policies", strings.ToLower(provider))
+	}
+	targets := make([]models.EligibleTarget, len(resp.Response))
+	for i, t := range resp.Response {
+		t.CSP = csp
+		targets[i] = t
+	}
+	return targets, nil
+}
+
+// resolveTargetCSP ensures the CSP field is set on a selected target.
+// findMatchingTarget returns a pointer into allTargets (CSP already set),
+// but interactive selectors may return a separate struct without CSP.
+func resolveTargetCSP(target *models.EligibleTarget, allTargets []models.EligibleTarget) {
+	if target.CSP != "" {
+		return
+	}
+	for _, t := range allTargets {
+		if t.WorkspaceID == target.WorkspaceID && t.RoleInfo.ID == target.RoleInfo.ID {
+			target.CSP = t.CSP
+			return
+		}
+	}
+}
+
 // elevationResult holds the outcome of a successful elevation request.
 type elevationResult struct {
 	target *models.EligibleTarget
@@ -222,7 +285,7 @@ func resolveAndElevate(
 		targetName = fav.Target
 		roleName = fav.Role
 	} else {
-		// Direct or interactive mode
+		// Direct or interactive mode — provider from flag only (empty = all CSPs)
 		targetName = flags.target
 		roleName = flags.role
 
@@ -231,32 +294,13 @@ func resolveAndElevate(
 			return nil, fmt.Errorf("both --target and --role must be provided")
 		}
 
-		// Determine provider from flag or config
 		provider = flags.provider
-		if provider == "" {
-			provider = cfg.DefaultProvider
-		}
 	}
 
-	// Validate provider
-	switch strings.ToLower(provider) {
-	case "azure", "aws":
-		// supported
-	default:
-		return nil, fmt.Errorf("provider %q is not supported, supported providers: azure, aws", provider)
-	}
-
-	// Convert provider to CSP
-	csp := models.CSP(strings.ToUpper(provider))
-
-	// Fetch eligibility list
-	eligibilityResp, err := eligibilityLister.ListEligibility(ctx, csp)
+	// Fetch eligibility (all CSPs when provider is empty)
+	allTargets, err := fetchEligibility(ctx, eligibilityLister, provider)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch eligible targets: %w", err)
-	}
-
-	if len(eligibilityResp.Response) == 0 {
-		return nil, fmt.Errorf("no eligible %s targets found, check your SCA policies", strings.ToLower(provider))
+		return nil, err
 	}
 
 	// Resolve target based on mode
@@ -264,21 +308,24 @@ func resolveAndElevate(
 
 	if isFavoriteMode || (targetName != "" && roleName != "") {
 		// Direct or favorite mode - find matching target
-		selectedTarget = findMatchingTarget(eligibilityResp.Response, targetName, roleName)
+		selectedTarget = findMatchingTarget(allTargets, targetName, roleName)
 		if selectedTarget == nil {
 			return nil, fmt.Errorf("target %q or role %q not found, run 'grant' to see available options", targetName, roleName)
 		}
 	} else {
 		// Interactive mode
-		selectedTarget, err = selector.SelectTarget(eligibilityResp.Response)
+		selectedTarget, err = selector.SelectTarget(allTargets)
 		if err != nil {
 			return nil, fmt.Errorf("target selection failed: %w", err)
 		}
 	}
 
+	// Ensure CSP is set on selected target
+	resolveTargetCSP(selectedTarget, allTargets)
+
 	// Build elevation request
 	req := &models.ElevateRequest{
-		CSP:            csp,
+		CSP:            selectedTarget.CSP,
 		OrganizationID: selectedTarget.OrganizationID,
 		Targets: []models.ElevateTarget{
 			{

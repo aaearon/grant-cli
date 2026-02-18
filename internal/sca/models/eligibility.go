@@ -31,6 +31,7 @@ type RoleInfo struct {
 
 // EligibleTarget represents a cloud workspace target the user is eligible to elevate to.
 type EligibleTarget struct {
+	CSP            CSP           `json:"-"` // Set programmatically after fetch, not from API
 	OrganizationID string        `json:"organizationId"`
 	WorkspaceID    string        `json:"workspaceId"`
 	WorkspaceName  string        `json:"workspaceName"`
