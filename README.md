@@ -2,6 +2,8 @@
 
 A CLI tool for elevating cloud permissions (Azure, AWS) via CyberArk Secure Cloud Access (SCA) — without leaving the terminal.
 
+![grant demo](demo/demo.gif)
+
 ## Overview
 
 `grant` enables terminal-based cloud permission elevation (Azure, AWS) through CyberArk SCA. It wraps the `idsec-sdk-golang` SDK for authentication and builds a custom SCA Access API client for JIT role elevation.
@@ -113,6 +115,8 @@ grant configure
 ### env
 
 Perform elevation and output AWS credential export statements for shell evaluation.
+
+![grant env demo](demo/demo-env-status.gif)
 
 ```bash
 eval $(grant env --provider aws)
