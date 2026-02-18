@@ -39,6 +39,7 @@ All notable changes to this project will be documented in this file.
 - Elevation output shows AWS export statements when credentials are present
 - UI selector normalizes workspace type display (case-insensitive)
 - `--provider` flag no longer defaults to Azure; omit to see all providers
+- Make Identity URL optional in `grant configure` — the SDK auto-discovers it from the username
 
 ### Refactored
 

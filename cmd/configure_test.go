@@ -76,6 +76,47 @@ func TestConfigureCommand(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name:      "successful configure without identity URL",
+			tenantURL: "",
+			username:  "test.user@example.com",
+			setupSaver: func() profileSaver {
+				return &mockProfileSaver{
+					saveFunc: func(p *models.IdsecProfile) error {
+						if authProfile, ok := p.AuthProfiles["isp"]; !ok {
+							t.Error("expected 'isp' auth profile to exist")
+						} else {
+							if authProfile.Username != "test.user@example.com" {
+								t.Errorf("expected Username='test.user@example.com', got %q", authProfile.Username)
+							}
+							if settings, ok := authProfile.AuthMethodSettings.(*authmodels.IdentityIdsecAuthMethodSettings); !ok {
+								t.Error("expected IdentityIdsecAuthMethodSettings type")
+							} else {
+								if settings.IdentityURL != "" {
+									t.Errorf("expected IdentityURL='', got %q", settings.IdentityURL)
+								}
+								if !settings.IdentityMFAInteractive {
+									t.Error("expected IdentityMFAInteractive=true")
+								}
+							}
+						}
+						return nil
+					},
+				}
+			},
+			setupConfigFn: func() (string, error) {
+				tmpDir := t.TempDir()
+				cfgPath := filepath.Join(tmpDir, "config.yaml")
+				return cfgPath, nil
+			},
+			wantContain: []string{
+				"Profile saved to",
+				"grant.json",
+				"Config saved to",
+				"config.yaml",
+			},
+			wantErr: false,
+		},
+		{
 			name:      "invalid tenant URL",
 			tenantURL: "not-a-valid-url",
 			username:  "test.user@example.com",
@@ -95,7 +136,7 @@ func TestConfigureCommand(t *testing.T) {
 		{
 			name:      "empty username",
 			tenantURL: "https://example.cyberark.cloud",
-			username:  "",
+			username:  " ",
 			setupSaver: func() profileSaver {
 				return &mockProfileSaver{}
 			},
