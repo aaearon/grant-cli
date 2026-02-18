@@ -8,5 +8,6 @@ func init() {
 		NewStatusCommand(),
 		NewVersionCommand(),
 		NewFavoritesCommand(),
+		NewEnvCommand(),
 	)
 }

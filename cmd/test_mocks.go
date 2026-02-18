@@ -2,11 +2,16 @@ package cmd
 
 import (
 	"context"
+	"errors"
 
 	"github.com/aaearon/grant-cli/internal/sca/models"
 	sdkmodels "github.com/cyberark/idsec-sdk-golang/pkg/models"
 	authmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
 )
+
+// errNotAuthenticated is a sentinel error used in tests to simulate
+// a missing cached token from the auth loader.
+var errNotAuthenticated = errors.New("no cached token")
 
 // mockAuthLoader implements the authLoader interface for testing
 type mockAuthLoader struct {

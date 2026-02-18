@@ -173,8 +173,16 @@ func Execute() {
 	}
 }
 
-func runElevateWithDeps(
-	cmd *cobra.Command,
+// elevationResult holds the outcome of a successful elevation request.
+type elevationResult struct {
+	target *models.EligibleTarget
+	result *models.ElevateTargetResult
+}
+
+// resolveAndElevate performs the full elevation flow: auth check, flag resolution,
+// eligibility fetch, target selection, and elevation request. It is shared by
+// the root command and the env command.
+func resolveAndElevate(
 	flags *elevateFlags,
 	profile *sdkmodels.IdsecProfile,
 	authLoader authLoader,
@@ -182,14 +190,14 @@ func runElevateWithDeps(
 	elevateService elevateService,
 	selector targetSelector,
 	cfg *config.Config,
-) error {
+) (*elevationResult, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
 	defer cancel()
 
 	// Check authentication state
 	_, err := authLoader.LoadAuthentication(profile, true)
 	if err != nil {
-		return fmt.Errorf("not authenticated, run 'grant login' first: %w", err)
+		return nil, fmt.Errorf("not authenticated, run 'grant login' first: %w", err)
 	}
 
 	// Determine execution mode
@@ -202,12 +210,12 @@ func runElevateWithDeps(
 		isFavoriteMode = true
 		fav, err := config.GetFavorite(cfg, flags.favorite)
 		if err != nil {
-			return fmt.Errorf("favorite %q not found, run 'grant favorites list'", flags.favorite)
+			return nil, fmt.Errorf("favorite %q not found, run 'grant favorites list'", flags.favorite)
 		}
 
 		// Check provider mismatch
 		if flags.provider != "" && !strings.EqualFold(flags.provider, fav.Provider) {
-			return fmt.Errorf("provider %q does not match favorite provider %q", flags.provider, fav.Provider)
+			return nil, fmt.Errorf("provider %q does not match favorite provider %q", flags.provider, fav.Provider)
 		}
 
 		provider = fav.Provider
@@ -220,7 +228,7 @@ func runElevateWithDeps(
 
 		// Validate direct mode flags
 		if (targetName != "" && roleName == "") || (targetName == "" && roleName != "") {
-			return fmt.Errorf("both --target and --role must be provided")
+			return nil, fmt.Errorf("both --target and --role must be provided")
 		}
 
 		// Determine provider from flag or config
@@ -235,7 +243,7 @@ func runElevateWithDeps(
 	case "azure", "aws":
 		// supported
 	default:
-		return fmt.Errorf("provider %q is not supported, supported providers: azure, aws", provider)
+		return nil, fmt.Errorf("provider %q is not supported, supported providers: azure, aws", provider)
 	}
 
 	// Convert provider to CSP
@@ -244,11 +252,11 @@ func runElevateWithDeps(
 	// Fetch eligibility list
 	eligibilityResp, err := eligibilityLister.ListEligibility(ctx, csp)
 	if err != nil {
-		return fmt.Errorf("failed to fetch eligible targets: %w", err)
+		return nil, fmt.Errorf("failed to fetch eligible targets: %w", err)
 	}
 
 	if len(eligibilityResp.Response) == 0 {
-		return fmt.Errorf("no eligible %s targets found, check your SCA policies", strings.ToLower(provider))
+		return nil, fmt.Errorf("no eligible %s targets found, check your SCA policies", strings.ToLower(provider))
 	}
 
 	// Resolve target based on mode
@@ -258,13 +266,13 @@ func runElevateWithDeps(
 		// Direct or favorite mode - find matching target
 		selectedTarget = findMatchingTarget(eligibilityResp.Response, targetName, roleName)
 		if selectedTarget == nil {
-			return fmt.Errorf("target %q or role %q not found, run 'grant' to see available options", targetName, roleName)
+			return nil, fmt.Errorf("target %q or role %q not found, run 'grant' to see available options", targetName, roleName)
 		}
 	} else {
 		// Interactive mode
 		selectedTarget, err = selector.SelectTarget(eligibilityResp.Response)
 		if err != nil {
-			return fmt.Errorf("target selection failed: %w", err)
+			return nil, fmt.Errorf("target selection failed: %w", err)
 		}
 	}
 
@@ -283,31 +291,49 @@ func runElevateWithDeps(
 	// Execute elevation
 	elevateResp, err := elevateService.Elevate(ctx, req)
 	if err != nil {
-		return fmt.Errorf("elevation request failed: %w", err)
+		return nil, fmt.Errorf("elevation request failed: %w", err)
 	}
 
 	// Check for errors in response
 	if len(elevateResp.Response.Results) == 0 {
-		return fmt.Errorf("elevation failed: no results returned")
+		return nil, fmt.Errorf("elevation failed: no results returned")
 	}
 
 	result := elevateResp.Response.Results[0]
 	if result.ErrorInfo != nil {
-		return fmt.Errorf("elevation failed: %s - %s\n%s",
+		return nil, fmt.Errorf("elevation failed: %s - %s\n%s",
 			result.ErrorInfo.Code,
 			result.ErrorInfo.Message,
 			result.ErrorInfo.Description)
 	}
 
+	return &elevationResult{target: selectedTarget, result: &result}, nil
+}
+
+func runElevateWithDeps(
+	cmd *cobra.Command,
+	flags *elevateFlags,
+	profile *sdkmodels.IdsecProfile,
+	authLoader authLoader,
+	eligibilityLister eligibilityLister,
+	elevateService elevateService,
+	selector targetSelector,
+	cfg *config.Config,
+) error {
+	res, err := resolveAndElevate(flags, profile, authLoader, eligibilityLister, elevateService, selector, cfg)
+	if err != nil {
+		return err
+	}
+
 	// Display success message
 	fmt.Fprintf(cmd.OutOrStdout(), "Elevated to %s on %s\n",
-		selectedTarget.RoleInfo.Name,
-		selectedTarget.WorkspaceName)
-	fmt.Fprintf(cmd.OutOrStdout(), "  Session ID: %s\n", result.SessionID)
+		res.target.RoleInfo.Name,
+		res.target.WorkspaceName)
+	fmt.Fprintf(cmd.OutOrStdout(), "  Session ID: %s\n", res.result.SessionID)
 
 	// CSP-aware post-elevation guidance
-	if result.AccessCredentials != nil {
-		awsCreds, err := models.ParseAWSCredentials(*result.AccessCredentials)
+	if res.result.AccessCredentials != nil {
+		awsCreds, err := models.ParseAWSCredentials(*res.result.AccessCredentials)
 		if err != nil {
 			return fmt.Errorf("failed to parse access credentials: %w", err)
 		}
