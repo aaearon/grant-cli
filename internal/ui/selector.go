@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 
@@ -75,7 +76,7 @@ func SelectTarget(targets []models.EligibleTarget) (*models.EligibleTarget, erro
 		Filter:  nil, // Enable default fuzzy filter
 	}
 
-	if err := survey.AskOne(prompt, &selected); err != nil {
+	if err := survey.AskOne(prompt, &selected, survey.WithStdio(os.Stdin, os.Stderr, os.Stderr)); err != nil {
 		return nil, fmt.Errorf("target selection failed: %w", err)
 	}
 
