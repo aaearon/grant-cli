@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Make Identity URL optional in `grant configure` — the SDK auto-discovers it from the username
+
 ### Refactored
 
 - Accept `*IdsecProfile` directly in `NewRootCommandWithDeps` to eliminate filesystem access during tests

@@ -15,6 +15,7 @@ import (
 func TestLoginCommand(t *testing.T) {
 	tests := []struct {
 		name        string
+		identityURL string // defaults to "https://example.cyberark.cloud" when empty
 		setupAuth   func() authenticator
 		wantContain []string
 		wantErr     bool
@@ -68,6 +69,26 @@ func TestLoginCommand(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:        "successful authentication with auto-discovery profile",
+			identityURL: "NONE",
+			setupAuth: func() authenticator {
+				expiresIn := commonmodels.IdsecRFC3339Time(time.Now().Add(1 * time.Hour))
+				return &mockAuthenticator{
+					token: &authmodels.IdsecToken{
+						Token:     "test-jwt-token",
+						Username:  "test.user@example.com",
+						ExpiresIn: expiresIn,
+					},
+					authErr: nil,
+				}
+			},
+			wantContain: []string{
+				"Successfully authenticated",
+				"test.user@example.com",
+			},
+			wantErr: false,
+		},
+		{
 			name: "token with no expiry",
 			setupAuth: func() authenticator {
 				return &mockAuthenticator{
@@ -94,6 +115,12 @@ func TestLoginCommand(t *testing.T) {
 			t.Setenv("IDSEC_PROFILES_FOLDER", tempDir)
 
 			// Create a minimal profile file
+			idURL := "https://example.cyberark.cloud"
+			if tt.identityURL == "NONE" {
+				idURL = ""
+			} else if tt.identityURL != "" {
+				idURL = tt.identityURL
+			}
 			profile := &models.IdsecProfile{
 				ProfileName: "grant",
 				AuthProfiles: map[string]*authmodels.IdsecAuthProfile{
@@ -101,7 +128,7 @@ func TestLoginCommand(t *testing.T) {
 						Username:   "test.user@example.com",
 						AuthMethod: authmodels.Identity,
 						AuthMethodSettings: &authmodels.IdentityIdsecAuthMethodSettings{
-							IdentityURL:            "https://example.cyberark.cloud",
+							IdentityURL:            idURL,
 							IdentityMFAMethod:      "",
 							IdentityMFAInteractive: true,
 						},
