@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/aaearon/grant-cli/internal/config"
 	"github.com/aaearon/grant-cli/internal/sca"
@@ -18,6 +19,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// apiTimeout is the default timeout for SCA API requests.
+const apiTimeout = 30 * time.Second
+
+// verbose and passedArgValidation are package-level by design: the CLI binary
+// runs a single command per process, so there is no concurrent access.
+// They are NOT safe for concurrent use and must not be shared across goroutines.
 var verbose bool
 
 // passedArgValidation is set to true in PersistentPreRunE.
@@ -80,6 +87,9 @@ Examples:
 	cmd.Flags().StringP("role", "r", "", "Role name")
 	cmd.Flags().StringP("favorite", "f", "", "Use a saved favorite (see 'grant favorites list')")
 
+	cmd.MarkFlagsMutuallyExclusive("favorite", "target")
+	cmd.MarkFlagsMutuallyExclusive("favorite", "role")
+
 	return cmd
 }
 
@@ -108,22 +118,23 @@ func bootstrapSCAService() (auth.IdsecAuth, *sca.SCAAccessService, *sdk_models.I
 	return ispAuth, svc, profile, nil
 }
 
-// runElevateProduction is the production RunE for the root command
-func runElevateProduction(cmd *cobra.Command, args []string) error {
+// parseElevateFlags reads the elevation flags from the command.
+func parseElevateFlags(cmd *cobra.Command) *elevateFlags {
 	flags := &elevateFlags{}
 	flags.provider, _ = cmd.Flags().GetString("provider")
 	flags.target, _ = cmd.Flags().GetString("target")
 	flags.role, _ = cmd.Flags().GetString("role")
 	flags.favorite, _ = cmd.Flags().GetString("favorite")
+	return flags
+}
 
-	// Load config
-	cfgPath, err := config.ConfigPath()
+// runElevateProduction is the production RunE for the root command
+func runElevateProduction(cmd *cobra.Command, args []string) error {
+	flags := parseElevateFlags(cmd)
+
+	cfg, _, err := config.LoadDefaultWithPath()
 	if err != nil {
-		return fmt.Errorf("failed to determine config path: %w", err)
-	}
-	cfg, err := config.Load(cfgPath)
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+		return err
 	}
 
 	ispAuth, scaService, profile, err := bootstrapSCAService()
@@ -143,11 +154,7 @@ func NewRootCommandWithDeps(
 	cfg *config.Config,
 ) *cobra.Command {
 	return newRootCommand(func(cmd *cobra.Command, args []string) error {
-		flags := &elevateFlags{}
-		flags.provider, _ = cmd.Flags().GetString("provider")
-		flags.target, _ = cmd.Flags().GetString("target")
-		flags.role, _ = cmd.Flags().GetString("role")
-		flags.favorite, _ = cmd.Flags().GetString("favorite")
+		flags := parseElevateFlags(cmd)
 
 		// Load SDK profile
 		loader := profiles.DefaultProfilesLoader()
@@ -163,28 +170,12 @@ func NewRootCommandWithDeps(
 func Execute() {
 	passedArgValidation = false
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(rootCmd.ErrOrStderr(), err)
 		if !verbose && passedArgValidation {
-			fmt.Fprintln(os.Stderr, "Hint: re-run with --verbose for more details")
+			fmt.Fprintln(rootCmd.ErrOrStderr(), "Hint: re-run with --verbose for more details")
 		}
 		os.Exit(1)
 	}
-}
-
-// executeWithHint simulates Execute() logic without os.Exit, returning the error output.
-// Used for testing the verbose hint behavior.
-func executeWithHint(cmd *cobra.Command, args []string) string {
-	passedArgValidation = false
-	cmd.SetArgs(args)
-	err := cmd.Execute()
-	if err == nil {
-		return ""
-	}
-	out := err.Error() + "\n"
-	if !verbose && passedArgValidation {
-		out += "Hint: re-run with --verbose for more details\n"
-	}
-	return out
 }
 
 func runElevateWithDeps(
@@ -197,7 +188,8 @@ func runElevateWithDeps(
 	selector targetSelector,
 	cfg *config.Config,
 ) error {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
+	defer cancel()
 
 	// Check authentication state
 	_, err := authLoader.LoadAuthentication(profile, true)

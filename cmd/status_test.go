@@ -3,6 +3,8 @@ package cmd
 import (
 	"context"
 	"errors"
+	"io"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -539,6 +541,38 @@ func TestStatusCommandIntegration(t *testing.T) {
 	pFlag := cmd.Flags().ShorthandLookup("p")
 	if pFlag == nil {
 		t.Error("expected -p shorthand for provider flag")
+	}
+}
+
+func TestBuildWorkspaceNameMap_VerboseWarning(t *testing.T) {
+	// Set verbose to true to trigger the warning
+	oldVerbose := verbose
+	verbose = true
+	defer func() { verbose = oldVerbose }()
+
+	ctx := context.Background()
+	eligLister := &mockEligibilityLister{
+		listErr: errors.New("eligibility API unavailable"),
+	}
+
+	sessions := []sca_models.SessionInfo{
+		{CSP: sca_models.CSPAzure, WorkspaceID: "/subscriptions/sub-1"},
+	}
+
+	// Capture stderr
+	oldStderr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+
+	_ = buildWorkspaceNameMap(ctx, eligLister, sessions)
+
+	w.Close()
+	os.Stderr = oldStderr
+	out, _ := io.ReadAll(r)
+	stderr := string(out)
+
+	if !strings.Contains(stderr, "Warning: failed to fetch names for AZURE") {
+		t.Errorf("expected verbose warning on stderr, got: %q", stderr)
 	}
 }
 

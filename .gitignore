@@ -10,3 +10,4 @@ dist/
 *.out
 *.Zone.Identifier
 *:Zone.Identifier
+poc/

@@ -51,7 +51,7 @@ Workflow:
 	}
 
 	cmd.AddCommand(newFavoritesAddCommandWithRunner(func(c *cobra.Command, args []string) error {
-		return runFavoritesAddWithDeps(c, args, eligLister, sel, prompter)
+		return runFavoritesAddWithDeps(c, args, eligLister, sel, prompter, nil)
 	}))
 	cmd.AddCommand(newFavoritesListCommand())
 	cmd.AddCommand(newFavoritesRemoveCommand())
@@ -110,27 +110,18 @@ func runFavoritesAddProduction(cmd *cobra.Command, args []string) error {
 
 	if target != "" && role != "" {
 		// Non-interactive: no auth needed
-		return runFavoritesAddWithDeps(cmd, args, nil, nil, nil)
+		return runFavoritesAddWithDeps(cmd, args, nil, nil, nil, nil)
 	}
 
-	// Validate: partial flags are always an error (fast fail before auth)
-	if (target != "" && role == "") || (target == "" && role != "") {
-		return fmt.Errorf("both --target and --role must be provided")
+	// Interactive path: load config early for fast-fail duplicate check
+	cfg, _, err := config.LoadDefaultWithPath()
+	if err != nil {
+		return err
 	}
 
-	// Interactive path: check duplicate before auth (fast fail) if name was provided
 	if len(args) > 0 {
-		name := args[0]
-		cfgPath, err := config.ConfigPath()
-		if err != nil {
-			return fmt.Errorf("failed to determine config path: %w", err)
-		}
-		cfg, err := config.Load(cfgPath)
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
-		if _, err := config.GetFavorite(cfg, name); err == nil {
-			return fmt.Errorf("favorite %q already exists", name)
+		if _, err := config.GetFavorite(cfg, args[0]); err == nil {
+			return fmt.Errorf("favorite %q already exists", args[0])
 		}
 	}
 
@@ -140,12 +131,13 @@ func runFavoritesAddProduction(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	return runFavoritesAddWithDeps(cmd, args, scaService, &uiSelector{}, &surveyNamePrompter{})
+	return runFavoritesAddWithDeps(cmd, args, scaService, &uiSelector{}, &surveyNamePrompter{}, cfg)
 }
 
 // runFavoritesAddWithDeps contains the core logic for favorites add.
 // When eligLister and sel are nil, it uses the non-interactive flag path.
-func runFavoritesAddWithDeps(cmd *cobra.Command, args []string, eligLister eligibilityLister, sel targetSelector, prompter namePrompter) error {
+// If preloadedCfg is non-nil, it is used instead of loading from disk.
+func runFavoritesAddWithDeps(cmd *cobra.Command, args []string, eligLister eligibilityLister, sel targetSelector, prompter namePrompter, preloadedCfg *config.Config) error {
 	// Read flags
 	provider, _ := cmd.Flags().GetString("provider")
 	target, _ := cmd.Flags().GetString("target")
@@ -167,14 +159,18 @@ func runFavoritesAddWithDeps(cmd *cobra.Command, args []string, eligLister eligi
 		return fmt.Errorf("name is required when using --target and --role flags\n\nUsage:\n  grant favorites add <name> --target <target> --role <role>")
 	}
 
-	// Load config
-	cfgPath, err := config.ConfigPath()
-	if err != nil {
-		return fmt.Errorf("failed to determine config path: %w", err)
-	}
-	cfg, err := config.Load(cfgPath)
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+	// Load config (skip if pre-loaded)
+	var cfg *config.Config
+	var cfgPath string
+	if preloadedCfg != nil {
+		cfg = preloadedCfg
+		cfgPath, _ = config.ConfigPath()
+	} else {
+		var err error
+		cfg, cfgPath, err = config.LoadDefaultWithPath()
+		if err != nil {
+			return err
+		}
 	}
 
 	// Check duplicate early if name is already known
@@ -206,7 +202,8 @@ func runFavoritesAddWithDeps(cmd *cobra.Command, args []string, eligLister eligi
 		}
 
 		csp := models.CSP(strings.ToUpper(provider))
-		ctx := context.Background()
+		ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
+		defer cancel()
 
 		// Fetch eligibility
 		eligibilityResp, err := eligLister.ListEligibility(ctx, csp)
@@ -287,14 +284,9 @@ func newFavoritesRemoveCommand() *cobra.Command {
 }
 
 func runFavoritesList(cmd *cobra.Command, args []string) error {
-	// Load config
-	cfgPath, err := config.ConfigPath()
+	cfg, _, err := config.LoadDefaultWithPath()
 	if err != nil {
-		return fmt.Errorf("failed to determine config path: %w", err)
-	}
-	cfg, err := config.Load(cfgPath)
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+		return err
 	}
 
 	// List favorites
@@ -318,14 +310,9 @@ func runFavoritesList(cmd *cobra.Command, args []string) error {
 func runFavoritesRemove(cmd *cobra.Command, args []string) error {
 	name := args[0]
 
-	// Load config
-	cfgPath, err := config.ConfigPath()
+	cfg, cfgPath, err := config.LoadDefaultWithPath()
 	if err != nil {
-		return fmt.Errorf("failed to determine config path: %w", err)
-	}
-	cfg, err := config.Load(cfgPath)
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+		return err
 	}
 
 	// Remove favorite
@@ -340,8 +327,4 @@ func runFavoritesRemove(cmd *cobra.Command, args []string) error {
 
 	fmt.Fprintf(cmd.OutOrStdout(), "Removed favorite %q\n", name)
 	return nil
-}
-
-func init() {
-	rootCmd.AddCommand(NewFavoritesCommand())
 }

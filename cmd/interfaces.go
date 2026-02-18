@@ -42,3 +42,13 @@ type keyringClearer interface {
 type namePrompter interface {
 	PromptName() (string, error)
 }
+
+// authenticator is the interface for authentication operations
+type authenticator interface {
+	Authenticate(profile *sdk_models.IdsecProfile, authProfile *auth_models.IdsecAuthProfile, secret *auth_models.IdsecSecret, force bool, refreshAuth bool) (*auth_models.IdsecToken, error)
+}
+
+// profileSaver interface for saving SDK profiles
+type profileSaver interface {
+	SaveProfile(profile *sdk_models.IdsecProfile) error
+}

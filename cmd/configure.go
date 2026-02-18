@@ -15,11 +15,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// profileSaver interface for dependency injection
-type profileSaver interface {
-	SaveProfile(profile *models.IdsecProfile) error
-}
-
 // NewConfigureCommand creates the configure command
 func NewConfigureCommand() *cobra.Command {
 	cmd := &cobra.Command{
@@ -130,7 +125,7 @@ func runConfigure(cmd *cobra.Command, saver profileSaver, tenantURL, username, m
 	// Save app config
 	cfgPath, err := config.ConfigPath()
 	if err != nil {
-		return fmt.Errorf("failed to determine config path: %w", err)
+		return err
 	}
 	if err := config.Save(cfg, cfgPath); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
@@ -163,8 +158,4 @@ func validateTenantURL(tenantURL string) error {
 	}
 
 	return nil
-}
-
-func init() {
-	rootCmd.AddCommand(NewConfigureCommand())
 }

@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 
@@ -71,7 +72,8 @@ func runStatus(cmd *cobra.Command, authLoader authLoader, sessionLister sessionL
 	}
 
 	// List sessions
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
+	defer cancel()
 	sessions, err := sessionLister.ListSessions(ctx, cspFilter)
 	if err != nil {
 		return fmt.Errorf("failed to list sessions: %w", err)
@@ -165,6 +167,9 @@ func buildWorkspaceNameMap(ctx context.Context, eligLister eligibilityLister, se
 	for csp := range csps {
 		resp, err := eligLister.ListEligibility(ctx, csp)
 		if err != nil || resp == nil {
+			if verbose && err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to fetch names for %s: %v\n", csp, err)
+			}
 			continue
 		}
 		for _, target := range resp.Response {
@@ -196,8 +201,4 @@ func formatSession(session sca_models.SessionInfo, nameMap map[string]string) st
 	}
 
 	return fmt.Sprintf("%s on %s - duration: %s", session.RoleID, workspace, durationStr)
-}
-
-func init() {
-	rootCmd.AddCommand(NewStatusCommand())
 }

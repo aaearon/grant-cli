@@ -43,7 +43,3 @@ func runLogout(cmd *cobra.Command, clearer keyringClearer) error {
 	fmt.Fprintln(cmd.OutOrStdout(), "Logged out successfully")
 	return nil
 }
-
-func init() {
-	rootCmd.AddCommand(NewLogoutCommand())
-}

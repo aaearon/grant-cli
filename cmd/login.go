@@ -5,16 +5,10 @@ import (
 	"time"
 
 	"github.com/cyberark/idsec-sdk-golang/pkg/auth"
-	"github.com/cyberark/idsec-sdk-golang/pkg/models"
 	auth_models "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
 	"github.com/cyberark/idsec-sdk-golang/pkg/profiles"
 	"github.com/spf13/cobra"
 )
-
-// authenticator is the interface we need for login command
-type authenticator interface {
-	Authenticate(profile *models.IdsecProfile, authProfile *auth_models.IdsecAuthProfile, secret *auth_models.IdsecSecret, force bool, refreshAuth bool) (*auth_models.IdsecToken, error)
-}
 
 // NewLoginCommand creates the login command
 func NewLoginCommand() *cobra.Command {
@@ -89,8 +83,4 @@ func runLogin(cmd *cobra.Command, auth authenticator) error {
 	}
 
 	return nil
-}
-
-func init() {
-	rootCmd.AddCommand(NewLoginCommand())
 }

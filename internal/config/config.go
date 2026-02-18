@@ -70,6 +70,20 @@ func Save(cfg *Config, path string) error {
 	return os.WriteFile(path, data, 0600)
 }
 
+// LoadDefaultWithPath resolves the config path via ConfigPath() and loads the config.
+// Returns the config, the resolved path, and any error.
+func LoadDefaultWithPath() (*Config, string, error) {
+	cfgPath, err := ConfigPath()
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to determine config path: %w", err)
+	}
+	cfg, err := Load(cfgPath)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to load config: %w", err)
+	}
+	return cfg, cfgPath, nil
+}
+
 // ConfigDir returns the default config directory path.
 func ConfigDir() (string, error) {
 	home, err := os.UserHomeDir()
