@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Demo GIFs in README showing interactive elevation and `grant env` workflow
+
 ## [0.2.0] - 2026-02-18
 
 ### Added
