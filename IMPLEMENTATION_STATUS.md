@@ -632,6 +632,44 @@ Replaced the survey prompts with the same eligibility-based `ui.SelectTarget()` 
 
 ---
 
+## Feature: Favorites UX Improvements (`feat/favorites-ux-improvements`)
+
+**Status:** Done
+**Date:** 2026-02-18
+
+### Problem
+
+1. `grant favorites add` and `grant favorites remove` with no arguments produce unhelpful Cobra default error: "accepts 1 arg(s), received 0"
+2. The verbose hint ("Hint: re-run with --verbose for more details") appears for arg validation errors where verbose mode adds no value
+3. Users must know a favorite name before seeing available targets
+4. Help text lacks examples and cross-references
+
+### Solution
+
+- **Optional name for `favorites add`**: Name can be provided upfront or prompted after interactive target selection. Non-interactive mode (--target/--role) still requires name as argument.
+- **Custom arg validator for `favorites remove`**: Replaces Cobra's `ExactArgs(1)` with a user-friendly error that includes usage hint and cross-reference to `grant favorites list`
+- **Verbose hint suppression**: Added `passedArgValidation` flag set in `PersistentPreRunE`. Since arg validation fails before `PersistentPreRunE` runs, the flag stays false for arg errors, suppressing the misleading hint.
+- **Improved help text**: Added `Example` fields to all favorites subcommands, workflow description to parent command, actionable empty-state message, and cross-reference in `--favorite` flag description.
+
+### Implementation
+
+- `namePrompter` interface + `surveyNamePrompter` production impl + `mockNamePrompter` test mock
+- `NewFavoritesCommandWithDeps(eligLister, selector, prompter)` — now accepts `namePrompter` dep
+- `runFavoritesAddWithDeps()` — name from arg or prompted after selection; duplicate check deferred when name unknown
+- `newFavoritesRemoveCommand()` — custom `Args` function with helpful error
+- `passedArgValidation` flag in root.go + `executeWithHint()` test helper
+- Help text: `Example` fields, improved `Long` descriptions, `--favorite` flag description
+
+### Tests
+
+- 4 new test cases in `TestFavoritesAddInteractiveMode` (prompted name, duplicate prompted name, prompter error, no name with flags)
+- Updated `TestFavoritesRemoveCommand/remove_without_name` to assert custom error message
+- Updated `TestFavoritesAddCommand/add_without_name` for non-interactive name requirement
+- Updated `TestFavoritesListCommand` for actionable empty-state message
+- 5 new tests in `root_test.go` (verbose hint suppression for arg errors, unknown subcommands, runtime errors, executeWithHint output)
+
+---
+
 ## Claude Skill: grant-login
 
 **Location:** `.claude/skills/grant-login/SKILL.md`
