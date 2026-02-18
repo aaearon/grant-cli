@@ -12,8 +12,8 @@ Authenticate to CyberArk SCA by driving the interactive `grant login` flow via t
 - `grant` binary built and on PATH (or use `./grant`)
 - `.env` file at project root with:
   ```
-  GRANT_PASSWORD=<password>
-  TOTP_SECRET=<base32-encoded TOTP secret>
+  SCA_PASSWORD=<password>
+  SCA_TOTP_SECRET=<base32-encoded TOTP secret>
   ```
 - `tmux` installed
 - `python3` available (for TOTP generation — uses only stdlib modules)
@@ -35,23 +35,23 @@ Authenticate to CyberArk SCA by driving the interactive `grant login` flow via t
    sleep 2
    # Check for password prompt
    tmux capture-pane -t grant-login -p | tail -5
-   tmux send-keys -t grant-login "$GRANT_PASSWORD" Enter
+   tmux send-keys -t grant-login "$SCA_PASSWORD" Enter
    ```
 
 4. **Wait for the MFA method selection**, then select "OATH Code":
    ```bash
    sleep 3
    tmux capture-pane -t grant-login -p | tail -10
-   # Use arrow keys or type to select OATH Code from the survey menu
-   # The menu is interactive — look for the options and navigate to "OATH Code"
-   tmux send-keys -t grant-login "OATH" Enter
+   # The menu defaults to Email (second item). OATH Code is the first item.
+   # Navigate up to select it, then press Enter.
+   tmux send-keys -t grant-login Up Enter
    ```
 
 5. **Generate a fresh TOTP code** using python3 (no extra deps):
    ```bash
    TOTP_CODE=$(python3 -c "
    import hmac, hashlib, struct, time, base64
-   secret = base64.b32decode('$TOTP_SECRET', casefold=True)
+   secret = base64.b32decode('$SCA_TOTP_SECRET', casefold=True)
    counter = struct.pack('>Q', int(time.time()) // 30)
    h = hmac.new(secret, counter, hashlib.sha1).digest()
    offset = h[-1] & 0x0F
