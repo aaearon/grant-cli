@@ -84,33 +84,6 @@ cd grant-cli
 make build
 ```
 
-## Quick Start
-
-### Initial Setup
-
-1. **Authenticate (auto-configures on first run):**
-   ```bash
-   grant login
-   ```
-   On first run, you'll be prompted for:
-   - Identity URL (e.g., `https://abc1234.id.cyberark.cloud`)
-   - Username
-
-   Then follow the interactive prompts to complete MFA authentication. The MFA method will be selected interactively during login.
-
-2. **Elevate permissions:**
-   ```bash
-   grant
-   ```
-   Select your target and role from the interactive list.
-
-3. **Verify active sessions:**
-   ```bash
-   grant status
-   ```
-
-**Optional:** Run `grant configure` to reconfigure your Identity URL or username.
-
 ## Commands
 
 Running `grant` with no subcommand elevates cloud permissions (the core behavior). Subcommands are listed below.
@@ -131,19 +104,11 @@ Running `grant` with no subcommand elevates cloud permissions (the core behavior
 
 ### configure
 
-Configure or reconfigure your CyberArk tenant connection.
+Reconfigure your CyberArk tenant connection (Identity URL and username). Optional — `grant login` auto-configures on first run.
 
 ```bash
 grant configure
 ```
-
-This command:
-- Creates `~/.grant/config.yaml` for application settings
-- Creates `~/.idsec_profiles/grant.json` for SDK authentication
-- Prompts for Identity URL (must be HTTPS, format: `https://{subdomain}.id.cyberark.cloud`)
-- Prompts for username
-
-**Note:** This command is optional. Running `grant login` for the first time automatically runs configuration. Use `configure` to change your Identity URL or username.
 
 ### env
 
@@ -170,14 +135,7 @@ Authenticate to CyberArk Identity with MFA.
 grant login
 ```
 
-This command:
-- **First time:** Prompts for Identity URL and username, then authenticates
-- **Subsequent runs:** Uses credentials from `~/.idsec_profiles/grant.json`
-- Prompts for password and MFA challenge (MFA method selected interactively)
-- Stores tokens securely in system keyring
-- Shows token expiration time on success
-
-**Note:** Tokens are automatically refreshed during operations if still valid.
+On first run, prompts for Identity URL and username (auto-configures). Authenticates with password and MFA (method selected interactively), then stores tokens in the system keyring. Tokens are automatically refreshed during operations.
 
 ### logout
 
@@ -191,26 +149,7 @@ This removes stored authentication tokens but preserves your configuration files
 
 ### Default Behavior (Elevate)
 
-Running `grant` with no subcommand requests JIT (just-in-time) permission elevation for cloud resources.
-
-**Interactive mode** — select from eligible targets:
-```bash
-grant                    # show all providers
-grant --provider azure   # Azure only
-grant --provider aws     # AWS only
-```
-
-**Direct mode** — specify target and role:
-```bash
-grant --target "Prod-EastUS" --role "Contributor"
-grant -t "MyResourceGroup" -r "Owner"
-```
-
-**Favorite mode** — use a saved favorite:
-```bash
-grant --favorite prod-contrib
-grant -f dev-reader
-```
+Running `grant` with no subcommand requests JIT (just-in-time) permission elevation for cloud resources. Supports interactive, direct (`--target`/`--role`), and favorite (`--favorite`) modes as shown in the [Usage](#usage) section.
 
 **Flags:**
 - `--provider, -p` — Cloud provider: `azure`, `aws` (omit to show all providers)
@@ -236,12 +175,6 @@ grant status
 grant status --provider azure  # filter by Azure
 grant status --provider aws    # filter by AWS
 ```
-
-**Output includes:**
-- Authentication status (username and token validity)
-- Active sessions grouped by cloud provider
-- Session details: target name, role, expiration time
-- Human-readable time remaining (e.g., "2h 15m")
 
 ### favorites
 
@@ -270,34 +203,6 @@ Shows all saved favorites with their provider, target, and role.
 **Remove a favorite:**
 ```bash
 grant favorites remove <name>
-```
-
-**Example workflow:**
-```bash
-# Add a favorite interactively (select from eligible targets)
-$ grant favorites add prod-contrib
-? Select target: Subscription: Prod-EastUS / Role: Contributor
-Added favorite "prod-contrib": azure/Prod-EastUS/Contributor
-
-# Add a favorite non-interactively (no auth required)
-$ grant favorites add dev-reader --target "Dev-WestEU" --role "Reader"
-Added favorite "dev-reader": azure/Dev-WestEU/Reader
-
-# Use the favorite
-$ grant --favorite prod-contrib
-
-# List favorites
-$ grant favorites list
-prod-contrib: azure/Prod-EastUS/Contributor
-dev-reader: azure/Dev-WestEU/Reader
-```
-
-### version
-
-Display version information including commit hash and build date.
-
-```bash
-grant version
 ```
 
 ## Configuration
@@ -330,19 +235,6 @@ favorites:
 - `default_provider` — Default cloud provider for elevation (used when `--provider` is omitted)
 - `favorites` — Map of favorite names to provider/target/role combinations
 
-### SDK Profile (`~/.idsec_profiles/grant.json`)
-
-CyberArk Identity SDK profile containing Identity URL and authentication preferences.
-
-**Managed by:** `grant configure` command (or auto-created by `grant login`)
-
-**Contains:**
-- Identity URL (format: `https://{subdomain}.id.cyberark.cloud`)
-- Username
-- SDK version metadata
-
-**Note:** Tokens are NOT stored in this file — they're stored securely in the system keyring. MFA method selection is handled interactively during login.
-
 ### Environment Variables
 
 | Variable | Description | Default |
@@ -351,63 +243,7 @@ CyberArk Identity SDK profile containing Identity URL and authentication prefere
 | `IDSEC_LOG_LEVEL` | SDK log level (`DEBUG`, `INFO`, `CRITICAL`) — overrides `--verbose` | Not set |
 | `HOME` | User home directory (used for config paths) | System default |
 
-## How It Works
-
-### Azure Elevation Flow
-
-1. **List Eligibility:** Queries SCA API for Azure roles you're eligible to activate
-2. **Request Elevation:** Submits elevation request with target and role
-3. **JIT Activation:** SCA creates a time-limited Azure RBAC role assignment
-4. **Automatic Access:** Your existing `az` CLI picks up the new role assignment
-5. **Session Expiry:** Role assignment automatically expires (policy-controlled)
-
-**Important:** No Azure credentials are returned to you. SCA manages the Azure role assignment behind the scenes. Your Azure CLI session uses its existing authentication but gains the new role assignment.
-
-### AWS Elevation Flow
-
-1. **List Eligibility:** Queries SCA API for AWS roles you're eligible to activate
-2. **Request Elevation:** Submits elevation request with account and role
-3. **Credential Issuance:** SCA returns temporary AWS credentials (access key, secret key, session token)
-4. **Export Credentials:** Use `eval $(grant env --provider aws)` to export credentials to your shell
-5. **Session Expiry:** Credentials automatically expire (policy-controlled)
-
-**Important:** AWS credentials are returned directly. Export them using `grant env` or manually set the environment variables shown in the elevation output.
-
-### Authentication Flow
-
-1. **Initial Authentication:** `grant login` authenticates to CyberArk Identity with MFA
-2. **Token Storage:** Tokens stored securely in system keyring (macOS Keychain, Windows Credential Manager, Linux Secret Service)
-3. **Token Reuse:** Subsequent commands reuse cached tokens if still valid
-4. **Auto-Refresh:** SDK automatically refreshes tokens before expiry
-5. **Manual Logout:** `grant logout` clears tokens from keyring
-
 ## Troubleshooting
-
-### "Error: failed to load config" or "profile not found"
-
-**Cause:** Configuration files not created or corrupted.
-
-**Solution:**
-```bash
-grant login      # Auto-configures on first run
-# or
-grant configure  # Explicit reconfiguration
-```
-
-### "Error: not authenticated" or "authentication required"
-
-**Cause:** No valid authentication token in keyring.
-
-**Solution:**
-```bash
-grant login
-```
-
-If login fails, verify:
-1. Identity URL is correct (check `~/.idsec_profiles/grant.json` - should be `https://{subdomain}.id.cyberark.cloud`)
-2. Username is correct
-3. Password is correct
-4. MFA device/method is available and working
 
 ### Elevation succeeds but Azure CLI doesn't see new role
 
@@ -442,62 +278,13 @@ az login
 2. Verify the target name and role name are correct
 3. Contact your CyberArk administrator if role should be available or if you've reached session limits
 
-### Interactive selection doesn't appear
+### Provider-related errors
 
-**Cause:** Terminal doesn't support interactive input (e.g., non-TTY, CI environment).
-
-**Solution:**
-Use direct mode with explicit flags:
-```bash
-grant --target "MyTarget" --role "Contributor"
-```
-
-### "Error: provider not supported"
-
-**Cause:** The specified provider is not supported. Currently supported: `azure`, `aws`.
-
-**Solution:**
-Use a supported provider:
-```bash
-grant --provider azure
-grant --provider aws
-grant  # omit to see all providers
-```
-
-### "grant env is only supported for AWS elevations"
-
-**Cause:** `grant env` was used for an Azure elevation. Azure doesn't return credentials.
-
-**Solution:**
-For Azure, use `grant` directly. For AWS, specify the provider:
-```bash
-eval $(grant env --provider aws)
-```
-
-### Token expired or invalid during operation
-
-**Cause:** Token expired between operations or keyring access denied.
-
-**Solution:**
-```bash
-grant logout
-grant login
-```
+Supported providers: `azure`, `aws`. `grant env` only works with AWS (Azure doesn't return credentials). For Azure, use `grant` directly.
 
 ### Permission denied accessing keyring (Linux)
 
-**Cause:** No keyring service available or `gnome-keyring` / `kde-wallet` not running.
-
-**Solution:**
-1. Install and start a keyring service:
-   ```bash
-   # For GNOME
-   sudo apt install gnome-keyring
-
-   # For KDE
-   sudo apt install kwalletmanager
-   ```
-2. Or use environment-based auth (not recommended for production)
+Install and start a keyring service (`gnome-keyring` or `kwalletmanager`).
 
 ## Development
 

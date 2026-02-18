@@ -28,6 +28,10 @@ All notable changes to this project will be documented in this file.
 
 - Parallelize multi-CSP eligibility queries — all providers fetched concurrently when `--provider` is omitted
 
+### Documentation
+
+- Condense README: remove duplicate Quick Start and How It Works sections, slim command docs, trim obvious troubleshooting entries (~40% reduction)
+
 ### Changed
 
 - Renamed `AzureEligibleTarget` to `EligibleTarget` (CSP-agnostic)
