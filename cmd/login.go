@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/cyberark/idsec-sdk-golang/pkg/auth"
-	auth_models "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
+	authmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
 	"github.com/cyberark/idsec-sdk-golang/pkg/profiles"
 	"github.com/spf13/cobra"
 )
@@ -52,7 +52,7 @@ func runLogin(cmd *cobra.Command, auth authenticator) error {
 
 		// Run configure interactively
 		saver := &profiles.FileSystemProfilesLoader{}
-		if err := runConfigure(cmd, saver, "", "", ""); err != nil {
+		if err := runConfigure(cmd, saver, "", ""); err != nil {
 			return err
 		}
 
@@ -68,7 +68,7 @@ func runLogin(cmd *cobra.Command, auth authenticator) error {
 	}
 
 	// Authenticate (pass empty secret for interactive auth)
-	token, err := auth.Authenticate(profile, nil, &auth_models.IdsecSecret{Secret: ""}, false, true)
+	token, err := auth.Authenticate(profile, nil, &authmodels.IdsecSecret{Secret: ""}, false, true)
 	if err != nil {
 		return fmt.Errorf("authentication failed: %w", err)
 	}

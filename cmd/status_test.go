@@ -1,22 +1,21 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"errors"
-	"io"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
-	sca_models "github.com/aaearon/grant-cli/internal/sca/models"
-	auth_models "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
-	common_models "github.com/cyberark/idsec-sdk-golang/pkg/models/common"
+	scamodels "github.com/aaearon/grant-cli/internal/sca/models"
+	authmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
+	commonmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/common"
 )
 
 func TestStatusCommand(t *testing.T) {
 	now := time.Now()
-	expiresIn := common_models.IdsecRFC3339Time(now.Add(1 * time.Hour))
+	expiresIn := commonmodels.IdsecRFC3339Time(now.Add(1 * time.Hour))
 
 	tests := []struct {
 		name              string
@@ -52,7 +51,7 @@ func TestStatusCommand(t *testing.T) {
 			name: "authenticated with no sessions",
 			setupAuth: func() *mockAuthLoader {
 				return &mockAuthLoader{
-					token: &auth_models.IdsecToken{
+					token: &authmodels.IdsecToken{
 						Token:     "test-jwt",
 						Username:  "tim@iosharp.com",
 						ExpiresIn: expiresIn,
@@ -62,8 +61,8 @@ func TestStatusCommand(t *testing.T) {
 			},
 			setupSvc: func() *mockSessionLister {
 				return &mockSessionLister{
-					sessions: &sca_models.SessionsResponse{
-						Response: []sca_models.SessionInfo{},
+					sessions: &scamodels.SessionsResponse{
+						Response: []scamodels.SessionInfo{},
 						Total:    0,
 					},
 					listErr: nil,
@@ -82,7 +81,7 @@ func TestStatusCommand(t *testing.T) {
 			name: "authenticated with Azure sessions",
 			setupAuth: func() *mockAuthLoader {
 				return &mockAuthLoader{
-					token: &auth_models.IdsecToken{
+					token: &authmodels.IdsecToken{
 						Token:     "test-jwt",
 						Username:  "tim@iosharp.com",
 						ExpiresIn: expiresIn,
@@ -92,12 +91,12 @@ func TestStatusCommand(t *testing.T) {
 			},
 			setupSvc: func() *mockSessionLister {
 				return &mockSessionLister{
-					sessions: &sca_models.SessionsResponse{
-						Response: []sca_models.SessionInfo{
+					sessions: &scamodels.SessionsResponse{
+						Response: []scamodels.SessionInfo{
 							{
 								SessionID:       "session-1",
 								UserID:          "tim@iosharp.com",
-								CSP:             sca_models.CSPAzure,
+								CSP:             scamodels.CSPAzure,
 								WorkspaceID:     "providers/Microsoft.Management/managementGroups/29cb7961-e16d-42c7-8ade-1794bbb76782",
 								RoleID:          "Contributor",
 								SessionDuration: 4320, // 72 minutes
@@ -105,7 +104,7 @@ func TestStatusCommand(t *testing.T) {
 							{
 								SessionID:       "session-2",
 								UserID:          "tim@iosharp.com",
-								CSP:             sca_models.CSPAzure,
+								CSP:             scamodels.CSPAzure,
 								WorkspaceID:     "/subscriptions/sub-2",
 								RoleID:          "Owner",
 								SessionDuration: 1500, // 25 minutes
@@ -118,8 +117,8 @@ func TestStatusCommand(t *testing.T) {
 			},
 			setupEligibility: func() *mockEligibilityLister {
 				return &mockEligibilityLister{
-					response: &sca_models.EligibilityResponse{
-						Response: []sca_models.AzureEligibleTarget{
+					response: &scamodels.EligibilityResponse{
+						Response: []scamodels.AzureEligibleTarget{
 							{
 								WorkspaceID:   "providers/Microsoft.Management/managementGroups/29cb7961-e16d-42c7-8ade-1794bbb76782",
 								WorkspaceName: "Tenant Root Group",
@@ -146,7 +145,7 @@ func TestStatusCommand(t *testing.T) {
 			name: "filter by provider - Azure",
 			setupAuth: func() *mockAuthLoader {
 				return &mockAuthLoader{
-					token: &auth_models.IdsecToken{
+					token: &authmodels.IdsecToken{
 						Token:     "test-jwt",
 						Username:  "tim@iosharp.com",
 						ExpiresIn: expiresIn,
@@ -156,15 +155,15 @@ func TestStatusCommand(t *testing.T) {
 			},
 			setupSvc: func() *mockSessionLister {
 				return &mockSessionLister{
-					listFunc: func(ctx context.Context, csp *sca_models.CSP) (*sca_models.SessionsResponse, error) {
+					listFunc: func(ctx context.Context, csp *scamodels.CSP) (*scamodels.SessionsResponse, error) {
 						// Verify the filter is applied
-						if csp != nil && *csp == sca_models.CSPAzure {
-							return &sca_models.SessionsResponse{
-								Response: []sca_models.SessionInfo{
+						if csp != nil && *csp == scamodels.CSPAzure {
+							return &scamodels.SessionsResponse{
+								Response: []scamodels.SessionInfo{
 									{
 										SessionID:       "session-azure",
 										UserID:          "tim@iosharp.com",
-										CSP:             sca_models.CSPAzure,
+										CSP:             scamodels.CSPAzure,
 										WorkspaceID:     "/subscriptions/sub-1",
 										RoleID:          "Reader",
 										SessionDuration: 1800,
@@ -173,14 +172,14 @@ func TestStatusCommand(t *testing.T) {
 								Total: 1,
 							}, nil
 						}
-						return &sca_models.SessionsResponse{Response: []sca_models.SessionInfo{}, Total: 0}, nil
+						return &scamodels.SessionsResponse{Response: []scamodels.SessionInfo{}, Total: 0}, nil
 					},
 				}
 			},
 			setupEligibility: func() *mockEligibilityLister {
 				return &mockEligibilityLister{
-					response: &sca_models.EligibilityResponse{
-						Response: []sca_models.AzureEligibleTarget{
+					response: &scamodels.EligibilityResponse{
+						Response: []scamodels.AzureEligibleTarget{
 							{WorkspaceID: "/subscriptions/sub-1", WorkspaceName: "Test Subscription"},
 						},
 					},
@@ -198,7 +197,7 @@ func TestStatusCommand(t *testing.T) {
 			name: "multiple providers (future-proof)",
 			setupAuth: func() *mockAuthLoader {
 				return &mockAuthLoader{
-					token: &auth_models.IdsecToken{
+					token: &authmodels.IdsecToken{
 						Token:     "test-jwt",
 						Username:  "user@example.com",
 						ExpiresIn: expiresIn,
@@ -208,12 +207,12 @@ func TestStatusCommand(t *testing.T) {
 			},
 			setupSvc: func() *mockSessionLister {
 				return &mockSessionLister{
-					sessions: &sca_models.SessionsResponse{
-						Response: []sca_models.SessionInfo{
+					sessions: &scamodels.SessionsResponse{
+						Response: []scamodels.SessionInfo{
 							{
 								SessionID:       "session-azure",
 								UserID:          "user@example.com",
-								CSP:             sca_models.CSPAzure,
+								CSP:             scamodels.CSPAzure,
 								WorkspaceID:     "/subscriptions/sub-1",
 								RoleID:          "Contributor",
 								SessionDuration: 3600,
@@ -221,7 +220,7 @@ func TestStatusCommand(t *testing.T) {
 							{
 								SessionID:       "session-aws",
 								UserID:          "user@example.com",
-								CSP:             sca_models.CSPAWS,
+								CSP:             scamodels.CSPAWS,
 								WorkspaceID:     "arn:aws:iam::123456789012:role/Admin",
 								RoleID:          "Administrator",
 								SessionDuration: 3600,
@@ -234,8 +233,8 @@ func TestStatusCommand(t *testing.T) {
 			},
 			setupEligibility: func() *mockEligibilityLister {
 				return &mockEligibilityLister{
-					response: &sca_models.EligibilityResponse{
-						Response: []sca_models.AzureEligibleTarget{
+					response: &scamodels.EligibilityResponse{
+						Response: []scamodels.AzureEligibleTarget{
 							{WorkspaceID: "/subscriptions/sub-1", WorkspaceName: "Dev Subscription"},
 						},
 					},
@@ -254,7 +253,7 @@ func TestStatusCommand(t *testing.T) {
 			name: "session duration formatting - less than 1 hour",
 			setupAuth: func() *mockAuthLoader {
 				return &mockAuthLoader{
-					token: &auth_models.IdsecToken{
+					token: &authmodels.IdsecToken{
 						Token:     "test-jwt",
 						Username:  "tim@iosharp.com",
 						ExpiresIn: expiresIn,
@@ -264,12 +263,12 @@ func TestStatusCommand(t *testing.T) {
 			},
 			setupSvc: func() *mockSessionLister {
 				return &mockSessionLister{
-					sessions: &sca_models.SessionsResponse{
-						Response: []sca_models.SessionInfo{
+					sessions: &scamodels.SessionsResponse{
+						Response: []scamodels.SessionInfo{
 							{
 								SessionID:       "session-1",
 								UserID:          "tim@iosharp.com",
-								CSP:             sca_models.CSPAzure,
+								CSP:             scamodels.CSPAzure,
 								WorkspaceID:     "/subscriptions/sub-1",
 								RoleID:          "Reader",
 								SessionDuration: 2700, // 45 minutes
@@ -292,7 +291,7 @@ func TestStatusCommand(t *testing.T) {
 			name: "session duration formatting - multiple hours",
 			setupAuth: func() *mockAuthLoader {
 				return &mockAuthLoader{
-					token: &auth_models.IdsecToken{
+					token: &authmodels.IdsecToken{
 						Token:     "test-jwt",
 						Username:  "tim@iosharp.com",
 						ExpiresIn: expiresIn,
@@ -302,12 +301,12 @@ func TestStatusCommand(t *testing.T) {
 			},
 			setupSvc: func() *mockSessionLister {
 				return &mockSessionLister{
-					sessions: &sca_models.SessionsResponse{
-						Response: []sca_models.SessionInfo{
+					sessions: &scamodels.SessionsResponse{
+						Response: []scamodels.SessionInfo{
 							{
 								SessionID:       "session-1",
 								UserID:          "tim@iosharp.com",
-								CSP:             sca_models.CSPAzure,
+								CSP:             scamodels.CSPAzure,
 								WorkspaceID:     "/subscriptions/sub-1",
 								RoleID:          "Reader",
 								SessionDuration: 9000, // 2h 30m
@@ -330,7 +329,7 @@ func TestStatusCommand(t *testing.T) {
 			name: "session list error",
 			setupAuth: func() *mockAuthLoader {
 				return &mockAuthLoader{
-					token: &auth_models.IdsecToken{
+					token: &authmodels.IdsecToken{
 						Token:     "test-jwt",
 						Username:  "tim@iosharp.com",
 						ExpiresIn: expiresIn,
@@ -357,7 +356,7 @@ func TestStatusCommand(t *testing.T) {
 			name: "real API format - role name in role_id field",
 			setupAuth: func() *mockAuthLoader {
 				return &mockAuthLoader{
-					token: &auth_models.IdsecToken{
+					token: &authmodels.IdsecToken{
 						Token:     "test-jwt",
 						Username:  "tim@iosharp.com",
 						ExpiresIn: expiresIn,
@@ -367,12 +366,12 @@ func TestStatusCommand(t *testing.T) {
 			},
 			setupSvc: func() *mockSessionLister {
 				return &mockSessionLister{
-					sessions: &sca_models.SessionsResponse{
-						Response: []sca_models.SessionInfo{
+					sessions: &scamodels.SessionsResponse{
+						Response: []scamodels.SessionInfo{
 							{
 								SessionID:       "0e796e75-6027-48bd-bf1e-80e3b1024de4",
 								UserID:          "tim.schindler@cyberark.cloud.40562",
-								CSP:             sca_models.CSPAzure,
+								CSP:             scamodels.CSPAzure,
 								WorkspaceID:     "providers/Microsoft.Management/managementGroups/29cb7961-e16d-42c7-8ade-1794bbb76782",
 								RoleID:          "User Access Administrator",
 								SessionDuration: 3600,
@@ -385,8 +384,8 @@ func TestStatusCommand(t *testing.T) {
 			},
 			setupEligibility: func() *mockEligibilityLister {
 				return &mockEligibilityLister{
-					response: &sca_models.EligibilityResponse{
-						Response: []sca_models.AzureEligibleTarget{
+					response: &scamodels.EligibilityResponse{
+						Response: []scamodels.AzureEligibleTarget{
 							{
 								WorkspaceID:   "providers/Microsoft.Management/managementGroups/29cb7961-e16d-42c7-8ade-1794bbb76782",
 								WorkspaceName: "Tenant Root Group",
@@ -407,7 +406,7 @@ func TestStatusCommand(t *testing.T) {
 			name: "eligibility fetch fails - graceful degradation",
 			setupAuth: func() *mockAuthLoader {
 				return &mockAuthLoader{
-					token: &auth_models.IdsecToken{
+					token: &authmodels.IdsecToken{
 						Token:     "test-jwt",
 						Username:  "tim@iosharp.com",
 						ExpiresIn: expiresIn,
@@ -417,12 +416,12 @@ func TestStatusCommand(t *testing.T) {
 			},
 			setupSvc: func() *mockSessionLister {
 				return &mockSessionLister{
-					sessions: &sca_models.SessionsResponse{
-						Response: []sca_models.SessionInfo{
+					sessions: &scamodels.SessionsResponse{
+						Response: []scamodels.SessionInfo{
 							{
 								SessionID:       "session-1",
 								UserID:          "tim@iosharp.com",
-								CSP:             sca_models.CSPAzure,
+								CSP:             scamodels.CSPAzure,
 								WorkspaceID:     "providers/Microsoft.Management/managementGroups/29cb7961-e16d-42c7-8ade-1794bbb76782",
 								RoleID:          "User Access Administrator",
 								SessionDuration: 3600,
@@ -448,7 +447,7 @@ func TestStatusCommand(t *testing.T) {
 			name: "invalid provider flag",
 			setupAuth: func() *mockAuthLoader {
 				return &mockAuthLoader{
-					token: &auth_models.IdsecToken{
+					token: &authmodels.IdsecToken{
 						Token:     "test-jwt",
 						Username:  "tim@iosharp.com",
 						ExpiresIn: expiresIn,
@@ -555,24 +554,15 @@ func TestBuildWorkspaceNameMap_VerboseWarning(t *testing.T) {
 		listErr: errors.New("eligibility API unavailable"),
 	}
 
-	sessions := []sca_models.SessionInfo{
-		{CSP: sca_models.CSPAzure, WorkspaceID: "/subscriptions/sub-1"},
+	sessions := []scamodels.SessionInfo{
+		{CSP: scamodels.CSPAzure, WorkspaceID: "/subscriptions/sub-1"},
 	}
 
-	// Capture stderr
-	oldStderr := os.Stderr
-	r, w, _ := os.Pipe()
-	os.Stderr = w
+	var buf bytes.Buffer
+	_ = buildWorkspaceNameMap(ctx, eligLister, sessions, &buf)
 
-	_ = buildWorkspaceNameMap(ctx, eligLister, sessions)
-
-	w.Close()
-	os.Stderr = oldStderr
-	out, _ := io.ReadAll(r)
-	stderr := string(out)
-
-	if !strings.Contains(stderr, "Warning: failed to fetch names for AZURE") {
-		t.Errorf("expected verbose warning on stderr, got: %q", stderr)
+	if !strings.Contains(buf.String(), "Warning: failed to fetch names for AZURE") {
+		t.Errorf("expected verbose warning, got: %q", buf.String())
 	}
 }
 

@@ -12,9 +12,9 @@ import (
 	"github.com/aaearon/grant-cli/internal/sca/models"
 	"github.com/aaearon/grant-cli/internal/ui"
 	"github.com/cyberark/idsec-sdk-golang/pkg/auth"
-	sdk_config "github.com/cyberark/idsec-sdk-golang/pkg/config"
-	sdk_models "github.com/cyberark/idsec-sdk-golang/pkg/models"
-	auth_models "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
+	sdkconfig "github.com/cyberark/idsec-sdk-golang/pkg/config"
+	sdkmodels "github.com/cyberark/idsec-sdk-golang/pkg/models"
+	authmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
 	"github.com/cyberark/idsec-sdk-golang/pkg/profiles"
 	"github.com/spf13/cobra"
 )
@@ -72,9 +72,9 @@ Examples:
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			passedArgValidation = true
 			if verbose {
-				sdk_config.EnableVerboseLogging("INFO")
+				sdkconfig.EnableVerboseLogging("INFO")
 			} else {
-				sdk_config.DisableVerboseLogging()
+				sdkconfig.DisableVerboseLogging()
 			}
 			return nil
 		},
@@ -96,7 +96,7 @@ Examples:
 var rootCmd = newRootCommand(runElevateProduction)
 
 // bootstrapSCAService loads the profile, authenticates, and creates the SCA service.
-func bootstrapSCAService() (auth.IdsecAuth, *sca.SCAAccessService, *sdk_models.IdsecProfile, error) {
+func bootstrapSCAService() (auth.IdsecAuth, *sca.SCAAccessService, *sdkmodels.IdsecProfile, error) {
 	loader := profiles.DefaultProfilesLoader()
 	profile, err := (*loader).LoadProfile("grant")
 	if err != nil {
@@ -105,7 +105,7 @@ func bootstrapSCAService() (auth.IdsecAuth, *sca.SCAAccessService, *sdk_models.I
 
 	ispAuth := auth.NewIdsecISPAuth(true)
 
-	_, err = ispAuth.Authenticate(profile, nil, &auth_models.IdsecSecret{Secret: ""}, false, true)
+	_, err = ispAuth.Authenticate(profile, nil, &authmodels.IdsecSecret{Secret: ""}, false, true)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("authentication failed: %w", err)
 	}
@@ -181,7 +181,7 @@ func Execute() {
 func runElevateWithDeps(
 	cmd *cobra.Command,
 	flags *elevateFlags,
-	profile *sdk_models.IdsecProfile,
+	profile *sdkmodels.IdsecProfile,
 	authLoader authLoader,
 	eligibilityLister eligibilityLister,
 	elevateService elevateService,
@@ -205,7 +205,7 @@ func runElevateWithDeps(
 	if flags.favorite != "" {
 		// Favorite mode
 		isFavoriteMode = true
-		fav, err := cfg.GetFavorite(flags.favorite)
+		fav, err := config.GetFavorite(cfg, flags.favorite)
 		if err != nil {
 			return fmt.Errorf("favorite %q not found, run 'grant favorites list'", flags.favorite)
 		}
@@ -242,11 +242,6 @@ func runElevateWithDeps(
 
 	// Convert provider to CSP
 	csp := models.CSP(strings.ToUpper(provider))
-
-	// Check if eligibilityLister is available
-	if eligibilityLister == nil {
-		return fmt.Errorf("eligibility service not available")
-	}
 
 	// Fetch eligibility list
 	eligibilityResp, err := eligibilityLister.ListEligibility(ctx, csp)

@@ -4,13 +4,13 @@ import (
 	"context"
 
 	"github.com/aaearon/grant-cli/internal/sca/models"
-	sdk_models "github.com/cyberark/idsec-sdk-golang/pkg/models"
-	auth_models "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
+	sdkmodels "github.com/cyberark/idsec-sdk-golang/pkg/models"
+	authmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
 )
 
 // authLoader interface for loading authentication
 type authLoader interface {
-	LoadAuthentication(profile *sdk_models.IdsecProfile, cacheAuthentication bool) (*auth_models.IdsecToken, error)
+	LoadAuthentication(profile *sdkmodels.IdsecProfile, cacheAuthentication bool) (*authmodels.IdsecToken, error)
 }
 
 // eligibilityLister interface for listing eligible targets
@@ -45,10 +45,10 @@ type namePrompter interface {
 
 // authenticator is the interface for authentication operations
 type authenticator interface {
-	Authenticate(profile *sdk_models.IdsecProfile, authProfile *auth_models.IdsecAuthProfile, secret *auth_models.IdsecSecret, force bool, refreshAuth bool) (*auth_models.IdsecToken, error)
+	Authenticate(profile *sdkmodels.IdsecProfile, authProfile *authmodels.IdsecAuthProfile, secret *authmodels.IdsecSecret, force bool, refreshAuth bool) (*authmodels.IdsecToken, error)
 }
 
 // profileSaver interface for saving SDK profiles
 type profileSaver interface {
-	SaveProfile(profile *sdk_models.IdsecProfile) error
+	SaveProfile(profile *sdkmodels.IdsecProfile) error
 }

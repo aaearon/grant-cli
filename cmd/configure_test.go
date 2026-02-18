@@ -8,7 +8,7 @@ import (
 
 	"github.com/aaearon/grant-cli/internal/config"
 	"github.com/cyberark/idsec-sdk-golang/pkg/models"
-	auth_models "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
+	authmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
 )
 
 func TestConfigureCommand(t *testing.T) {
@@ -41,10 +41,10 @@ func TestConfigureCommand(t *testing.T) {
 							if authProfile.Username != "test.user@example.com" {
 								t.Errorf("expected Username='test.user@example.com', got %q", authProfile.Username)
 							}
-							if authProfile.AuthMethod != auth_models.Identity {
-								t.Errorf("expected AuthMethod=%q, got %q", auth_models.Identity, authProfile.AuthMethod)
+							if authProfile.AuthMethod != authmodels.Identity {
+								t.Errorf("expected AuthMethod=%q, got %q", authmodels.Identity, authProfile.AuthMethod)
 							}
-							if settings, ok := authProfile.AuthMethodSettings.(*auth_models.IdentityIdsecAuthMethodSettings); !ok {
+							if settings, ok := authProfile.AuthMethodSettings.(*authmodels.IdentityIdsecAuthMethodSettings); !ok {
 								t.Error("expected IdentityIdsecAuthMethodSettings type")
 							} else {
 								if settings.IdentityURL != "https://example.cyberark.cloud" {
@@ -162,7 +162,7 @@ func TestConfigureCommand(t *testing.T) {
 			t.Setenv("GRANT_CONFIG", cfgPath)
 
 			// Create command with mock dependencies
-			cmd := NewConfigureCommandWithDeps(tt.setupSaver(), tt.tenantURL, tt.username, "")
+			cmd := NewConfigureCommandWithDeps(tt.setupSaver(), tt.tenantURL, tt.username)
 
 			// Execute command
 			output, err := executeCommand(cmd)

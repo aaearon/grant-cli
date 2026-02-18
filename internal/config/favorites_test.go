@@ -5,6 +5,7 @@ import (
 )
 
 func TestAddFavorite_Success(t *testing.T) {
+	t.Parallel()
 	cfg := DefaultConfig()
 	fav := Favorite{Provider: "azure", Target: "sub-123", Role: "Owner"}
 
@@ -29,6 +30,7 @@ func TestAddFavorite_Success(t *testing.T) {
 }
 
 func TestAddFavorite_Duplicate(t *testing.T) {
+	t.Parallel()
 	cfg := DefaultConfig()
 	fav := Favorite{Provider: "azure", Target: "sub-123", Role: "Owner"}
 
@@ -43,6 +45,7 @@ func TestAddFavorite_Duplicate(t *testing.T) {
 }
 
 func TestRemoveFavorite_Success(t *testing.T) {
+	t.Parallel()
 	cfg := DefaultConfig()
 	cfg.Favorites["prod-admin"] = Favorite{Provider: "azure", Target: "sub-123", Role: "Owner"}
 
@@ -57,6 +60,7 @@ func TestRemoveFavorite_Success(t *testing.T) {
 }
 
 func TestRemoveFavorite_NotFound(t *testing.T) {
+	t.Parallel()
 	cfg := DefaultConfig()
 
 	err := RemoveFavorite(cfg, "nonexistent")
@@ -66,6 +70,7 @@ func TestRemoveFavorite_NotFound(t *testing.T) {
 }
 
 func TestGetFavorite_Success(t *testing.T) {
+	t.Parallel()
 	cfg := DefaultConfig()
 	expected := Favorite{Provider: "azure", Target: "sub-123", Role: "Owner"}
 	cfg.Favorites["prod-admin"] = expected
@@ -87,6 +92,7 @@ func TestGetFavorite_Success(t *testing.T) {
 }
 
 func TestGetFavorite_NotFound(t *testing.T) {
+	t.Parallel()
 	cfg := DefaultConfig()
 
 	_, err := GetFavorite(cfg, "nonexistent")
@@ -96,6 +102,7 @@ func TestGetFavorite_NotFound(t *testing.T) {
 }
 
 func TestListFavorites_Sorted(t *testing.T) {
+	t.Parallel()
 	cfg := DefaultConfig()
 	cfg.Favorites["charlie"] = Favorite{Provider: "azure", Target: "sub-3", Role: "Reader"}
 	cfg.Favorites["alpha"] = Favorite{Provider: "azure", Target: "sub-1", Role: "Owner"}
@@ -115,6 +122,7 @@ func TestListFavorites_Sorted(t *testing.T) {
 }
 
 func TestListFavorites_Empty(t *testing.T) {
+	t.Parallel()
 	cfg := DefaultConfig()
 
 	entries := ListFavorites(cfg)
@@ -127,6 +135,7 @@ func TestListFavorites_Empty(t *testing.T) {
 }
 
 func TestAddFavorite_DefaultProvider(t *testing.T) {
+	t.Parallel()
 	cfg := DefaultConfig()
 	fav := Favorite{Provider: "", Target: "sub-123", Role: "Owner"}
 

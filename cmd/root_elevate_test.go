@@ -8,8 +8,8 @@ import (
 
 	"github.com/aaearon/grant-cli/internal/config"
 	"github.com/aaearon/grant-cli/internal/sca/models"
-	auth_models "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
-	common_models "github.com/cyberark/idsec-sdk-golang/pkg/models/common"
+	authmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
+	commonmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/common"
 )
 
 func TestRootElevate_InteractiveMode(t *testing.T) {
@@ -24,10 +24,10 @@ func TestRootElevate_InteractiveMode(t *testing.T) {
 			name: "interactive mode success",
 			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *mockTargetSelector, *config.Config) {
 				authLoader := &mockAuthLoader{
-					token: &auth_models.IdsecToken{
+					token: &authmodels.IdsecToken{
 						Token:     "test-jwt",
 						Username:  "test@example.com",
-						ExpiresIn: common_models.IdsecRFC3339Time(time.Now().Add(1 * time.Hour)),
+						ExpiresIn: commonmodels.IdsecRFC3339Time(time.Now().Add(1 * time.Hour)),
 					},
 				}
 
@@ -93,7 +93,7 @@ func TestRootElevate_InteractiveMode(t *testing.T) {
 			name: "no eligible targets found",
 			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *mockTargetSelector, *config.Config) {
 				authLoader := &mockAuthLoader{
-					token: &auth_models.IdsecToken{Token: "test-jwt"},
+					token: &authmodels.IdsecToken{Token: "test-jwt"},
 				}
 
 				eligibilityLister := &mockEligibilityLister{
@@ -151,7 +151,7 @@ func TestRootElevate_DirectMode(t *testing.T) {
 			name: "direct mode success with target and role",
 			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *config.Config) {
 				authLoader := &mockAuthLoader{
-					token: &auth_models.IdsecToken{Token: "test-jwt"},
+					token: &authmodels.IdsecToken{Token: "test-jwt"},
 				}
 
 				eligibilityLister := &mockEligibilityLister{
@@ -203,7 +203,7 @@ func TestRootElevate_DirectMode(t *testing.T) {
 			name: "direct mode success with case-insensitive match",
 			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *config.Config) {
 				authLoader := &mockAuthLoader{
-					token: &auth_models.IdsecToken{Token: "test-jwt"},
+					token: &authmodels.IdsecToken{Token: "test-jwt"},
 				}
 
 				eligibilityLister := &mockEligibilityLister{
@@ -255,7 +255,7 @@ func TestRootElevate_DirectMode(t *testing.T) {
 			name: "direct mode - target not found",
 			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *config.Config) {
 				authLoader := &mockAuthLoader{
-					token: &auth_models.IdsecToken{Token: "test-jwt"},
+					token: &authmodels.IdsecToken{Token: "test-jwt"},
 				}
 
 				eligibilityLister := &mockEligibilityLister{
@@ -284,7 +284,7 @@ func TestRootElevate_DirectMode(t *testing.T) {
 			name: "direct mode - role not found",
 			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *config.Config) {
 				authLoader := &mockAuthLoader{
-					token: &auth_models.IdsecToken{Token: "test-jwt"},
+					token: &authmodels.IdsecToken{Token: "test-jwt"},
 				}
 
 				eligibilityLister := &mockEligibilityLister{
@@ -313,7 +313,7 @@ func TestRootElevate_DirectMode(t *testing.T) {
 			name: "direct mode - missing role flag",
 			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *config.Config) {
 				authLoader := &mockAuthLoader{
-					token: &auth_models.IdsecToken{Token: "test-jwt"},
+					token: &authmodels.IdsecToken{Token: "test-jwt"},
 				}
 				cfg := config.DefaultConfig()
 				return authLoader, nil, nil, cfg
@@ -328,7 +328,7 @@ func TestRootElevate_DirectMode(t *testing.T) {
 			name: "direct mode - missing target flag",
 			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *config.Config) {
 				authLoader := &mockAuthLoader{
-					token: &auth_models.IdsecToken{Token: "test-jwt"},
+					token: &authmodels.IdsecToken{Token: "test-jwt"},
 				}
 				cfg := config.DefaultConfig()
 				return authLoader, nil, nil, cfg
@@ -377,7 +377,7 @@ func TestRootElevate_FavoriteMode(t *testing.T) {
 			name: "favorite mode success",
 			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *config.Config) {
 				authLoader := &mockAuthLoader{
-					token: &auth_models.IdsecToken{Token: "test-jwt"},
+					token: &authmodels.IdsecToken{Token: "test-jwt"},
 				}
 
 				eligibilityLister := &mockEligibilityLister{
@@ -436,7 +436,7 @@ func TestRootElevate_FavoriteMode(t *testing.T) {
 			name: "favorite not found",
 			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *config.Config) {
 				authLoader := &mockAuthLoader{
-					token: &auth_models.IdsecToken{Token: "test-jwt"},
+					token: &authmodels.IdsecToken{Token: "test-jwt"},
 				}
 
 				cfg := config.DefaultConfig()
@@ -453,7 +453,7 @@ func TestRootElevate_FavoriteMode(t *testing.T) {
 			name: "provider mismatch with favorite",
 			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *config.Config) {
 				authLoader := &mockAuthLoader{
-					token: &auth_models.IdsecToken{Token: "test-jwt"},
+					token: &authmodels.IdsecToken{Token: "test-jwt"},
 				}
 
 				cfg := config.DefaultConfig()
@@ -502,19 +502,19 @@ func TestRootElevate_FavoriteMode(t *testing.T) {
 func TestRootElevate_ProviderValidation(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMocks  func() (*mockAuthLoader, *config.Config)
+		setupMocks  func() (*mockAuthLoader, *mockEligibilityLister, *config.Config)
 		args        []string
 		wantContain []string
 		wantErr     bool
 	}{
 		{
 			name: "invalid provider - v1 only accepts azure",
-			setupMocks: func() (*mockAuthLoader, *config.Config) {
+			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *config.Config) {
 				authLoader := &mockAuthLoader{
-					token: &auth_models.IdsecToken{Token: "test-jwt"},
+					token: &authmodels.IdsecToken{Token: "test-jwt"},
 				}
 				cfg := config.DefaultConfig()
-				return authLoader, cfg
+				return authLoader, nil, cfg
 			},
 			args: []string{"--provider", "aws"},
 			wantContain: []string{
@@ -525,12 +525,12 @@ func TestRootElevate_ProviderValidation(t *testing.T) {
 		},
 		{
 			name: "invalid provider - gcp",
-			setupMocks: func() (*mockAuthLoader, *config.Config) {
+			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *config.Config) {
 				authLoader := &mockAuthLoader{
-					token: &auth_models.IdsecToken{Token: "test-jwt"},
+					token: &authmodels.IdsecToken{Token: "test-jwt"},
 				}
 				cfg := config.DefaultConfig()
-				return authLoader, cfg
+				return authLoader, nil, cfg
 			},
 			args: []string{"--provider", "gcp"},
 			wantContain: []string{
@@ -541,23 +541,32 @@ func TestRootElevate_ProviderValidation(t *testing.T) {
 		},
 		{
 			name: "valid provider - azure explicit",
-			setupMocks: func() (*mockAuthLoader, *config.Config) {
+			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *config.Config) {
 				authLoader := &mockAuthLoader{
-					token: &auth_models.IdsecToken{Token: "test-jwt"},
+					token: &authmodels.IdsecToken{Token: "test-jwt"},
+				}
+				eligibilityLister := &mockEligibilityLister{
+					response: &models.EligibilityResponse{
+						Response: []models.AzureEligibleTarget{},
+						Total:    0,
+					},
 				}
 				cfg := config.DefaultConfig()
-				return authLoader, cfg
+				return authLoader, eligibilityLister, cfg
 			},
-			args:    []string{"--provider", "azure"},
-			wantErr: true, // Will fail due to other reasons but provider validation passes
+			args: []string{"--provider", "azure"},
+			wantContain: []string{
+				"no eligible azure targets found",
+			},
+			wantErr: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			authLoader, cfg := tt.setupMocks()
+			authLoader, eligibilityLister, cfg := tt.setupMocks()
 
-			cmd := NewRootCommandWithDeps(authLoader, nil, nil, nil, cfg)
+			cmd := NewRootCommandWithDeps(authLoader, eligibilityLister, nil, nil, cfg)
 
 			output, err := executeCommand(cmd, tt.args...)
 
@@ -639,7 +648,7 @@ func TestRootElevate_ElevationErrors(t *testing.T) {
 			name: "elevation API error - all targets fail",
 			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *config.Config) {
 				authLoader := &mockAuthLoader{
-					token: &auth_models.IdsecToken{Token: "test-jwt"},
+					token: &authmodels.IdsecToken{Token: "test-jwt"},
 				}
 
 				eligibilityLister := &mockEligibilityLister{
@@ -698,7 +707,7 @@ func TestRootElevate_ElevationErrors(t *testing.T) {
 			name: "eligibility list error",
 			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *config.Config) {
 				authLoader := &mockAuthLoader{
-					token: &auth_models.IdsecToken{Token: "test-jwt"},
+					token: &authmodels.IdsecToken{Token: "test-jwt"},
 				}
 
 				eligibilityLister := &mockEligibilityLister{

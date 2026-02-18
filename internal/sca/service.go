@@ -98,7 +98,7 @@ func (s *SCAAccessService) ListEligibility(ctx context.Context, csp models.CSP) 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, readErr := io.ReadAll(resp.Body)
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		if readErr != nil {
 			body = []byte("(failed to read response body)")
 		}
@@ -130,7 +130,7 @@ func (s *SCAAccessService) Elevate(ctx context.Context, req *models.ElevateReque
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, readErr := io.ReadAll(resp.Body)
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		if readErr != nil {
 			body = []byte("(failed to read response body)")
 		}
@@ -162,7 +162,7 @@ func (s *SCAAccessService) ListSessions(ctx context.Context, csp *models.CSP) (*
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, readErr := io.ReadAll(resp.Body)
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		if readErr != nil {
 			body = []byte("(failed to read response body)")
 		}

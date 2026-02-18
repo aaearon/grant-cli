@@ -7,6 +7,7 @@ import (
 )
 
 func TestFormatTargetOption(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		target models.AzureEligibleTarget
@@ -61,6 +62,7 @@ func TestFormatTargetOption(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := FormatTargetOption(tt.target)
 			if got != tt.want {
 				t.Errorf("FormatTargetOption() = %q, want %q", got, tt.want)
@@ -70,6 +72,7 @@ func TestFormatTargetOption(t *testing.T) {
 }
 
 func TestBuildOptions(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		targets []models.AzureEligibleTarget
@@ -139,6 +142,7 @@ func TestBuildOptions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := BuildOptions(tt.targets)
 			if len(got) != len(tt.want) {
 				t.Fatalf("BuildOptions() length = %d, want %d", len(got), len(tt.want))
@@ -153,6 +157,7 @@ func TestBuildOptions(t *testing.T) {
 }
 
 func TestFindTargetByDisplay(t *testing.T) {
+	t.Parallel()
 	targets := []models.AzureEligibleTarget{
 		{
 			OrganizationID: "org1",
@@ -209,6 +214,7 @@ func TestFindTargetByDisplay(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got, err := FindTargetByDisplay(tt.targets, tt.display)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("FindTargetByDisplay() error = %v, wantErr %v", err, tt.wantErr)
