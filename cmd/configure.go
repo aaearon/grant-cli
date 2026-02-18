@@ -20,14 +20,14 @@ func NewConfigureCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "configure",
 		Short: "Configure grant with CyberArk Identity credentials",
-		Long: `Configure grant by providing your CyberArk Identity URL and username.
+		Long: `Configure grant by providing your CyberArk username and optional Identity URL.
 
 This command creates two configuration files:
 - SDK profile at ~/.idsec_profiles/grant.json
 - App config at ~/.grant/config.yaml
 
-Identity URL format: https://{subdomain}.id.cyberark.cloud
-Example: https://abc1234.id.cyberark.cloud
+The Identity URL is optional — the SDK can auto-discover it from your username.
+If provided, it must be HTTPS (e.g., https://abc1234.id.cyberark.cloud).
 
 The configuration is stored locally and used for authentication.
 MFA method selection is handled interactively during login.`,
@@ -56,28 +56,30 @@ func NewConfigureCommandWithDeps(saver profileSaver, tenantURL, username string)
 }
 
 func runConfigure(cmd *cobra.Command, saver profileSaver, tenantURL, username string) error {
-	// Only prompt if values are not provided (interactive mode only when both are empty)
-	promptNeeded := tenantURL == "" && username == ""
+	// Only prompt if username is not provided
+	promptNeeded := username == ""
 
 	if promptNeeded {
-		if err := survey.AskOne(&survey.Input{
-			Message: "CyberArk Identity URL:",
-			Help:    "Your CyberArk Identity platform URL (e.g., https://abc1234.id.cyberark.cloud)",
-		}, &tenantURL, survey.WithValidator(survey.Required)); err != nil {
-			return fmt.Errorf("failed to read tenant URL: %w", err)
-		}
-
 		if err := survey.AskOne(&survey.Input{
 			Message: "Username:",
 			Help:    "Your CyberArk username or email",
 		}, &username, survey.WithValidator(survey.Required)); err != nil {
 			return fmt.Errorf("failed to read username: %w", err)
 		}
+
+		if err := survey.AskOne(&survey.Input{
+			Message: "CyberArk Identity URL (optional):",
+			Help:    "Leave blank to auto-detect from username (e.g., https://abc1234.id.cyberark.cloud)",
+		}, &tenantURL); err != nil {
+			return fmt.Errorf("failed to read tenant URL: %w", err)
+		}
 	}
 
 	// Validate inputs
-	if err := validateTenantURL(tenantURL); err != nil {
-		return err
+	if strings.TrimSpace(tenantURL) != "" {
+		if err := validateTenantURL(tenantURL); err != nil {
+			return err
+		}
 	}
 
 	if strings.TrimSpace(username) == "" {
