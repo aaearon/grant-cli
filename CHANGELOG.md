@@ -4,8 +4,41 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- AWS elevation support (`--provider aws`)
+- `grant env` command for AWS credential export: `eval $(grant env --provider aws)`
+- Multi-CSP: omitting `--provider` fetches eligibility from all providers and shows combined results
+- Provider label `(azure)` / `(aws)` in interactive selector when showing all providers
+- `WorkspaceTypeAccount` workspace type for AWS accounts
+- `AWSCredentials` model for parsing `accessCredentials` response
+
+### Fixed
+
+- Validate AWS credential fields are non-empty in `ParseAWSCredentials()` — prevents silent empty exports
+- Provider validation in `fetchEligibility()` now uses `supportedCSPs` instead of hardcoded switch
+- Log per-CSP eligibility errors in verbose mode when `--provider` is omitted
+
+### Removed
+
+- Unused `CSPGCP` constant (re-add when GCP is implemented)
+- GCP references from `grant status` provider flag help and `parseProvider()`
+
+### Performance
+
+- Parallelize multi-CSP eligibility queries — all providers fetched concurrently when `--provider` is omitted
+
+### Documentation
+
+- Condense README: remove duplicate Quick Start and How It Works sections, slim command docs, trim obvious troubleshooting entries (~40% reduction)
+
 ### Changed
 
+- Renamed `AzureEligibleTarget` to `EligibleTarget` (CSP-agnostic)
+- Provider validation accepts `azure` and `aws` (was azure-only)
+- Elevation output shows AWS export statements when credentials are present
+- UI selector normalizes workspace type display (case-insensitive)
+- `--provider` flag no longer defaults to Azure; omit to see all providers
 - Make Identity URL optional in `grant configure` — the SDK auto-discovers it from the username
 
 ### Refactored

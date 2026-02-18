@@ -3,33 +3,40 @@ package ui
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/Iilun/survey/v2"
 	"github.com/aaearon/grant-cli/internal/sca/models"
 )
 
 // FormatTargetOption formats an eligible target into a display string.
-func FormatTargetOption(target models.AzureEligibleTarget) string {
+func FormatTargetOption(target models.EligibleTarget) string {
 	var prefix string
-	switch target.WorkspaceType {
-	case models.WorkspaceTypeSubscription:
+	switch strings.ToLower(string(target.WorkspaceType)) {
+	case "subscription":
 		prefix = "Subscription"
-	case models.WorkspaceTypeResourceGroup:
+	case "resource_group":
 		prefix = "Resource Group"
-	case models.WorkspaceTypeManagementGroup:
+	case "management_group":
 		prefix = "Management Group"
-	case models.WorkspaceTypeDirectory:
+	case "directory":
 		prefix = "Directory"
-	case models.WorkspaceTypeResource:
+	case "resource":
 		prefix = "Resource"
+	case "account":
+		prefix = "Account"
 	default:
 		prefix = string(target.WorkspaceType)
 	}
-	return fmt.Sprintf("%s: %s / Role: %s", prefix, target.WorkspaceName, target.RoleInfo.Name)
+	base := fmt.Sprintf("%s: %s / Role: %s", prefix, target.WorkspaceName, target.RoleInfo.Name)
+	if target.CSP != "" {
+		return fmt.Sprintf("%s (%s)", base, strings.ToLower(string(target.CSP)))
+	}
+	return base
 }
 
 // BuildOptions builds a sorted list of display options from eligible targets.
-func BuildOptions(targets []models.AzureEligibleTarget) []string {
+func BuildOptions(targets []models.EligibleTarget) []string {
 	if len(targets) == 0 {
 		return []string{}
 	}
@@ -44,7 +51,7 @@ func BuildOptions(targets []models.AzureEligibleTarget) []string {
 }
 
 // FindTargetByDisplay finds a target by its formatted display string.
-func FindTargetByDisplay(targets []models.AzureEligibleTarget, display string) (*models.AzureEligibleTarget, error) {
+func FindTargetByDisplay(targets []models.EligibleTarget, display string) (*models.EligibleTarget, error) {
 	for i := range targets {
 		if FormatTargetOption(targets[i]) == display {
 			return &targets[i], nil
@@ -54,7 +61,7 @@ func FindTargetByDisplay(targets []models.AzureEligibleTarget, display string) (
 }
 
 // SelectTarget presents an interactive selector for choosing a target.
-func SelectTarget(targets []models.AzureEligibleTarget) (*models.AzureEligibleTarget, error) {
+func SelectTarget(targets []models.EligibleTarget) (*models.EligibleTarget, error) {
 	if len(targets) == 0 {
 		return nil, fmt.Errorf("no eligible targets available")
 	}

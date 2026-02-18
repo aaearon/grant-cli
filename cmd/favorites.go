@@ -7,7 +7,6 @@ import (
 
 	survey "github.com/Iilun/survey/v2"
 	"github.com/aaearon/grant-cli/internal/config"
-	"github.com/aaearon/grant-cli/internal/sca/models"
 	"github.com/spf13/cobra"
 )
 
@@ -78,7 +77,7 @@ func newFavoritesAddCommandWithRunner(runFn func(*cobra.Command, []string) error
 		RunE: runFn,
 	}
 
-	cmd.Flags().StringP("provider", "p", "", "Cloud provider (default from config, v1: azure only)")
+	cmd.Flags().StringP("provider", "p", "", "Cloud provider: azure, aws (omit to show all)")
 	cmd.Flags().StringP("target", "t", "", "Target name (subscription, resource group, etc.)")
 	cmd.Flags().StringP("role", "r", "", "Role name")
 
@@ -196,37 +195,29 @@ func runFavoritesAddWithDeps(cmd *cobra.Command, args []string, eligLister eligi
 			fav.Provider = cfg.DefaultProvider
 		}
 	} else {
-		// Interactive mode: select from eligible targets
-		if provider == "" {
-			provider = cfg.DefaultProvider
-		}
-
-		// Validate provider (v1 only accepts azure)
-		if strings.ToLower(provider) != "azure" {
-			return fmt.Errorf("provider %q is not supported in this version, supported providers: azure", provider)
-		}
-
-		csp := models.CSP(strings.ToUpper(provider))
+		// Interactive mode: select from eligible targets (all CSPs when provider is empty)
 		ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
 		defer cancel()
 
-		// Fetch eligibility
-		eligibilityResp, err := eligLister.ListEligibility(ctx, csp)
+		allTargets, err := fetchEligibility(ctx, eligLister, provider)
 		if err != nil {
-			return fmt.Errorf("failed to fetch eligible targets: %w", err)
-		}
-
-		if len(eligibilityResp.Response) == 0 {
-			return fmt.Errorf("no eligible %s targets found, check your SCA policies", strings.ToLower(provider))
+			return err
 		}
 
 		// Interactive selection
-		selectedTarget, err := sel.SelectTarget(eligibilityResp.Response)
+		selectedTarget, err := sel.SelectTarget(allTargets)
 		if err != nil {
 			return fmt.Errorf("target selection failed: %w", err)
 		}
 
-		fav.Provider = provider
+		// Ensure CSP is set on selected target
+		resolveTargetCSP(selectedTarget, allTargets, provider)
+
+		if provider != "" {
+			fav.Provider = provider
+		} else {
+			fav.Provider = strings.ToLower(string(selectedTarget.CSP))
+		}
 		fav.Target = selectedTarget.WorkspaceName
 		fav.Role = selectedTarget.RoleInfo.Name
 

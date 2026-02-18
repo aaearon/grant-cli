@@ -25,7 +25,7 @@ type elevateService interface {
 
 // targetSelector interface for interactive target selection
 type targetSelector interface {
-	SelectTarget(targets []models.AzureEligibleTarget) (*models.AzureEligibleTarget, error)
+	SelectTarget(targets []models.EligibleTarget) (*models.EligibleTarget, error)
 }
 
 // sessionLister interface for listing sessions

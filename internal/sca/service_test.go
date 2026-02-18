@@ -35,7 +35,7 @@ func (m *mockHTTPClient) Post(ctx context.Context, route string, body interface{
 
 func TestListEligibility_Success(t *testing.T) {
 	resp := models.EligibilityResponse{
-		Response: []models.AzureEligibleTarget{
+		Response: []models.EligibleTarget{
 			{
 				OrganizationID: "org1",
 				WorkspaceID:    "sub1",
@@ -78,7 +78,7 @@ func TestListEligibility_Success(t *testing.T) {
 
 func TestListEligibility_Empty(t *testing.T) {
 	resp := models.EligibilityResponse{
-		Response:  []models.AzureEligibleTarget{},
+		Response:  []models.EligibleTarget{},
 		NextToken: nil,
 		Total:     0,
 	}
@@ -111,7 +111,7 @@ func TestListEligibility_Empty(t *testing.T) {
 func TestListEligibility_WithPagination(t *testing.T) {
 	nextToken := "token123"
 	resp := models.EligibilityResponse{
-		Response: []models.AzureEligibleTarget{
+		Response: []models.EligibleTarget{
 			{
 				OrganizationID: "org1",
 				WorkspaceID:    "sub1",

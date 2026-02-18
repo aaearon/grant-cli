@@ -28,7 +28,7 @@ func NewStatusCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringP("provider", "p", "", "filter sessions by provider (azure, aws, gcp)")
+	cmd.Flags().StringP("provider", "p", "", "filter sessions by provider (azure, aws)")
 
 	return cmd
 }
@@ -44,7 +44,7 @@ func NewStatusCommandWithDeps(authLoader authLoader, sessionLister sessionLister
 		},
 	}
 
-	cmd.Flags().StringP("provider", "p", "", "filter sessions by provider (azure, aws, gcp)")
+	cmd.Flags().StringP("provider", "p", "", "filter sessions by provider (azure, aws)")
 
 	return cmd
 }
@@ -110,10 +110,8 @@ func parseProvider(provider string) (scamodels.CSP, error) {
 		return scamodels.CSPAzure, nil
 	case "AWS":
 		return scamodels.CSPAWS, nil
-	case "GCP":
-		return scamodels.CSPGCP, nil
 	default:
-		return "", fmt.Errorf("invalid provider %q: must be one of: azure, aws, gcp", provider)
+		return "", fmt.Errorf("invalid provider %q: must be one of: azure, aws", provider)
 	}
 }
 
@@ -144,8 +142,6 @@ func formatProviderName(provider string) string {
 		return "Azure"
 	case "AWS":
 		return "AWS"
-	case "GCP":
-		return "GCP"
 	default:
 		return provider
 	}

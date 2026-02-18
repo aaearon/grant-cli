@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -391,7 +392,7 @@ func TestFavoritesParentCommand(t *testing.T) {
 }
 
 func TestFavoritesAddInteractiveMode(t *testing.T) {
-	twoTargets := []models.AzureEligibleTarget{
+	twoTargets := []models.EligibleTarget{
 		{
 			OrganizationID: "org-123",
 			WorkspaceID:    "sub-456",
@@ -425,9 +426,11 @@ func TestFavoritesAddInteractiveMode(t *testing.T) {
 				_ = config.Save(cfg, path)
 			},
 			eligLister: &mockEligibilityLister{
-				response: &models.EligibilityResponse{
-					Response: twoTargets,
-					Total:    2,
+				listFunc: func(_ context.Context, csp models.CSP) (*models.EligibilityResponse, error) {
+					if csp == models.CSPAzure {
+						return &models.EligibilityResponse{Response: twoTargets, Total: 2}, nil
+					}
+					return &models.EligibilityResponse{}, nil
 				},
 			},
 			selector: &mockTargetSelector{
@@ -457,16 +460,17 @@ func TestFavoritesAddInteractiveMode(t *testing.T) {
 			wantErr:     false,
 		},
 		{
-			name: "success - provider defaults from config",
+			name: "success - no provider flag (multi-CSP)",
 			setupConfig: func(path string) {
 				cfg := config.DefaultConfig()
-				cfg.DefaultProvider = "azure"
 				_ = config.Save(cfg, path)
 			},
 			eligLister: &mockEligibilityLister{
-				response: &models.EligibilityResponse{
-					Response: twoTargets,
-					Total:    2,
+				listFunc: func(_ context.Context, csp models.CSP) (*models.EligibilityResponse, error) {
+					if csp == models.CSPAzure {
+						return &models.EligibilityResponse{Response: twoTargets, Total: 2}, nil
+					}
+					return &models.EligibilityResponse{}, nil
 				},
 			},
 			selector: &mockTargetSelector{
@@ -486,7 +490,7 @@ func TestFavoritesAddInteractiveMode(t *testing.T) {
 				listErr: errors.New("API error: unauthorized"),
 			},
 			selector:    &mockTargetSelector{},
-			args:        []string{"myfav"},
+			args:        []string{"myfav", "--provider", "azure"},
 			wantContain: []string{"failed to fetch eligible targets"},
 			wantErr:     true,
 		},
@@ -498,7 +502,7 @@ func TestFavoritesAddInteractiveMode(t *testing.T) {
 			},
 			eligLister: &mockEligibilityLister{
 				response: &models.EligibilityResponse{
-					Response: []models.AzureEligibleTarget{},
+					Response: []models.EligibleTarget{},
 					Total:    0,
 				},
 			},
@@ -562,9 +566,11 @@ func TestFavoritesAddInteractiveMode(t *testing.T) {
 				_ = config.Save(cfg, path)
 			},
 			eligLister: &mockEligibilityLister{
-				response: &models.EligibilityResponse{
-					Response: twoTargets,
-					Total:    2,
+				listFunc: func(_ context.Context, csp models.CSP) (*models.EligibilityResponse, error) {
+					if csp == models.CSPAzure {
+						return &models.EligibilityResponse{Response: twoTargets, Total: 2}, nil
+					}
+					return &models.EligibilityResponse{}, nil
 				},
 			},
 			selector: &mockTargetSelector{

@@ -8,10 +8,9 @@ type CSP string
 const (
 	CSPAzure CSP = "AZURE"
 	CSPAWS   CSP = "AWS"
-	CSPGCP   CSP = "GCP"
 )
 
-// WorkspaceType represents the type of Azure workspace.
+// WorkspaceType represents the type of cloud workspace.
 type WorkspaceType string
 
 const (
@@ -20,6 +19,7 @@ const (
 	WorkspaceTypeSubscription    WorkspaceType = "SUBSCRIPTION"
 	WorkspaceTypeManagementGroup WorkspaceType = "MANAGEMENT_GROUP"
 	WorkspaceTypeDirectory       WorkspaceType = "DIRECTORY"
+	WorkspaceTypeAccount         WorkspaceType = "account" // Lowercase per AWS API spec
 )
 
 // RoleInfo contains the ID and name of a role.
@@ -28,8 +28,9 @@ type RoleInfo struct {
 	Name string `json:"name"`
 }
 
-// AzureEligibleTarget represents a target the user is eligible to elevate to.
-type AzureEligibleTarget struct {
+// EligibleTarget represents a cloud workspace target the user is eligible to elevate to.
+type EligibleTarget struct {
+	CSP            CSP           `json:"-"` // Set programmatically after fetch, not from API
 	OrganizationID string        `json:"organizationId"`
 	WorkspaceID    string        `json:"workspaceId"`
 	WorkspaceName  string        `json:"workspaceName"`
@@ -39,8 +40,8 @@ type AzureEligibleTarget struct {
 
 // UnmarshalJSON implements custom unmarshaling to handle both "roleInfo" (live API)
 // and "role" (OpenAPI spec) field names.
-func (t *AzureEligibleTarget) UnmarshalJSON(data []byte) error {
-	type Alias AzureEligibleTarget
+func (t *EligibleTarget) UnmarshalJSON(data []byte) error {
+	type Alias EligibleTarget
 	aux := &struct {
 		*Alias
 		Role *RoleInfo `json:"role"`
@@ -62,7 +63,7 @@ func (t *AzureEligibleTarget) UnmarshalJSON(data []byte) error {
 
 // EligibilityResponse is the response from GET /api/access/{CSP}/eligibility.
 type EligibilityResponse struct {
-	Response  []AzureEligibleTarget `json:"response"`
+	Response  []EligibleTarget `json:"response"`
 	NextToken *string               `json:"nextToken"`
 	Total     int                   `json:"total"`
 }

@@ -118,7 +118,7 @@ func TestStatusCommand(t *testing.T) {
 			setupEligibility: func() *mockEligibilityLister {
 				return &mockEligibilityLister{
 					response: &scamodels.EligibilityResponse{
-						Response: []scamodels.AzureEligibleTarget{
+						Response: []scamodels.EligibleTarget{
 							{
 								WorkspaceID:   "providers/Microsoft.Management/managementGroups/29cb7961-e16d-42c7-8ade-1794bbb76782",
 								WorkspaceName: "Tenant Root Group",
@@ -179,7 +179,7 @@ func TestStatusCommand(t *testing.T) {
 			setupEligibility: func() *mockEligibilityLister {
 				return &mockEligibilityLister{
 					response: &scamodels.EligibilityResponse{
-						Response: []scamodels.AzureEligibleTarget{
+						Response: []scamodels.EligibleTarget{
 							{WorkspaceID: "/subscriptions/sub-1", WorkspaceName: "Test Subscription"},
 						},
 					},
@@ -234,7 +234,7 @@ func TestStatusCommand(t *testing.T) {
 			setupEligibility: func() *mockEligibilityLister {
 				return &mockEligibilityLister{
 					response: &scamodels.EligibilityResponse{
-						Response: []scamodels.AzureEligibleTarget{
+						Response: []scamodels.EligibleTarget{
 							{WorkspaceID: "/subscriptions/sub-1", WorkspaceName: "Dev Subscription"},
 						},
 					},
@@ -385,7 +385,7 @@ func TestStatusCommand(t *testing.T) {
 			setupEligibility: func() *mockEligibilityLister {
 				return &mockEligibilityLister{
 					response: &scamodels.EligibilityResponse{
-						Response: []scamodels.AzureEligibleTarget{
+						Response: []scamodels.EligibleTarget{
 							{
 								WorkspaceID:   "providers/Microsoft.Management/managementGroups/29cb7961-e16d-42c7-8ade-1794bbb76782",
 								WorkspaceName: "Tenant Root Group",

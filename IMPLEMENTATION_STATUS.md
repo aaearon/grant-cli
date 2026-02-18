@@ -377,8 +377,10 @@ grant/
 ├── go.mod                            # module github.com/aaearon/grant-cli
 ├── go.sum
 ├── cmd/
-│   ├── root.go                       # cobra root command with --verbose, PersistentPreRunE
+│   ├── root.go                       # cobra root command with --verbose, PersistentPreRunE, resolveAndElevate
 │   ├── root_test.go                  # 2 tests (PersistentPreRunE verbose wiring)
+│   ├── env.go                        # grant env command (AWS credential export)
+│   ├── env_test.go                   # 3 tests (AWS success, Azure error, not authenticated)
 │   ├── version.go                    # version command with ldflags
 │   ├── version_test.go               # 2 tests
 │   ├── configure.go                  # configure command with survey prompts
@@ -415,7 +417,7 @@ grant/
 │       ├── service.go                # SCAAccessService with ListEligibility, Elevate, ListSessions
 │       ├── service_test.go           # 10 tests
 │       └── models/
-│           ├── eligibility.go        # CSP, WorkspaceType, RoleInfo, AzureEligibleTarget (custom UnmarshalJSON), EligibilityResponse
+│           ├── eligibility.go        # CSP, WorkspaceType, RoleInfo, EligibleTarget (custom UnmarshalJSON), EligibilityResponse
 │           ├── eligibility_test.go   # 6 tests
 │           ├── root.go               # ElevateTarget, ElevateRequest, ErrorInfo, ElevateTargetResult, ElevateAccessResult, ElevateResponse
 │           ├── root_elevate_test.go  # 6 tests
@@ -675,6 +677,62 @@ Replaced the survey prompts with the same eligibility-based `ui.SelectTarget()` 
 **Location:** `.claude/skills/grant-login/SKILL.md`
 
 Reusable Claude skill for driving the interactive `grant login` flow via tmux. Reads credentials from `.env`, sends password, selects OATH Code MFA method, generates TOTP via python3 stdlib, and verifies successful authentication.
+
+---
+
+## Feature: AWS Elevation Support (`feat/aws-elevation`)
+
+**Status:** Done
+**Date:** 2026-02-18
+
+### Problem
+
+grant only supported Azure elevation. AWS accounts require temporary credentials (`accessCredentials` in elevation response) and a different post-elevation workflow (environment variable export instead of az CLI session).
+
+### Solution
+
+Multi-CSP elevation with AWS provider support and a new `grant env` command for credential export.
+
+### Implementation
+
+#### Commit 1: Rename `AzureEligibleTarget` to `EligibleTarget`
+- CSP-agnostic naming for shared eligibility model
+
+#### Commit 2: AWS provider support
+- `models.CSPAWS`, `models.WorkspaceTypeAccount` constants
+- Provider validation accepts `azure` and `aws`
+- UI selector: case-insensitive workspace type formatting with `Account` type support
+
+#### Commit 3: AWS credentials in elevation response
+- `models.ElevateTargetResult.AccessCredentials` field (`*string`)
+- `models.AWSCredentials` struct + `ParseAWSCredentials()` parser
+- Root command prints `export` statements when credentials present
+
+#### Commit 4: `grant env` command
+- `cmd/env.go` — `NewEnvCommand()`, `NewEnvCommandWithDeps()`, `runEnvWithDeps()`
+- Performs full elevation flow, outputs ONLY `export` statements (no human text)
+- Returns error for non-AWS elevations (no `accessCredentials`)
+- Usage: `eval $(grant env --provider aws --target "Account" --role "Admin")`
+- Extracted `resolveAndElevate()` helper shared by root and env commands
+
+#### Commit 5: Multi-CSP support (omit `--provider` to see all)
+- `EligibleTarget.CSP` field (`json:"-"`) tracks which provider each target came from
+- `fetchEligibility()` helper: single-CSP or all-CSP fetch with target tagging
+- `resolveTargetCSP()` helper: ensures CSP is set after interactive selection
+- Removed `cfg.DefaultProvider` fallback in elevation and favorites interactive paths
+- `FormatTargetOption()` appends `(azure)` / `(aws)` label when CSP is set
+
+### Files Added/Modified
+- `internal/sca/models/eligibility.go` — `CSPAWS`, `WorkspaceTypeAccount`, renamed struct, `CSP` field
+- `internal/sca/models/root.go` — `AccessCredentials` field
+- `internal/sca/models/credentials.go` — `AWSCredentials`, `ParseAWSCredentials()`
+- `internal/ui/selector.go` — case-insensitive workspace type formatting, provider label
+- `cmd/root.go` — `fetchEligibility()`, `resolveTargetCSP()`, `resolveAndElevate()`, AWS credential output
+- `cmd/env.go` — new `grant env` command
+- `cmd/env_test.go` — 3 tests (AWS success, Azure error, not authenticated)
+- `cmd/favorites.go` — multi-CSP interactive mode using `fetchEligibility()`
+- `cmd/commands.go` — register `NewEnvCommand()`
+- `cmd/test_mocks.go` — `errNotAuthenticated` sentinel
 
 ---
 

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -33,7 +34,7 @@ func TestRootElevate_InteractiveMode(t *testing.T) {
 
 				eligibilityLister := &mockEligibilityLister{
 					response: &models.EligibilityResponse{
-						Response: []models.AzureEligibleTarget{
+						Response: []models.EligibleTarget{
 							{
 								OrganizationID: "org-123",
 								WorkspaceID:    "sub-456",
@@ -66,7 +67,7 @@ func TestRootElevate_InteractiveMode(t *testing.T) {
 				}
 
 				selector := &mockTargetSelector{
-					target: &models.AzureEligibleTarget{
+					target: &models.EligibleTarget{
 						OrganizationID: "org-123",
 						WorkspaceID:    "sub-456",
 						WorkspaceName:  "Prod-EastUS",
@@ -86,11 +87,233 @@ func TestRootElevate_InteractiveMode(t *testing.T) {
 			wantContain: []string{
 				"Elevated to Contributor on Prod-EastUS",
 				"Session ID: session-abc",
+				"az CLI session",
 			},
 			wantErr: false,
 		},
 		{
-			name: "no eligible targets found",
+			name: "AWS elevation success with credentials",
+			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *mockTargetSelector, *config.Config) {
+				authLoader := &mockAuthLoader{
+					token: &authmodels.IdsecToken{
+						Token:     "test-jwt",
+						Username:  "test@example.com",
+						ExpiresIn: commonmodels.IdsecRFC3339Time(time.Now().Add(1 * time.Hour)),
+					},
+				}
+
+				eligibilityLister := &mockEligibilityLister{
+					response: &models.EligibilityResponse{
+						Response: []models.EligibleTarget{
+							{
+								OrganizationID: "o-abc123",
+								WorkspaceID:    "123456789012",
+								WorkspaceName:  "AWS Management",
+								WorkspaceType:  models.WorkspaceTypeAccount,
+								RoleInfo: models.RoleInfo{
+									ID:   "arn:aws:iam::123456789012:role/AdminAccess",
+									Name: "AdminAccess",
+								},
+							},
+						},
+						Total: 1,
+					},
+				}
+
+				credsJSON := `{"aws_access_key":"ASIAXXX","aws_secret_access_key":"secretkey","aws_session_token":"tokenval"}`
+				elevateService := &mockElevateService{
+					response: &models.ElevateResponse{
+						Response: models.ElevateAccessResult{
+							CSP:            models.CSPAWS,
+							OrganizationID: "o-abc123",
+							Results: []models.ElevateTargetResult{
+								{
+									WorkspaceID:       "123456789012",
+									RoleID:            "AdminAccess",
+									SessionID:         "session-aws-1",
+									AccessCredentials: &credsJSON,
+								},
+							},
+						},
+					},
+				}
+
+				selector := &mockTargetSelector{
+					target: &models.EligibleTarget{
+						OrganizationID: "o-abc123",
+						WorkspaceID:    "123456789012",
+						WorkspaceName:  "AWS Management",
+						WorkspaceType:  models.WorkspaceTypeAccount,
+						RoleInfo: models.RoleInfo{
+							ID:   "arn:aws:iam::123456789012:role/AdminAccess",
+							Name: "AdminAccess",
+						},
+					},
+				}
+
+				cfg := config.DefaultConfig()
+
+				return authLoader, eligibilityLister, elevateService, selector, cfg
+			},
+			args: []string{"--provider", "aws"},
+			wantContain: []string{
+				"Elevated to AdminAccess on AWS Management",
+				"Session ID: session-aws-1",
+				"AWS_ACCESS_KEY_ID='ASIAXXX'",
+				"AWS_SECRET_ACCESS_KEY='secretkey'",
+				"AWS_SESSION_TOKEN='tokenval'",
+			},
+			wantErr: false,
+		},
+		{
+			name: "multi-CSP interactive mode - mixed providers",
+			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *mockTargetSelector, *config.Config) {
+				authLoader := &mockAuthLoader{
+					token: &authmodels.IdsecToken{
+						Token:     "test-jwt",
+						Username:  "test@example.com",
+						ExpiresIn: commonmodels.IdsecRFC3339Time(time.Now().Add(1 * time.Hour)),
+					},
+				}
+
+				awsTarget := models.EligibleTarget{
+					OrganizationID: "o-abc",
+					WorkspaceID:    "111222333444",
+					WorkspaceName:  "AWS Sandbox",
+					WorkspaceType:  models.WorkspaceTypeAccount,
+					RoleInfo:       models.RoleInfo{ID: "role-aws", Name: "ReadOnly"},
+				}
+				azureTarget := models.EligibleTarget{
+					OrganizationID: "org-xyz",
+					WorkspaceID:    "sub-999",
+					WorkspaceName:  "Prod-EastUS",
+					WorkspaceType:  models.WorkspaceTypeSubscription,
+					RoleInfo:       models.RoleInfo{ID: "role-az", Name: "Contributor"},
+				}
+
+				// Return different targets per CSP
+				eligibilityLister := &mockEligibilityLister{
+					listFunc: func(ctx context.Context, csp models.CSP) (*models.EligibilityResponse, error) {
+						switch csp {
+						case models.CSPAzure:
+							return &models.EligibilityResponse{Response: []models.EligibleTarget{azureTarget}, Total: 1}, nil
+						case models.CSPAWS:
+							return &models.EligibilityResponse{Response: []models.EligibleTarget{awsTarget}, Total: 1}, nil
+						}
+						return &models.EligibilityResponse{}, nil
+					},
+				}
+
+				credsJSON := `{"aws_access_key":"ASIAXXX","aws_secret_access_key":"secret","aws_session_token":"token"}`
+				elevateService := &mockElevateService{
+					response: &models.ElevateResponse{
+						Response: models.ElevateAccessResult{
+							CSP:            models.CSPAWS,
+							OrganizationID: "o-abc",
+							Results: []models.ElevateTargetResult{
+								{
+									WorkspaceID:       "111222333444",
+									RoleID:            "ReadOnly",
+									SessionID:         "session-multi",
+									AccessCredentials: &credsJSON,
+								},
+							},
+						},
+					},
+				}
+
+				// User selects the AWS target
+				selector := &mockTargetSelector{
+					target: &awsTarget,
+				}
+
+				cfg := config.DefaultConfig()
+
+				return authLoader, eligibilityLister, elevateService, selector, cfg
+			},
+			args: []string{}, // no --provider
+			wantContain: []string{
+				"Elevated to ReadOnly on AWS Sandbox",
+				"Session ID: session-multi",
+				"AWS_ACCESS_KEY_ID",
+			},
+			wantErr: false,
+		},
+		{
+			name: "multi-CSP concurrent fetch - parallel execution",
+			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *mockTargetSelector, *config.Config) {
+				authLoader := &mockAuthLoader{
+					token: &authmodels.IdsecToken{
+						Token:     "test-jwt",
+						Username:  "test@example.com",
+						ExpiresIn: commonmodels.IdsecRFC3339Time(time.Now().Add(1 * time.Hour)),
+					},
+				}
+
+				awsTarget := models.EligibleTarget{
+					OrganizationID: "o-abc",
+					WorkspaceID:    "111222333444",
+					WorkspaceName:  "AWS Sandbox",
+					WorkspaceType:  models.WorkspaceTypeAccount,
+					RoleInfo:       models.RoleInfo{ID: "role-aws", Name: "ReadOnly"},
+				}
+				azureTarget := models.EligibleTarget{
+					OrganizationID: "org-xyz",
+					WorkspaceID:    "sub-999",
+					WorkspaceName:  "Prod-EastUS",
+					WorkspaceType:  models.WorkspaceTypeSubscription,
+					RoleInfo:       models.RoleInfo{ID: "role-az", Name: "Contributor"},
+				}
+
+				// Each CSP call sleeps 200ms; if sequential total >= 400ms
+				eligibilityLister := &mockEligibilityLister{
+					listFunc: func(ctx context.Context, csp models.CSP) (*models.EligibilityResponse, error) {
+						time.Sleep(200 * time.Millisecond)
+						switch csp {
+						case models.CSPAzure:
+							return &models.EligibilityResponse{Response: []models.EligibleTarget{azureTarget}, Total: 1}, nil
+						case models.CSPAWS:
+							return &models.EligibilityResponse{Response: []models.EligibleTarget{awsTarget}, Total: 1}, nil
+						}
+						return &models.EligibilityResponse{}, nil
+					},
+				}
+
+				credsJSON := `{"aws_access_key":"ASIAXXX","aws_secret_access_key":"secret","aws_session_token":"token"}`
+				elevateService := &mockElevateService{
+					response: &models.ElevateResponse{
+						Response: models.ElevateAccessResult{
+							CSP:            models.CSPAWS,
+							OrganizationID: "o-abc",
+							Results: []models.ElevateTargetResult{
+								{
+									WorkspaceID:       "111222333444",
+									RoleID:            "ReadOnly",
+									SessionID:         "session-par",
+									AccessCredentials: &credsJSON,
+								},
+							},
+						},
+					},
+				}
+
+				selector := &mockTargetSelector{
+					target: &awsTarget,
+				}
+
+				cfg := config.DefaultConfig()
+
+				return authLoader, eligibilityLister, elevateService, selector, cfg
+			},
+			args: []string{}, // no --provider triggers multi-CSP
+			wantContain: []string{
+				"Elevated to ReadOnly on AWS Sandbox",
+				"Session ID: session-par",
+			},
+			wantErr: false,
+		},
+		{
+			name: "no eligible targets found across all providers",
 			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *mockTargetSelector, *config.Config) {
 				authLoader := &mockAuthLoader{
 					token: &authmodels.IdsecToken{Token: "test-jwt"},
@@ -98,7 +321,7 @@ func TestRootElevate_InteractiveMode(t *testing.T) {
 
 				eligibilityLister := &mockEligibilityLister{
 					response: &models.EligibilityResponse{
-						Response: []models.AzureEligibleTarget{},
+						Response: []models.EligibleTarget{},
 						Total:    0,
 					},
 				}
@@ -109,7 +332,7 @@ func TestRootElevate_InteractiveMode(t *testing.T) {
 			},
 			args: []string{},
 			wantContain: []string{
-				"no eligible azure targets found",
+				"no eligible targets found",
 			},
 			wantErr: true,
 		},
@@ -156,7 +379,7 @@ func TestRootElevate_DirectMode(t *testing.T) {
 
 				eligibilityLister := &mockEligibilityLister{
 					response: &models.EligibilityResponse{
-						Response: []models.AzureEligibleTarget{
+						Response: []models.EligibleTarget{
 							{
 								OrganizationID: "org-123",
 								WorkspaceID:    "sub-456",
@@ -208,7 +431,7 @@ func TestRootElevate_DirectMode(t *testing.T) {
 
 				eligibilityLister := &mockEligibilityLister{
 					response: &models.EligibilityResponse{
-						Response: []models.AzureEligibleTarget{
+						Response: []models.EligibleTarget{
 							{
 								OrganizationID: "org-123",
 								WorkspaceID:    "sub-456",
@@ -260,7 +483,7 @@ func TestRootElevate_DirectMode(t *testing.T) {
 
 				eligibilityLister := &mockEligibilityLister{
 					response: &models.EligibilityResponse{
-						Response: []models.AzureEligibleTarget{
+						Response: []models.EligibleTarget{
 							{
 								WorkspaceName: "Dev-WestEU",
 								RoleInfo:      models.RoleInfo{Name: "Reader"},
@@ -289,7 +512,7 @@ func TestRootElevate_DirectMode(t *testing.T) {
 
 				eligibilityLister := &mockEligibilityLister{
 					response: &models.EligibilityResponse{
-						Response: []models.AzureEligibleTarget{
+						Response: []models.EligibleTarget{
 							{
 								WorkspaceName: "Prod-EastUS",
 								RoleInfo:      models.RoleInfo{Name: "Reader"},
@@ -382,7 +605,7 @@ func TestRootElevate_FavoriteMode(t *testing.T) {
 
 				eligibilityLister := &mockEligibilityLister{
 					response: &models.EligibilityResponse{
-						Response: []models.AzureEligibleTarget{
+						Response: []models.EligibleTarget{
 							{
 								OrganizationID: "org-123",
 								WorkspaceID:    "sub-456",
@@ -508,22 +731,6 @@ func TestRootElevate_ProviderValidation(t *testing.T) {
 		wantErr     bool
 	}{
 		{
-			name: "invalid provider - v1 only accepts azure",
-			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *config.Config) {
-				authLoader := &mockAuthLoader{
-					token: &authmodels.IdsecToken{Token: "test-jwt"},
-				}
-				cfg := config.DefaultConfig()
-				return authLoader, nil, cfg
-			},
-			args: []string{"--provider", "aws"},
-			wantContain: []string{
-				`provider "aws" is not supported in this version`,
-				"supported providers: azure",
-			},
-			wantErr: true,
-		},
-		{
 			name: "invalid provider - gcp",
 			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *config.Config) {
 				authLoader := &mockAuthLoader{
@@ -534,8 +741,29 @@ func TestRootElevate_ProviderValidation(t *testing.T) {
 			},
 			args: []string{"--provider", "gcp"},
 			wantContain: []string{
-				`provider "gcp" is not supported in this version`,
-				"supported providers: azure",
+				`provider "gcp" is not supported`,
+				"supported providers: azure, aws",
+			},
+			wantErr: true,
+		},
+		{
+			name: "valid provider - aws explicit",
+			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *config.Config) {
+				authLoader := &mockAuthLoader{
+					token: &authmodels.IdsecToken{Token: "test-jwt"},
+				}
+				eligibilityLister := &mockEligibilityLister{
+					response: &models.EligibilityResponse{
+						Response: []models.EligibleTarget{},
+						Total:    0,
+					},
+				}
+				cfg := config.DefaultConfig()
+				return authLoader, eligibilityLister, cfg
+			},
+			args: []string{"--provider", "aws"},
+			wantContain: []string{
+				"no eligible aws targets found",
 			},
 			wantErr: true,
 		},
@@ -547,7 +775,7 @@ func TestRootElevate_ProviderValidation(t *testing.T) {
 				}
 				eligibilityLister := &mockEligibilityLister{
 					response: &models.EligibilityResponse{
-						Response: []models.AzureEligibleTarget{},
+						Response: []models.EligibleTarget{},
 						Total:    0,
 					},
 				}
@@ -654,7 +882,7 @@ func TestRootElevate_ElevationErrors(t *testing.T) {
 
 				eligibilityLister := &mockEligibilityLister{
 					response: &models.EligibilityResponse{
-						Response: []models.AzureEligibleTarget{
+						Response: []models.EligibleTarget{
 							{
 								OrganizationID: "org-123",
 								WorkspaceID:    "sub-456",
@@ -719,7 +947,7 @@ func TestRootElevate_ElevationErrors(t *testing.T) {
 
 				return authLoader, eligibilityLister, nil, cfg
 			},
-			args: []string{"--target", "Prod-EastUS", "--role", "Contributor"},
+			args: []string{"--provider", "azure", "--target", "Prod-EastUS", "--role", "Contributor"},
 			wantContain: []string{
 				"failed to fetch eligible targets",
 			},
@@ -783,5 +1011,83 @@ func TestRootElevate_UsageAndFlags(t *testing.T) {
 
 	if cmd.Flags().Lookup("favorite") == nil {
 		t.Error("expected --favorite flag to be registered")
+	}
+}
+
+func TestFetchEligibility_SingleProviderOmitsCSPTag(t *testing.T) {
+	lister := &mockEligibilityLister{
+		response: &models.EligibilityResponse{
+			Response: []models.EligibleTarget{
+				{
+					WorkspaceName: "Prod-EastUS",
+					WorkspaceType: models.WorkspaceTypeSubscription,
+					RoleInfo:      models.RoleInfo{ID: "role-1", Name: "Contributor"},
+				},
+			},
+			Total: 1,
+		},
+	}
+
+	targets, err := fetchEligibility(context.Background(), lister, "azure")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, tgt := range targets {
+		if tgt.CSP != "" {
+			t.Errorf("expected empty CSP on single-provider fetch, got %q", tgt.CSP)
+		}
+	}
+}
+
+func TestFetchEligibility_ConcurrentExecution(t *testing.T) {
+	awsTarget := models.EligibleTarget{
+		WorkspaceName: "AWS Sandbox",
+		WorkspaceType: models.WorkspaceTypeAccount,
+		RoleInfo:      models.RoleInfo{ID: "role-aws", Name: "ReadOnly"},
+	}
+	azureTarget := models.EligibleTarget{
+		WorkspaceName: "Prod-EastUS",
+		WorkspaceType: models.WorkspaceTypeSubscription,
+		RoleInfo:      models.RoleInfo{ID: "role-az", Name: "Contributor"},
+	}
+
+	lister := &mockEligibilityLister{
+		listFunc: func(ctx context.Context, csp models.CSP) (*models.EligibilityResponse, error) {
+			time.Sleep(200 * time.Millisecond)
+			switch csp {
+			case models.CSPAzure:
+				return &models.EligibilityResponse{Response: []models.EligibleTarget{azureTarget}, Total: 1}, nil
+			case models.CSPAWS:
+				return &models.EligibilityResponse{Response: []models.EligibleTarget{awsTarget}, Total: 1}, nil
+			}
+			return &models.EligibilityResponse{}, nil
+		},
+	}
+
+	start := time.Now()
+	targets, err := fetchEligibility(context.Background(), lister, "")
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(targets) != 2 {
+		t.Fatalf("expected 2 targets, got %d", len(targets))
+	}
+
+	// With 2 CSPs sleeping 200ms each, parallel should finish well under 400ms
+	if elapsed >= 350*time.Millisecond {
+		t.Errorf("expected concurrent execution (<350ms), took %v", elapsed)
+	}
+
+	// Verify CSP tags were set
+	cspSeen := map[models.CSP]bool{}
+	for _, tgt := range targets {
+		cspSeen[tgt.CSP] = true
+	}
+	if !cspSeen[models.CSPAzure] || !cspSeen[models.CSPAWS] {
+		t.Errorf("expected both CSPs in results, got %v", cspSeen)
 	}
 }

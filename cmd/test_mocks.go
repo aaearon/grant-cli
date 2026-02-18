@@ -2,11 +2,16 @@ package cmd
 
 import (
 	"context"
+	"errors"
 
 	"github.com/aaearon/grant-cli/internal/sca/models"
 	sdkmodels "github.com/cyberark/idsec-sdk-golang/pkg/models"
 	authmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
 )
+
+// errNotAuthenticated is a sentinel error used in tests to simulate
+// a missing cached token from the auth loader.
+var errNotAuthenticated = errors.New("no cached token")
 
 // mockAuthLoader implements the authLoader interface for testing
 type mockAuthLoader struct {
@@ -66,12 +71,12 @@ func (m *mockElevateService) Elevate(ctx context.Context, req *models.ElevateReq
 
 // mockTargetSelector implements the targetSelector interface for testing
 type mockTargetSelector struct {
-	selectFunc func(targets []models.AzureEligibleTarget) (*models.AzureEligibleTarget, error)
-	target     *models.AzureEligibleTarget
+	selectFunc func(targets []models.EligibleTarget) (*models.EligibleTarget, error)
+	target     *models.EligibleTarget
 	selectErr  error
 }
 
-func (m *mockTargetSelector) SelectTarget(targets []models.AzureEligibleTarget) (*models.AzureEligibleTarget, error) {
+func (m *mockTargetSelector) SelectTarget(targets []models.EligibleTarget) (*models.EligibleTarget, error) {
 	if m.selectFunc != nil {
 		return m.selectFunc(targets)
 	}
