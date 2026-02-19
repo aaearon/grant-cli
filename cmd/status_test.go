@@ -450,6 +450,107 @@ func TestStatusCommand(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "mixed cloud and group sessions",
+			setupAuth: func() *mockAuthLoader {
+				return &mockAuthLoader{
+					token: &authmodels.IdsecToken{
+						Token:     "test-jwt",
+						Username:  "tim@iosharp.com",
+						ExpiresIn: expiresIn,
+					},
+					loadErr: nil,
+				}
+			},
+			setupSvc: func() *mockSessionLister {
+				return &mockSessionLister{
+					sessions: &scamodels.SessionsResponse{
+						Response: []scamodels.SessionInfo{
+							{
+								SessionID:       "cloud-session-1",
+								UserID:          "tim@iosharp.com",
+								CSP:             scamodels.CSPAzure,
+								WorkspaceID:     "/subscriptions/sub-1",
+								RoleID:          "Contributor",
+								SessionDuration: 3600,
+							},
+							{
+								SessionID:       "group-session-1",
+								UserID:          "tim@iosharp.com",
+								CSP:             scamodels.CSPAzure,
+								WorkspaceID:     "29cb7961-dir-uuid",
+								SessionDuration: 3600,
+								Target:          &scamodels.SessionTarget{ID: "group-uuid-1", Type: scamodels.TargetTypeGroups},
+							},
+						},
+						Total: 2,
+					},
+					listErr: nil,
+				}
+			},
+			setupEligibility: func() *mockEligibilityLister {
+				return &mockEligibilityLister{
+					response: &scamodels.EligibilityResponse{
+						Response: []scamodels.EligibleTarget{
+							{WorkspaceID: "/subscriptions/sub-1", WorkspaceName: "My Subscription"},
+						},
+					},
+				}
+			},
+			wantContain: []string{
+				"Azure sessions:",
+				"Contributor on My Subscription (/subscriptions/sub-1)",
+				"session: cloud-session-1",
+				"Groups sessions:",
+				"Group: group-uuid-1 in 29cb7961-dir-uuid",
+				"session: group-session-1",
+			},
+			wantErr: false,
+		},
+		{
+			name: "only group sessions",
+			setupAuth: func() *mockAuthLoader {
+				return &mockAuthLoader{
+					token: &authmodels.IdsecToken{
+						Token:     "test-jwt",
+						Username:  "tim@iosharp.com",
+						ExpiresIn: expiresIn,
+					},
+					loadErr: nil,
+				}
+			},
+			setupSvc: func() *mockSessionLister {
+				return &mockSessionLister{
+					sessions: &scamodels.SessionsResponse{
+						Response: []scamodels.SessionInfo{
+							{
+								SessionID:       "group-session-1",
+								UserID:          "tim@iosharp.com",
+								CSP:             scamodels.CSPAzure,
+								WorkspaceID:     "dir-uuid-123",
+								SessionDuration: 1800,
+								Target:          &scamodels.SessionTarget{ID: "grp-uuid", Type: scamodels.TargetTypeGroups},
+							},
+						},
+						Total: 1,
+					},
+					listErr: nil,
+				}
+			},
+			setupEligibility: func() *mockEligibilityLister {
+				return &mockEligibilityLister{}
+			},
+			wantContain: []string{
+				"Groups sessions:",
+				"Group: grp-uuid in dir-uuid-123",
+				"duration: 30m",
+			},
+			wantNotContain: []string{
+				"Azure sessions:",
+				"AWS sessions:",
+			},
+			wantErr: false,
+		},
+		{
 			name: "invalid provider flag",
 			setupAuth: func() *mockAuthLoader {
 				return &mockAuthLoader{

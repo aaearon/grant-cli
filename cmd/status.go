@@ -81,14 +81,33 @@ func runStatus(cmd *cobra.Command, authLoader authLoader, sessionLister sessionL
 		return nil
 	}
 
-	// Group sessions by provider
-	sessionsByProvider := groupSessionsByProvider(data.sessions.Response)
+	// Separate cloud sessions from group sessions
+	var cloudSessions, groupSessions []scamodels.SessionInfo
+	for _, s := range data.sessions.Response {
+		if s.IsGroupSession() {
+			groupSessions = append(groupSessions, s)
+		} else {
+			cloudSessions = append(cloudSessions, s)
+		}
+	}
 
-	// Display grouped sessions
 	fmt.Fprintf(cmd.OutOrStdout(), "\n")
-	for _, p := range sortedProviders(sessionsByProvider) {
-		fmt.Fprintf(cmd.OutOrStdout(), "%s sessions:\n", formatProviderName(p))
-		for _, session := range sessionsByProvider[p] {
+
+	// Display cloud sessions grouped by provider
+	if len(cloudSessions) > 0 {
+		sessionsByProvider := groupSessionsByProvider(cloudSessions)
+		for _, p := range sortedProviders(sessionsByProvider) {
+			fmt.Fprintf(cmd.OutOrStdout(), "%s sessions:\n", formatProviderName(p))
+			for _, session := range sessionsByProvider[p] {
+				fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", ui.FormatSessionOption(session, data.nameMap))
+			}
+		}
+	}
+
+	// Display group sessions
+	if len(groupSessions) > 0 {
+		fmt.Fprintf(cmd.OutOrStdout(), "Groups sessions:\n")
+		for _, session := range groupSessions {
 			fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", ui.FormatSessionOption(session, data.nameMap))
 		}
 	}
