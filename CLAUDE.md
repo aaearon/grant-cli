@@ -56,7 +56,9 @@ Custom `SCAAccessService` follows SDK conventions:
 - `Iilun/survey/v2` for interactive prompts
 - `grant env` — performs elevation, outputs only `export` statements (no human text); usage: `eval $(grant env --provider aws)`; supports `--refresh`
 - `grant revoke` — revoke sessions: direct (`grant revoke <id>`), `--all`, or interactive multi-select; `--yes` skips confirmation
-- `grant groups` — Entra ID group membership elevation: interactive or direct (`--group "name"`); always targets Azure; uses separate API endpoints (`/eligibility/groups`, `/elevate/groups`)
+- `--groups` flag on root command shows only Entra ID groups in the interactive selector
+- `--group` / `-g` flag on root command for direct group membership elevation (`grant --group "Cloud Admins"`)
+- Root command unified selector shows both cloud roles and Entra ID groups; groups use `/eligibility/groups` and `/elevate/groups` API endpoints
 - Multi-CSP: omitting `--provider` fetches eligibility from all supported CSPs and merges results
 - `--refresh` bypasses eligibility cache on `grant` and `grant env`
 - `fetchEligibility()` and `resolveTargetCSP()` in `cmd/root.go` — shared by root, env, and favorites
@@ -67,8 +69,8 @@ Custom `SCAAccessService` follows SDK conventions:
 - `--refresh` flag on `grant` and `grant env` bypasses cache reads but still writes fresh data
 - `internal/cache/cache.go` — generic `Store` with `Get[T]`/`Set[T]`, injectable clock for testing
 - `internal/cache/cached_eligibility.go` — `CachedEligibilityLister` decorator implementing `eligibilityLister` + `groupsEligibilityLister`
-- `buildCachedLister()` in `cmd/root.go` — shared factory used by all commands (root, env, status, revoke, groups, favorites add)
-- Commands without `--refresh` (status, revoke, groups, favorites add) always pass `refresh: false` — they use eligibility for display only
+- `buildCachedLister()` in `cmd/root.go` — shared factory used by all commands (root, env, status, revoke, favorites add)
+- Commands without `--refresh` (status, revoke, favorites add) always pass `refresh: false` — they use eligibility for display only
 - Cache failures (read/write) silently fall through to the live API
 
 ## Verbose / Logging

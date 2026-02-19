@@ -11,19 +11,20 @@ import (
 	"github.com/aaearon/grant-cli/internal/sca/models"
 	authmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
 	commonmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/common"
+	"github.com/spf13/cobra"
 )
 
 func TestRootElevate_InteractiveMode(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMocks  func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *mockTargetSelector, *config.Config)
+		setupMocks  func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *mockUnifiedSelector, *config.Config)
 		args        []string
 		wantContain []string
 		wantErr     bool
 	}{
 		{
 			name: "interactive mode success",
-			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *mockTargetSelector, *config.Config) {
+			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *mockUnifiedSelector, *config.Config) {
 				authLoader := &mockAuthLoader{
 					token: &authmodels.IdsecToken{
 						Token:     "test-jwt",
@@ -66,8 +67,8 @@ func TestRootElevate_InteractiveMode(t *testing.T) {
 					},
 				}
 
-				selector := &mockTargetSelector{
-					target: &models.EligibleTarget{
+				selector := &mockUnifiedSelector{
+					item: &selectionItem{kind: selectionCloud, cloud: &models.EligibleTarget{
 						OrganizationID: "org-123",
 						WorkspaceID:    "sub-456",
 						WorkspaceName:  "Prod-EastUS",
@@ -76,7 +77,7 @@ func TestRootElevate_InteractiveMode(t *testing.T) {
 							ID:   "role-789",
 							Name: "Contributor",
 						},
-					},
+					}},
 				}
 
 				cfg := config.DefaultConfig()
@@ -93,7 +94,7 @@ func TestRootElevate_InteractiveMode(t *testing.T) {
 		},
 		{
 			name: "AWS elevation success with credentials",
-			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *mockTargetSelector, *config.Config) {
+			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *mockUnifiedSelector, *config.Config) {
 				authLoader := &mockAuthLoader{
 					token: &authmodels.IdsecToken{
 						Token:     "test-jwt",
@@ -138,8 +139,8 @@ func TestRootElevate_InteractiveMode(t *testing.T) {
 					},
 				}
 
-				selector := &mockTargetSelector{
-					target: &models.EligibleTarget{
+				selector := &mockUnifiedSelector{
+					item: &selectionItem{kind: selectionCloud, cloud: &models.EligibleTarget{
 						OrganizationID: "o-abc123",
 						WorkspaceID:    "123456789012",
 						WorkspaceName:  "AWS Management",
@@ -148,7 +149,7 @@ func TestRootElevate_InteractiveMode(t *testing.T) {
 							ID:   "arn:aws:iam::123456789012:role/AdminAccess",
 							Name: "AdminAccess",
 						},
-					},
+					}},
 				}
 
 				cfg := config.DefaultConfig()
@@ -167,7 +168,7 @@ func TestRootElevate_InteractiveMode(t *testing.T) {
 		},
 		{
 			name: "multi-CSP interactive mode - mixed providers",
-			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *mockTargetSelector, *config.Config) {
+			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *mockUnifiedSelector, *config.Config) {
 				authLoader := &mockAuthLoader{
 					token: &authmodels.IdsecToken{
 						Token:     "test-jwt",
@@ -223,8 +224,8 @@ func TestRootElevate_InteractiveMode(t *testing.T) {
 				}
 
 				// User selects the AWS target
-				selector := &mockTargetSelector{
-					target: &awsTarget,
+				selector := &mockUnifiedSelector{
+					item: &selectionItem{kind: selectionCloud, cloud: &awsTarget},
 				}
 
 				cfg := config.DefaultConfig()
@@ -241,7 +242,7 @@ func TestRootElevate_InteractiveMode(t *testing.T) {
 		},
 		{
 			name: "multi-CSP concurrent fetch - parallel execution",
-			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *mockTargetSelector, *config.Config) {
+			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *mockUnifiedSelector, *config.Config) {
 				authLoader := &mockAuthLoader{
 					token: &authmodels.IdsecToken{
 						Token:     "test-jwt",
@@ -297,8 +298,8 @@ func TestRootElevate_InteractiveMode(t *testing.T) {
 					},
 				}
 
-				selector := &mockTargetSelector{
-					target: &awsTarget,
+				selector := &mockUnifiedSelector{
+					item: &selectionItem{kind: selectionCloud, cloud: &awsTarget},
 				}
 
 				cfg := config.DefaultConfig()
@@ -314,7 +315,7 @@ func TestRootElevate_InteractiveMode(t *testing.T) {
 		},
 		{
 			name: "no eligible targets found across all providers",
-			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *mockTargetSelector, *config.Config) {
+			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *mockUnifiedSelector, *config.Config) {
 				authLoader := &mockAuthLoader{
 					token: &authmodels.IdsecToken{Token: "test-jwt"},
 				}
@@ -332,7 +333,7 @@ func TestRootElevate_InteractiveMode(t *testing.T) {
 			},
 			args: []string{},
 			wantContain: []string{
-				"no eligible targets found",
+				"no eligible targets or groups found",
 			},
 			wantErr: true,
 		},
@@ -342,7 +343,7 @@ func TestRootElevate_InteractiveMode(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			authLoader, eligibilityLister, elevateService, selector, cfg := tt.setupMocks()
 
-			cmd := NewRootCommandWithDeps(nil, authLoader, eligibilityLister, elevateService, selector, cfg)
+			cmd := NewRootCommandWithDeps(nil, authLoader, eligibilityLister, elevateService, selector, &mockGroupsEligibilityLister{response: &models.GroupsEligibilityResponse{}}, nil, cfg)
 
 			output, err := executeCommand(cmd, tt.args...)
 
@@ -568,7 +569,7 @@ func TestRootElevate_DirectMode(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			authLoader, eligibilityLister, elevateService, cfg := tt.setupMocks()
 
-			cmd := NewRootCommandWithDeps(nil, authLoader, eligibilityLister, elevateService, nil, cfg)
+			cmd := NewRootCommandWithDeps(nil, authLoader, eligibilityLister, elevateService, nil, nil, nil, cfg)
 
 			output, err := executeCommand(cmd, tt.args...)
 
@@ -591,14 +592,14 @@ func TestRootElevate_DirectMode(t *testing.T) {
 func TestRootElevate_FavoriteMode(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMocks  func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *config.Config)
+		setupMocks  func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *mockGroupsEligibilityLister, *mockGroupsElevator, *config.Config)
 		args        []string
 		wantContain []string
 		wantErr     bool
 	}{
 		{
 			name: "favorite mode success",
-			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *config.Config) {
+			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *mockGroupsEligibilityLister, *mockGroupsElevator, *config.Config) {
 				authLoader := &mockAuthLoader{
 					token: &authmodels.IdsecToken{Token: "test-jwt"},
 				}
@@ -646,7 +647,7 @@ func TestRootElevate_FavoriteMode(t *testing.T) {
 					},
 				}
 
-				return authLoader, eligibilityLister, elevateService, cfg
+				return authLoader, eligibilityLister, elevateService, nil, nil, cfg
 			},
 			args: []string{"--favorite", "prod-contrib"},
 			wantContain: []string{
@@ -657,14 +658,14 @@ func TestRootElevate_FavoriteMode(t *testing.T) {
 		},
 		{
 			name: "favorite not found",
-			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *config.Config) {
+			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *mockGroupsEligibilityLister, *mockGroupsElevator, *config.Config) {
 				authLoader := &mockAuthLoader{
 					token: &authmodels.IdsecToken{Token: "test-jwt"},
 				}
 
 				cfg := config.DefaultConfig()
 
-				return authLoader, nil, nil, cfg
+				return authLoader, nil, nil, nil, nil, cfg
 			},
 			args: []string{"--favorite", "nonexistent"},
 			wantContain: []string{
@@ -674,7 +675,7 @@ func TestRootElevate_FavoriteMode(t *testing.T) {
 		},
 		{
 			name: "provider mismatch with favorite",
-			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *config.Config) {
+			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *mockGroupsEligibilityLister, *mockGroupsElevator, *config.Config) {
 				authLoader := &mockAuthLoader{
 					token: &authmodels.IdsecToken{Token: "test-jwt"},
 				}
@@ -688,7 +689,7 @@ func TestRootElevate_FavoriteMode(t *testing.T) {
 					},
 				}
 
-				return authLoader, nil, nil, cfg
+				return authLoader, nil, nil, nil, nil, cfg
 			},
 			args: []string{"--favorite", "prod-contrib", "--provider", "aws"},
 			wantContain: []string{
@@ -697,10 +698,36 @@ func TestRootElevate_FavoriteMode(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "group favorite redirects to grant groups",
-			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *config.Config) {
+			name: "group favorite elevates group directly",
+			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *mockGroupsEligibilityLister, *mockGroupsElevator, *config.Config) {
 				authLoader := &mockAuthLoader{
 					token: &authmodels.IdsecToken{Token: "test-jwt"},
+				}
+
+				groupsEligLister := &mockGroupsEligibilityLister{
+					response: &models.GroupsEligibilityResponse{
+						Response: []models.GroupsEligibleTarget{
+							{
+								DirectoryID: "dir-uuid",
+								GroupID:     "grp-123",
+								GroupName:   "Engineering",
+							},
+						},
+						Total: 1,
+					},
+				}
+
+				groupsElevator := &mockGroupsElevator{
+					response: &models.GroupsElevateResponse{
+						DirectoryID: "dir-uuid",
+						CSP:         models.CSPAzure,
+						Results: []models.GroupsElevateTargetResult{
+							{
+								GroupID:   "grp-123",
+								SessionID: "session-grp-fav",
+							},
+						},
+					},
 				}
 
 				cfg := config.DefaultConfig()
@@ -711,22 +738,22 @@ func TestRootElevate_FavoriteMode(t *testing.T) {
 					DirectoryID: "dir-uuid",
 				})
 
-				return authLoader, nil, nil, cfg
+				return authLoader, &mockEligibilityLister{response: &models.EligibilityResponse{}}, nil, groupsEligLister, groupsElevator, cfg
 			},
 			args: []string{"--favorite", "my-grp"},
 			wantContain: []string{
-				"group favorite",
-				"grant groups --favorite my-grp",
+				"Elevated to group Engineering",
+				"Session ID: session-grp-fav",
 			},
-			wantErr: true,
+			wantErr: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			authLoader, eligibilityLister, elevateService, cfg := tt.setupMocks()
+			authLoader, eligibilityLister, elevateService, groupsEligLister, groupsElevator, cfg := tt.setupMocks()
 
-			cmd := NewRootCommandWithDeps(nil, authLoader, eligibilityLister, elevateService, nil, cfg)
+			cmd := NewRootCommandWithDeps(nil, authLoader, eligibilityLister, elevateService, nil, groupsEligLister, groupsElevator, cfg)
 
 			output, err := executeCommand(cmd, tt.args...)
 
@@ -818,7 +845,7 @@ func TestRootElevate_ProviderValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			authLoader, eligibilityLister, cfg := tt.setupMocks()
 
-			cmd := NewRootCommandWithDeps(nil, authLoader, eligibilityLister, nil, nil, cfg)
+			cmd := NewRootCommandWithDeps(nil, authLoader, eligibilityLister, nil, nil, nil, nil, cfg)
 
 			output, err := executeCommand(cmd, tt.args...)
 
@@ -869,7 +896,7 @@ func TestRootElevate_AuthenticationErrors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			authLoader, cfg := tt.setupMocks()
 
-			cmd := NewRootCommandWithDeps(nil, authLoader, nil, nil, nil, cfg)
+			cmd := NewRootCommandWithDeps(nil, authLoader, nil, nil, nil, nil, nil, cfg)
 
 			output, err := executeCommand(cmd, tt.args...)
 
@@ -983,7 +1010,7 @@ func TestRootElevate_ElevationErrors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			authLoader, eligibilityLister, elevateService, cfg := tt.setupMocks()
 
-			cmd := NewRootCommandWithDeps(nil, authLoader, eligibilityLister, elevateService, nil, cfg)
+			cmd := NewRootCommandWithDeps(nil, authLoader, eligibilityLister, elevateService, nil, nil, nil, cfg)
 
 			output, err := executeCommand(cmd, tt.args...)
 
@@ -1005,7 +1032,7 @@ func TestRootElevate_ElevationErrors(t *testing.T) {
 
 func TestRootElevate_UsageAndFlags(t *testing.T) {
 	cfg := config.DefaultConfig()
-	cmd := NewRootCommandWithDeps(nil, &mockAuthLoader{}, nil, nil, nil, cfg)
+	cmd := NewRootCommandWithDeps(nil, &mockAuthLoader{}, nil, nil, nil, nil, nil, cfg)
 
 	// Verify command metadata
 	if cmd.Use != "grant" {
@@ -1113,5 +1140,456 @@ func TestFetchEligibility_ConcurrentExecution(t *testing.T) {
 	}
 	if !cspSeen[models.CSPAzure] || !cspSeen[models.CSPAWS] {
 		t.Errorf("expected both CSPs in results, got %v", cspSeen)
+	}
+}
+
+func TestRootElevate_GroupsInteractiveMode(t *testing.T) {
+	now := time.Now()
+	expiresIn := commonmodels.IdsecRFC3339Time(now.Add(1 * time.Hour))
+
+	authLoader := &mockAuthLoader{
+		token: &authmodels.IdsecToken{Token: "jwt", Username: "user@example.com", ExpiresIn: expiresIn},
+	}
+	cloudElig := &mockEligibilityLister{
+		response: &models.EligibilityResponse{
+			Response: []models.EligibleTarget{
+				{
+					OrganizationID: "dir1",
+					WorkspaceID:    "dir1",
+					WorkspaceName:  "Contoso",
+					WorkspaceType:  models.WorkspaceTypeDirectory,
+				},
+			},
+		},
+	}
+	groupsElig := &mockGroupsEligibilityLister{
+		response: &models.GroupsEligibilityResponse{
+			Response: []models.GroupsEligibleTarget{
+				{DirectoryID: "dir1", GroupID: "grp1", GroupName: "Engineering"},
+				{DirectoryID: "dir1", GroupID: "grp2", GroupName: "DevOps"},
+			},
+			Total: 2,
+		},
+	}
+	groupsElev := &mockGroupsElevator{
+		response: &models.GroupsElevateResponse{
+			DirectoryID: "dir1",
+			CSP:         models.CSPAzure,
+			Results: []models.GroupsElevateTargetResult{
+				{GroupID: "grp1", SessionID: "sess-grp-1"},
+			},
+		},
+	}
+
+	// User selects a group from the unified list
+	selector := &mockUnifiedSelector{
+		selectFunc: func(items []selectionItem) (*selectionItem, error) {
+			// Verify both cloud and group items are present
+			hasCloud := false
+			hasGroup := false
+			for _, item := range items {
+				if item.kind == selectionCloud {
+					hasCloud = true
+				}
+				if item.kind == selectionGroup {
+					hasGroup = true
+				}
+			}
+			if !hasCloud {
+				t.Error("expected cloud items in unified selector")
+			}
+			if !hasGroup {
+				t.Error("expected group items in unified selector")
+			}
+			// Select the Engineering group
+			for i := range items {
+				if items[i].kind == selectionGroup && items[i].group.GroupName == "Engineering" {
+					return &items[i], nil
+				}
+			}
+			t.Fatal("Engineering group not found in items")
+			return nil, nil
+		},
+	}
+
+	cmd := NewRootCommandWithDeps(nil, authLoader, cloudElig, nil, selector, groupsElig, groupsElev, config.DefaultConfig())
+	output, err := executeCommand(cmd)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(output, "Elevated to group Engineering in Contoso") {
+		t.Errorf("output missing expected text, got:\n%s", output)
+	}
+	if !strings.Contains(output, "Session ID: sess-grp-1") {
+		t.Errorf("output missing session ID, got:\n%s", output)
+	}
+}
+
+func TestRootElevate_GroupsDirectMode(t *testing.T) {
+	now := time.Now()
+	expiresIn := commonmodels.IdsecRFC3339Time(now.Add(1 * time.Hour))
+
+	tests := []struct {
+		name        string
+		args        []string
+		groupsElig  *mockGroupsEligibilityLister
+		groupsElev  *mockGroupsElevator
+		cloudElig   *mockEligibilityLister
+		wantContain []string
+		wantErr     bool
+	}{
+		{
+			name: "direct group elevation success",
+			args: []string{"--group", "Engineering"},
+			cloudElig: &mockEligibilityLister{
+				response: &models.EligibilityResponse{Response: []models.EligibleTarget{}},
+			},
+			groupsElig: &mockGroupsEligibilityLister{
+				response: &models.GroupsEligibilityResponse{
+					Response: []models.GroupsEligibleTarget{
+						{DirectoryID: "dir1", GroupID: "grp1", GroupName: "Engineering"},
+					},
+					Total: 1,
+				},
+			},
+			groupsElev: &mockGroupsElevator{
+				response: &models.GroupsElevateResponse{
+					DirectoryID: "dir1",
+					CSP:         models.CSPAzure,
+					Results: []models.GroupsElevateTargetResult{
+						{GroupID: "grp1", SessionID: "sess1"},
+					},
+				},
+			},
+			wantContain: []string{"Elevated to group Engineering", "Session ID: sess1"},
+			wantErr:     false,
+		},
+		{
+			name: "direct group not found",
+			args: []string{"--group", "NonExistent"},
+			cloudElig: &mockEligibilityLister{
+				response: &models.EligibilityResponse{Response: []models.EligibleTarget{}},
+			},
+			groupsElig: &mockGroupsEligibilityLister{
+				response: &models.GroupsEligibilityResponse{
+					Response: []models.GroupsEligibleTarget{
+						{DirectoryID: "dir1", GroupID: "grp1", GroupName: "Engineering"},
+					},
+					Total: 1,
+				},
+			},
+			groupsElev:  &mockGroupsElevator{},
+			wantContain: []string{`group "NonExistent" not found`},
+			wantErr:     true,
+		},
+		{
+			name: "group elevation API error",
+			args: []string{"--group", "Engineering"},
+			cloudElig: &mockEligibilityLister{
+				response: &models.EligibilityResponse{Response: []models.EligibleTarget{}},
+			},
+			groupsElig: &mockGroupsEligibilityLister{
+				response: &models.GroupsEligibilityResponse{
+					Response: []models.GroupsEligibleTarget{
+						{DirectoryID: "dir1", GroupID: "grp1", GroupName: "Engineering"},
+					},
+					Total: 1,
+				},
+			},
+			groupsElev:  &mockGroupsElevator{elevateErr: errors.New("API error: forbidden")},
+			wantContain: []string{"elevation request failed"},
+			wantErr:     true,
+		},
+		{
+			name: "groups eligibility API error",
+			args: []string{"--group", "Engineering"},
+			cloudElig: &mockEligibilityLister{
+				response: &models.EligibilityResponse{Response: []models.EligibleTarget{}},
+			},
+			groupsElig:  &mockGroupsEligibilityLister{listErr: errors.New("service unavailable")},
+			groupsElev:  &mockGroupsElevator{},
+			wantContain: []string{"failed to fetch eligible groups"},
+			wantErr:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			authLoader := &mockAuthLoader{
+				token: &authmodels.IdsecToken{Token: "jwt", Username: "user@example.com", ExpiresIn: expiresIn},
+			}
+
+			cmd := NewRootCommandWithDeps(nil, authLoader, tt.cloudElig, nil, nil, tt.groupsElig, tt.groupsElev, config.DefaultConfig())
+			output, err := executeCommand(cmd, tt.args...)
+
+			if tt.wantErr && err == nil {
+				t.Errorf("expected error but got none, output:\n%s", output)
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+			for _, want := range tt.wantContain {
+				if !strings.Contains(output, want) {
+					t.Errorf("output missing %q\ngot:\n%s", want, output)
+				}
+			}
+		})
+	}
+}
+
+func TestRootElevate_GroupsFlag(t *testing.T) {
+	now := time.Now()
+	expiresIn := commonmodels.IdsecRFC3339Time(now.Add(1 * time.Hour))
+
+	authLoader := &mockAuthLoader{
+		token: &authmodels.IdsecToken{Token: "jwt", Username: "user@example.com", ExpiresIn: expiresIn},
+	}
+	cloudElig := &mockEligibilityLister{
+		response: &models.EligibilityResponse{Response: []models.EligibleTarget{}},
+	}
+	groupsElig := &mockGroupsEligibilityLister{
+		response: &models.GroupsEligibilityResponse{
+			Response: []models.GroupsEligibleTarget{
+				{DirectoryID: "dir1", GroupID: "grp1", GroupName: "Engineering"},
+				{DirectoryID: "dir1", GroupID: "grp2", GroupName: "DevOps"},
+			},
+			Total: 2,
+		},
+	}
+	groupsElev := &mockGroupsElevator{
+		response: &models.GroupsElevateResponse{
+			DirectoryID: "dir1",
+			CSP:         models.CSPAzure,
+			Results: []models.GroupsElevateTargetResult{
+				{GroupID: "grp2", SessionID: "sess-devops"},
+			},
+		},
+	}
+
+	selector := &mockUnifiedSelector{
+		selectFunc: func(items []selectionItem) (*selectionItem, error) {
+			// Verify only group items are present (no cloud)
+			for _, item := range items {
+				if item.kind == selectionCloud {
+					t.Error("expected no cloud items when --groups flag is set")
+				}
+			}
+			if len(items) != 2 {
+				t.Errorf("expected 2 group items, got %d", len(items))
+			}
+			// Select DevOps
+			for i := range items {
+				if items[i].kind == selectionGroup && items[i].group.GroupName == "DevOps" {
+					return &items[i], nil
+				}
+			}
+			t.Fatal("DevOps group not found")
+			return nil, nil
+		},
+	}
+
+	cmd := NewRootCommandWithDeps(nil, authLoader, cloudElig, nil, selector, groupsElig, groupsElev, config.DefaultConfig())
+	output, err := executeCommand(cmd, "--groups")
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(output, "Elevated to group DevOps") {
+		t.Errorf("output missing expected text, got:\n%s", output)
+	}
+	if !strings.Contains(output, "Session ID: sess-devops") {
+		t.Errorf("output missing session ID, got:\n%s", output)
+	}
+}
+
+func TestRootElevate_GroupFavoriteDirectoryID(t *testing.T) {
+	now := time.Now()
+	expiresIn := commonmodels.IdsecRFC3339Time(now.Add(1 * time.Hour))
+
+	authLoader := &mockAuthLoader{
+		token: &authmodels.IdsecToken{Token: "jwt", Username: "user@example.com", ExpiresIn: expiresIn},
+	}
+	cloudElig := &mockEligibilityLister{
+		response: &models.EligibilityResponse{Response: []models.EligibleTarget{}},
+	}
+	groupsElig := &mockGroupsEligibilityLister{
+		response: &models.GroupsEligibilityResponse{
+			Response: []models.GroupsEligibleTarget{
+				{DirectoryID: "dir2", GroupID: "grp-wrong", GroupName: "Engineering"},
+				{DirectoryID: "dir1", GroupID: "grp-right", GroupName: "Engineering"},
+			},
+			Total: 2,
+		},
+	}
+
+	cfg := config.DefaultConfig()
+	_ = config.AddFavorite(cfg, "my-grp", config.Favorite{
+		Type:        config.FavoriteTypeGroups,
+		Provider:    "azure",
+		Group:       "Engineering",
+		DirectoryID: "dir1",
+	})
+
+	groupsElev := &mockGroupsElevator{
+		elevateFunc: func(ctx context.Context, req *models.GroupsElevateRequest) (*models.GroupsElevateResponse, error) {
+			if req.Targets[0].GroupID != "grp-right" {
+				t.Errorf("expected group ID grp-right, got %s", req.Targets[0].GroupID)
+			}
+			if req.DirectoryID != "dir1" {
+				t.Errorf("expected directory ID dir1, got %s", req.DirectoryID)
+			}
+			return &models.GroupsElevateResponse{
+				DirectoryID: "dir1",
+				CSP:         models.CSPAzure,
+				Results: []models.GroupsElevateTargetResult{
+					{GroupID: "grp-right", SessionID: "sess1"},
+				},
+			}, nil
+		},
+	}
+
+	cmd := NewRootCommandWithDeps(nil, authLoader, cloudElig, nil, nil, groupsElig, groupsElev, cfg)
+	output, err := executeCommand(cmd, "--favorite", "my-grp")
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(output, "Elevated to group Engineering") {
+		t.Errorf("output missing expected text, got:\n%s", output)
+	}
+	if !strings.Contains(output, "Session ID: sess1") {
+		t.Errorf("output missing session ID, got:\n%s", output)
+	}
+}
+
+func TestRootElevate_MutualExclusivity(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr bool
+	}{
+		{
+			name:    "groups and provider are mutually exclusive",
+			args:    []string{"--groups", "--provider", "azure"},
+			wantErr: true,
+		},
+		{
+			name:    "group and target are mutually exclusive",
+			args:    []string{"--group", "Eng", "--target", "Sub1"},
+			wantErr: true,
+		},
+		{
+			name:    "group and role are mutually exclusive",
+			args:    []string{"--group", "Eng", "--role", "Reader"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := newRootCommand(func(cmd *cobra.Command, args []string) error {
+				return nil
+			})
+			cmd.SetArgs(tt.args)
+			err := cmd.Execute()
+			if tt.wantErr && err == nil {
+				t.Error("expected error but got none")
+			}
+		})
+	}
+}
+
+func TestRootElevate_UnifiedInteractiveShowsBoth(t *testing.T) {
+	now := time.Now()
+	expiresIn := commonmodels.IdsecRFC3339Time(now.Add(1 * time.Hour))
+
+	authLoader := &mockAuthLoader{
+		token: &authmodels.IdsecToken{Token: "jwt", Username: "user@example.com", ExpiresIn: expiresIn},
+	}
+
+	// Cloud eligibility with a subscription target
+	cloudElig := &mockEligibilityLister{
+		listFunc: func(ctx context.Context, csp models.CSP) (*models.EligibilityResponse, error) {
+			if csp == models.CSPAzure {
+				return &models.EligibilityResponse{
+					Response: []models.EligibleTarget{
+						{
+							OrganizationID: "org-1",
+							WorkspaceID:    "sub-1",
+							WorkspaceName:  "Prod-EastUS",
+							WorkspaceType:  models.WorkspaceTypeSubscription,
+							RoleInfo:       models.RoleInfo{ID: "role-1", Name: "Contributor"},
+						},
+					},
+					Total: 1,
+				}, nil
+			}
+			return &models.EligibilityResponse{}, nil
+		},
+	}
+
+	groupsElig := &mockGroupsEligibilityLister{
+		response: &models.GroupsEligibilityResponse{
+			Response: []models.GroupsEligibleTarget{
+				{DirectoryID: "dir1", GroupID: "grp1", GroupName: "Engineering"},
+			},
+			Total: 1,
+		},
+	}
+
+	elevateService := &mockElevateService{
+		response: &models.ElevateResponse{
+			Response: models.ElevateAccessResult{
+				CSP:            models.CSPAzure,
+				OrganizationID: "org-1",
+				Results: []models.ElevateTargetResult{
+					{WorkspaceID: "sub-1", RoleID: "role-1", SessionID: "sess-cloud"},
+				},
+			},
+		},
+	}
+
+	var receivedItems []selectionItem
+	selector := &mockUnifiedSelector{
+		selectFunc: func(items []selectionItem) (*selectionItem, error) {
+			receivedItems = items
+			// Select the cloud target
+			for i := range items {
+				if items[i].kind == selectionCloud {
+					return &items[i], nil
+				}
+			}
+			return nil, errors.New("no cloud item found")
+		},
+	}
+
+	cmd := NewRootCommandWithDeps(nil, authLoader, cloudElig, elevateService, selector, groupsElig, nil, config.DefaultConfig())
+	output, err := executeCommand(cmd)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify both cloud and group items were passed to selector
+	hasCloud := false
+	hasGroup := false
+	for _, item := range receivedItems {
+		if item.kind == selectionCloud {
+			hasCloud = true
+		}
+		if item.kind == selectionGroup {
+			hasGroup = true
+		}
+	}
+	if !hasCloud {
+		t.Error("expected cloud items in unified selector")
+	}
+	if !hasGroup {
+		t.Error("expected group items in unified selector")
+	}
+
+	if !strings.Contains(output, "Elevated to Contributor on Prod-EastUS") {
+		t.Errorf("output missing expected text, got:\n%s", output)
 	}
 }

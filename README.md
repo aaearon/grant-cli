@@ -14,7 +14,7 @@ A CLI tool for elevating cloud permissions (Azure, AWS) via CyberArk Secure Clou
 - Direct elevation with target and role flags
 - AWS credential export via `grant env` for shell integration
 - Favorites management for frequently used roles
-- Entra ID group membership elevation via `grant groups`
+- Entra ID group membership elevation via `grant --group` or `grant --groups`
 - Session revocation via `grant revoke`
 - Session status monitoring
 - Local eligibility cache with configurable TTL
@@ -43,8 +43,8 @@ eval $(grant env --provider aws)
 grant --favorite prod-contrib
 
 # Elevate Entra ID group membership
-grant groups
-grant groups --group "Cloud Admins"
+grant --groups
+grant --group "Cloud Admins"
 
 # Check active sessions
 grant status
@@ -172,6 +172,8 @@ Running `grant` with no subcommand requests JIT (just-in-time) permission elevat
 - `--target, -t` — Target name (subscription, resource group, account, etc.)
 - `--role, -r` — Role name (e.g., "Contributor", "Reader", "AdministratorAccess")
 - `--favorite, -f` — Use a saved favorite alias (combines provider, target, and role)
+- `--groups` — Show only Entra ID groups in the interactive selector
+- `--group, -g` — Group name for direct group membership elevation
 
 **Target matching:**
 - Matches by workspace name (case-insensitive, partial match)

@@ -78,7 +78,7 @@ type groupsElevator interface {
 	ElevateGroups(ctx context.Context, req *models.GroupsElevateRequest) (*models.GroupsElevateResponse, error)
 }
 
-// groupSelector interface for interactive group selection
-type groupSelector interface {
-	SelectGroup(groups []models.GroupsEligibleTarget) (*models.GroupsEligibleTarget, error)
+// unifiedSelector interface for interactive selection of cloud targets or groups
+type unifiedSelector interface {
+	SelectItem(items []selectionItem) (*selectionItem, error)
 }

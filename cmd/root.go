@@ -3,12 +3,14 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
+	survey "github.com/Iilun/survey/v2"
 	"github.com/aaearon/grant-cli/internal/cache"
 	"github.com/aaearon/grant-cli/internal/config"
 	"github.com/aaearon/grant-cli/internal/sca"
@@ -43,6 +45,8 @@ type elevateFlags struct {
 	role     string
 	favorite string
 	refresh  bool
+	groups   bool
+	group    string
 }
 
 // newRootCommand creates the root cobra command with the given RunE function.
@@ -53,24 +57,32 @@ func newRootCommand(runFn func(*cobra.Command, []string) error) *cobra.Command {
 		Short: "Request temporary elevated cloud permissions",
 		Long: `Grant temporary elevated cloud permissions via CyberArk Secure Cloud Access (SCA).
 
-Running grant with no subcommand requests access elevation.
+Running grant with no subcommand requests access elevation. The interactive
+selector shows both cloud roles and Entra ID groups in a unified list.
 
-Three execution modes:
-1. Interactive mode (no flags): Select target interactively
-2. Direct mode (--target and --role): Directly specify target and role
-3. Favorite mode (--favorite): Use a saved favorite
+Execution modes:
+1. Interactive mode (no flags): Select target or group interactively
+2. Direct cloud mode (--target and --role): Directly specify target and role
+3. Direct group mode (--group): Directly specify group name
+4. Favorite mode (--favorite): Use a saved favorite (cloud or group)
 
 Examples:
-  # Interactive selection
+  # Interactive selection (cloud roles + groups)
   grant
 
-  # Direct selection
+  # Direct cloud selection
   grant --target "Prod-EastUS" --role "Contributor"
+
+  # Direct group membership elevation
+  grant --group "Cloud Admins"
+
+  # Show only groups in interactive selector
+  grant --groups
 
   # Use a favorite
   grant --favorite prod-contrib
 
-  # Specify provider explicitly
+  # Specify provider explicitly (cloud targets only)
   grant --provider azure
   grant --provider aws
 
@@ -96,9 +108,16 @@ Examples:
 	cmd.Flags().StringP("role", "r", "", "Role name")
 	cmd.Flags().StringP("favorite", "f", "", "Use a saved favorite (see 'grant favorites list')")
 	cmd.Flags().Bool("refresh", false, "Bypass eligibility cache and fetch fresh data")
+	cmd.Flags().Bool("groups", false, "Show only Entra ID groups in interactive selector")
+	cmd.Flags().StringP("group", "g", "", "Group name for direct group membership elevation")
 
 	cmd.MarkFlagsMutuallyExclusive("favorite", "target")
 	cmd.MarkFlagsMutuallyExclusive("favorite", "role")
+	cmd.MarkFlagsMutuallyExclusive("groups", "provider")
+	cmd.MarkFlagsMutuallyExclusive("groups", "target")
+	cmd.MarkFlagsMutuallyExclusive("groups", "role")
+	cmd.MarkFlagsMutuallyExclusive("group", "target")
+	cmd.MarkFlagsMutuallyExclusive("group", "role")
 
 	return cmd
 }
@@ -136,6 +155,8 @@ func parseElevateFlags(cmd *cobra.Command) *elevateFlags {
 	flags.role, _ = cmd.Flags().GetString("role")
 	flags.favorite, _ = cmd.Flags().GetString("favorite")
 	flags.refresh, _ = cmd.Flags().GetBool("refresh")
+	flags.groups, _ = cmd.Flags().GetBool("groups")
+	flags.group, _ = cmd.Flags().GetString("group")
 	return flags
 }
 
@@ -153,9 +174,9 @@ func runElevateProduction(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	cachedLister := buildCachedLister(cfg, flags.refresh, scaService, nil)
+	cachedLister := buildCachedLister(cfg, flags.refresh, scaService, scaService)
 
-	return runElevateWithDeps(cmd, flags, profile, ispAuth, cachedLister, scaService, &uiSelector{}, cfg)
+	return runElevateWithDeps(cmd, flags, profile, ispAuth, cachedLister, scaService, &uiUnifiedSelector{}, cachedLister, scaService, cfg)
 }
 
 // buildCachedLister creates a CachedEligibilityLister wrapping the given services.
@@ -178,12 +199,14 @@ func NewRootCommandWithDeps(
 	authLoader authLoader,
 	eligibilityLister eligibilityLister,
 	elevateService elevateService,
-	selector targetSelector,
+	selector unifiedSelector,
+	groupsEligLister groupsEligibilityLister,
+	groupsElevator groupsElevator,
 	cfg *config.Config,
 ) *cobra.Command {
 	return newRootCommand(func(cmd *cobra.Command, args []string) error {
 		flags := parseElevateFlags(cmd)
-		return runElevateWithDeps(cmd, flags, profile, authLoader, eligibilityLister, elevateService, selector, cfg)
+		return runElevateWithDeps(cmd, flags, profile, authLoader, eligibilityLister, elevateService, selector, groupsEligLister, groupsElevator, cfg)
 	})
 }
 
@@ -415,6 +438,278 @@ func resolveAndElevate(
 	return &elevationResult{target: selectedTarget, result: &result}, nil
 }
 
+// fetchGroupsEligibility fetches groups eligibility and enriches with directory names.
+func fetchGroupsEligibility(ctx context.Context, groupsEligLister groupsEligibilityLister, cloudEligLister eligibilityLister, errWriter io.Writer) ([]models.GroupsEligibleTarget, error) {
+	eligResp, err := groupsEligLister.ListGroupsEligibility(ctx, models.CSPAzure)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch eligible groups: %w", err)
+	}
+	if len(eligResp.Response) == 0 {
+		return nil, fmt.Errorf("no eligible groups found, check your SCA policies")
+	}
+
+	// Resolve directory names from cloud eligibility (best-effort)
+	dirNameMap := buildDirectoryNameMap(ctx, cloudEligLister, errWriter)
+	for i := range eligResp.Response {
+		if name, ok := dirNameMap[eligResp.Response[i].DirectoryID]; ok {
+			eligResp.Response[i].DirectoryName = name
+		}
+	}
+
+	return eligResp.Response, nil
+}
+
+// resolveAndElevateUnified handles all elevation modes: cloud, group, and unified.
+// Returns (*elevationResult, nil, nil) for cloud or (nil, *groupElevationResult, nil) for group.
+func resolveAndElevateUnified(
+	cmd *cobra.Command,
+	flags *elevateFlags,
+	profile *sdkmodels.IdsecProfile,
+	authLoader authLoader,
+	eligibilityLister eligibilityLister,
+	elevateService elevateService,
+	selector unifiedSelector,
+	groupsEligLister groupsEligibilityLister,
+	groupsElevator groupsElevator,
+	cfg *config.Config,
+) (*elevationResult, *groupElevationResult, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
+	defer cancel()
+
+	// Check authentication state
+	_, err := authLoader.LoadAuthentication(profile, true)
+	if err != nil {
+		return nil, nil, fmt.Errorf("not authenticated, run 'grant login' first: %w", err)
+	}
+
+	// Determine execution mode
+	var targetName, roleName string
+	var isFavoriteMode bool
+	var provider string
+	var favDirectoryID string
+	var isGroupFavorite bool
+
+	if flags.favorite != "" {
+		isFavoriteMode = true
+		fav, err := config.GetFavorite(cfg, flags.favorite)
+		if err != nil {
+			return nil, nil, fmt.Errorf("favorite %q not found, run 'grant favorites list'", flags.favorite)
+		}
+
+		if fav.ResolvedType() == config.FavoriteTypeGroups {
+			// Group favorite — set flags to use group path
+			isGroupFavorite = true
+			flags.group = fav.Group
+			favDirectoryID = fav.DirectoryID
+		} else {
+			// Cloud favorite
+			if flags.provider != "" && !strings.EqualFold(flags.provider, fav.Provider) {
+				return nil, nil, fmt.Errorf("provider %q does not match favorite provider %q", flags.provider, fav.Provider)
+			}
+			provider = fav.Provider
+			targetName = fav.Target
+			roleName = fav.Role
+		}
+	} else {
+		targetName = flags.target
+		roleName = flags.role
+		provider = flags.provider
+
+		if (targetName != "" && roleName == "") || (targetName == "" && roleName != "") {
+			return nil, nil, fmt.Errorf("both --target and --role must be provided")
+		}
+	}
+
+	// Group-only path (--group flag or group favorite)
+	if flags.group != "" {
+		groups, err := fetchGroupsEligibility(ctx, groupsEligLister, eligibilityLister, cmd.ErrOrStderr())
+		if err != nil {
+			return nil, nil, err
+		}
+
+		selectedGroup := findMatchingGroup(groups, flags.group, favDirectoryID)
+		if selectedGroup == nil {
+			if favDirectoryID != "" {
+				return nil, nil, fmt.Errorf("group %q not found in directory %q, run 'grant' to see available options", flags.group, favDirectoryID)
+			}
+			return nil, nil, fmt.Errorf("group %q not found, run 'grant' to see available options", flags.group)
+		}
+
+		return elevateGroup(ctx, selectedGroup, groupsElevator)
+	}
+
+	// Groups-filter path (--groups flag, no --group)
+	if flags.groups {
+		groups, err := fetchGroupsEligibility(ctx, groupsEligLister, eligibilityLister, cmd.ErrOrStderr())
+		if err != nil {
+			return nil, nil, err
+		}
+
+		var items []selectionItem
+		for i := range groups {
+			items = append(items, selectionItem{kind: selectionGroup, group: &groups[i]})
+		}
+
+		selected, err := selector.SelectItem(items)
+		if err != nil {
+			return nil, nil, fmt.Errorf("selection failed: %w", err)
+		}
+
+		return elevateGroup(ctx, selected.group, groupsElevator)
+	}
+
+	// Cloud-only path (--provider specified, or direct/favorite cloud mode)
+	if provider != "" || isFavoriteMode || (targetName != "" && roleName != "") {
+		allTargets, err := fetchEligibility(ctx, eligibilityLister, provider)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		var selectedTarget *models.EligibleTarget
+		if isFavoriteMode && !isGroupFavorite || (targetName != "" && roleName != "") {
+			selectedTarget = findMatchingTarget(allTargets, targetName, roleName)
+			if selectedTarget == nil {
+				return nil, nil, fmt.Errorf("target %q or role %q not found, run 'grant' to see available options", targetName, roleName)
+			}
+		} else {
+			// Interactive cloud-only
+			var items []selectionItem
+			for i := range allTargets {
+				items = append(items, selectionItem{kind: selectionCloud, cloud: &allTargets[i]})
+			}
+
+			selected, err := selector.SelectItem(items)
+			if err != nil {
+				return nil, nil, fmt.Errorf("selection failed: %w", err)
+			}
+			selectedTarget = selected.cloud
+		}
+
+		resolveTargetCSP(selectedTarget, allTargets, provider)
+		return elevateCloud(ctx, selectedTarget, elevateService)
+	}
+
+	// Unified path (no filter flags) — fetch both cloud and groups in parallel
+	type cloudResult struct {
+		targets []models.EligibleTarget
+		err     error
+	}
+	type groupsResult struct {
+		groups []models.GroupsEligibleTarget
+		err    error
+	}
+
+	cloudCh := make(chan cloudResult, 1)
+	groupsCh := make(chan groupsResult, 1)
+
+	go func() {
+		targets, err := fetchEligibility(ctx, eligibilityLister, "")
+		cloudCh <- cloudResult{targets: targets, err: err}
+	}()
+
+	go func() {
+		groups, err := fetchGroupsEligibility(ctx, groupsEligLister, eligibilityLister, cmd.ErrOrStderr())
+		groupsCh <- groupsResult{groups: groups, err: err}
+	}()
+
+	cr := <-cloudCh
+	gr := <-groupsCh
+
+	var items []selectionItem
+	if cr.err == nil {
+		for i := range cr.targets {
+			items = append(items, selectionItem{kind: selectionCloud, cloud: &cr.targets[i]})
+		}
+	}
+	if gr.err == nil {
+		for i := range gr.groups {
+			items = append(items, selectionItem{kind: selectionGroup, group: &gr.groups[i]})
+		}
+	}
+
+	if len(items) == 0 {
+		return nil, nil, fmt.Errorf("no eligible targets or groups found, check your SCA policies")
+	}
+
+	selected, err := selector.SelectItem(items)
+	if err != nil {
+		return nil, nil, fmt.Errorf("selection failed: %w", err)
+	}
+
+	switch selected.kind {
+	case selectionCloud:
+		resolveTargetCSP(selected.cloud, cr.targets, "")
+		return elevateCloud(ctx, selected.cloud, elevateService)
+	case selectionGroup:
+		return elevateGroup(ctx, selected.group, groupsElevator)
+	default:
+		return nil, nil, fmt.Errorf("unexpected selection kind")
+	}
+}
+
+// elevateCloud performs cloud role elevation for a selected target.
+func elevateCloud(ctx context.Context, target *models.EligibleTarget, elevateService elevateService) (*elevationResult, *groupElevationResult, error) {
+	req := &models.ElevateRequest{
+		CSP:            target.CSP,
+		OrganizationID: target.OrganizationID,
+		Targets: []models.ElevateTarget{
+			{
+				WorkspaceID: target.WorkspaceID,
+				RoleID:      target.RoleInfo.ID,
+			},
+		},
+	}
+
+	elevateResp, err := elevateService.Elevate(ctx, req)
+	if err != nil {
+		return nil, nil, fmt.Errorf("elevation request failed: %w", err)
+	}
+
+	if len(elevateResp.Response.Results) == 0 {
+		return nil, nil, fmt.Errorf("elevation failed: no results returned")
+	}
+
+	result := elevateResp.Response.Results[0]
+	if result.ErrorInfo != nil {
+		return nil, nil, fmt.Errorf("elevation failed: %s - %s\n%s",
+			result.ErrorInfo.Code,
+			result.ErrorInfo.Message,
+			result.ErrorInfo.Description)
+	}
+
+	return &elevationResult{target: target, result: &result}, nil, nil
+}
+
+// elevateGroup performs Entra ID group membership elevation.
+func elevateGroup(ctx context.Context, group *models.GroupsEligibleTarget, elevator groupsElevator) (*elevationResult, *groupElevationResult, error) {
+	req := &models.GroupsElevateRequest{
+		DirectoryID: group.DirectoryID,
+		CSP:         models.CSPAzure,
+		Targets: []models.GroupsElevateTarget{
+			{GroupID: group.GroupID},
+		},
+	}
+
+	elevateResp, err := elevator.ElevateGroups(ctx, req)
+	if err != nil {
+		return nil, nil, fmt.Errorf("elevation request failed: %w", err)
+	}
+
+	if len(elevateResp.Results) == 0 {
+		return nil, nil, fmt.Errorf("elevation failed: no results returned")
+	}
+
+	result := elevateResp.Results[0]
+	if result.ErrorInfo != nil {
+		return nil, nil, fmt.Errorf("elevation failed: %s - %s\n%s",
+			result.ErrorInfo.Code,
+			result.ErrorInfo.Message,
+			result.ErrorInfo.Description)
+	}
+
+	return nil, &groupElevationResult{group: group, result: &result}, nil
+}
+
 func runElevateWithDeps(
 	cmd *cobra.Command,
 	flags *elevateFlags,
@@ -422,15 +717,32 @@ func runElevateWithDeps(
 	authLoader authLoader,
 	eligibilityLister eligibilityLister,
 	elevateService elevateService,
-	selector targetSelector,
+	selector unifiedSelector,
+	groupsEligLister groupsEligibilityLister,
+	groupsElevator groupsElevator,
 	cfg *config.Config,
 ) error {
-	res, err := resolveAndElevate(flags, profile, authLoader, eligibilityLister, elevateService, selector, cfg)
+	cloudRes, groupRes, err := resolveAndElevateUnified(
+		cmd, flags, profile, authLoader, eligibilityLister, elevateService,
+		selector, groupsEligLister, groupsElevator, cfg,
+	)
 	if err != nil {
 		return err
 	}
 
-	// Display success message
+	if groupRes != nil {
+		// Display group elevation result
+		dirContext := ""
+		if groupRes.group.DirectoryName != "" {
+			dirContext = fmt.Sprintf(" in %s", groupRes.group.DirectoryName)
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "Elevated to group %s%s\n", groupRes.group.GroupName, dirContext)
+		fmt.Fprintf(cmd.OutOrStdout(), "  Session ID: %s\n", groupRes.result.SessionID)
+		return nil
+	}
+
+	// Display cloud elevation result
+	res := cloudRes
 	fmt.Fprintf(cmd.OutOrStdout(), "Elevated to %s on %s\n",
 		res.target.RoleInfo.Name,
 		res.target.WorkspaceName)
@@ -468,4 +780,28 @@ type uiSelector struct{}
 
 func (s *uiSelector) SelectTarget(targets []models.EligibleTarget) (*models.EligibleTarget, error) {
 	return ui.SelectTarget(targets)
+}
+
+// uiUnifiedSelector implements unifiedSelector using survey.Select
+type uiUnifiedSelector struct{}
+
+func (s *uiUnifiedSelector) SelectItem(items []selectionItem) (*selectionItem, error) {
+	if len(items) == 0 {
+		return nil, fmt.Errorf("no eligible targets or groups available")
+	}
+
+	options, sorted := buildUnifiedOptions(items)
+
+	var selected string
+	prompt := &survey.Select{
+		Message: "Select a target:",
+		Options: options,
+		Filter:  nil,
+	}
+
+	if err := survey.AskOne(prompt, &selected, survey.WithStdio(os.Stdin, os.Stderr, os.Stderr)); err != nil {
+		return nil, fmt.Errorf("selection failed: %w", err)
+	}
+
+	return findItemByDisplay(sorted, selected)
 }
