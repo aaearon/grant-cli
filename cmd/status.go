@@ -12,20 +12,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewStatusCommand creates the status command
-func NewStatusCommand() *cobra.Command {
+// newStatusCommand creates the status cobra command with the given RunE function.
+func newStatusCommand(runFn func(*cobra.Command, []string) error) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show authentication state and active SCA sessions",
 		Long:  "Display the current authentication state and list all active elevated sessions.",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			ispAuth, svc, profile, err := bootstrapSCAService()
-			if err != nil {
-				return err
-			}
-
-			return runStatus(cmd, ispAuth, svc, svc, profile)
-		},
+		RunE:  runFn,
 	}
 
 	cmd.Flags().StringP("provider", "p", "", "filter sessions by provider (azure, aws)")
@@ -33,20 +26,23 @@ func NewStatusCommand() *cobra.Command {
 	return cmd
 }
 
-// NewStatusCommandWithDeps creates a status command with injected dependencies for testing
+// NewStatusCommand creates the production status command.
+func NewStatusCommand() *cobra.Command {
+	return newStatusCommand(func(cmd *cobra.Command, args []string) error {
+		ispAuth, svc, profile, err := bootstrapSCAService()
+		if err != nil {
+			return err
+		}
+
+		return runStatus(cmd, ispAuth, svc, svc, profile)
+	})
+}
+
+// NewStatusCommandWithDeps creates a status command with injected dependencies for testing.
 func NewStatusCommandWithDeps(authLoader authLoader, sessionLister sessionLister, eligLister eligibilityLister) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "status",
-		Short: "Show authentication state and active SCA sessions",
-		Long:  "Display the current authentication state and list all active elevated sessions.",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runStatus(cmd, authLoader, sessionLister, eligLister, nil)
-		},
-	}
-
-	cmd.Flags().StringP("provider", "p", "", "filter sessions by provider (azure, aws)")
-
-	return cmd
+	return newStatusCommand(func(cmd *cobra.Command, args []string) error {
+		return runStatus(cmd, authLoader, sessionLister, eligLister, nil)
+	})
 }
 
 func runStatus(cmd *cobra.Command, authLoader authLoader, sessionLister sessionLister, eligLister eligibilityLister, profile *models.IdsecProfile) error {
