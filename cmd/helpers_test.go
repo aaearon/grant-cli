@@ -271,6 +271,167 @@ func TestFetchStatusData_VerboseWarning(t *testing.T) {
 	}
 }
 
+func TestBuildWorkspaceNameMap(t *testing.T) {
+	tests := []struct {
+		name             string
+		sessions         []scamodels.SessionInfo
+		setupEligibility func() *mockEligibilityLister
+		wantNameMapKeys  []string
+		wantNameMapVals  map[string]string
+	}{
+		{
+			name: "multiple CSPs fetched concurrently",
+			sessions: []scamodels.SessionInfo{
+				{CSP: scamodels.CSPAzure, WorkspaceID: "/subscriptions/sub-1"},
+				{CSP: scamodels.CSPAWS, WorkspaceID: "arn:aws:iam::123:role/Admin"},
+			},
+			setupEligibility: func() *mockEligibilityLister {
+				return &mockEligibilityLister{
+					listFunc: func(ctx context.Context, csp scamodels.CSP) (*scamodels.EligibilityResponse, error) {
+						switch csp {
+						case scamodels.CSPAzure:
+							return &scamodels.EligibilityResponse{
+								Response: []scamodels.EligibleTarget{
+									{WorkspaceID: "/subscriptions/sub-1", WorkspaceName: "Dev Sub"},
+								},
+							}, nil
+						case scamodels.CSPAWS:
+							return &scamodels.EligibilityResponse{
+								Response: []scamodels.EligibleTarget{
+									{WorkspaceID: "arn:aws:iam::123:role/Admin", WorkspaceName: "Admin Account"},
+								},
+							}, nil
+						}
+						return &scamodels.EligibilityResponse{}, nil
+					},
+				}
+			},
+			wantNameMapKeys: []string{"/subscriptions/sub-1", "arn:aws:iam::123:role/Admin"},
+			wantNameMapVals: map[string]string{
+				"/subscriptions/sub-1":        "Dev Sub",
+				"arn:aws:iam::123:role/Admin": "Admin Account",
+			},
+		},
+		{
+			name:     "no sessions returns empty map",
+			sessions: []scamodels.SessionInfo{},
+			setupEligibility: func() *mockEligibilityLister {
+				return &mockEligibilityLister{
+					listFunc: func(ctx context.Context, csp scamodels.CSP) (*scamodels.EligibilityResponse, error) {
+						t.Error("ListEligibility should not be called with no sessions")
+						return nil, nil
+					},
+				}
+			},
+		},
+		{
+			name: "duplicate CSPs deduplicated",
+			sessions: []scamodels.SessionInfo{
+				{CSP: scamodels.CSPAzure, WorkspaceID: "/subscriptions/sub-1"},
+				{CSP: scamodels.CSPAzure, WorkspaceID: "/subscriptions/sub-2"},
+			},
+			setupEligibility: func() *mockEligibilityLister {
+				var callCount int
+				return &mockEligibilityLister{
+					listFunc: func(ctx context.Context, csp scamodels.CSP) (*scamodels.EligibilityResponse, error) {
+						callCount++
+						if callCount > 1 {
+							t.Error("ListEligibility called more than once for same CSP")
+						}
+						return &scamodels.EligibilityResponse{
+							Response: []scamodels.EligibleTarget{
+								{WorkspaceID: "/subscriptions/sub-1", WorkspaceName: "Sub 1"},
+								{WorkspaceID: "/subscriptions/sub-2", WorkspaceName: "Sub 2"},
+							},
+						}, nil
+					},
+				}
+			},
+			wantNameMapKeys: []string{"/subscriptions/sub-1", "/subscriptions/sub-2"},
+		},
+		{
+			name: "partial failure - graceful degradation",
+			sessions: []scamodels.SessionInfo{
+				{CSP: scamodels.CSPAzure, WorkspaceID: "/subscriptions/sub-1"},
+				{CSP: scamodels.CSPAWS, WorkspaceID: "arn:aws:iam::123:role/Admin"},
+			},
+			setupEligibility: func() *mockEligibilityLister {
+				return &mockEligibilityLister{
+					listFunc: func(ctx context.Context, csp scamodels.CSP) (*scamodels.EligibilityResponse, error) {
+						if csp == scamodels.CSPAWS {
+							return nil, errors.New("AWS unavailable")
+						}
+						return &scamodels.EligibilityResponse{
+							Response: []scamodels.EligibleTarget{
+								{WorkspaceID: "/subscriptions/sub-1", WorkspaceName: "Dev Sub"},
+							},
+						}, nil
+					},
+				}
+			},
+			wantNameMapKeys: []string{"/subscriptions/sub-1"},
+		},
+		{
+			name: "all failures - empty map",
+			sessions: []scamodels.SessionInfo{
+				{CSP: scamodels.CSPAzure, WorkspaceID: "/subscriptions/sub-1"},
+			},
+			setupEligibility: func() *mockEligibilityLister {
+				return &mockEligibilityLister{
+					listErr: errors.New("eligibility unavailable"),
+				}
+			},
+			wantNameMapKeys: nil,
+		},
+		{
+			name: "context cancellation - no hang",
+			sessions: []scamodels.SessionInfo{
+				{CSP: scamodels.CSPAzure, WorkspaceID: "/subscriptions/sub-1"},
+				{CSP: scamodels.CSPAWS, WorkspaceID: "arn:aws:iam::123:role/Admin"},
+			},
+			setupEligibility: func() *mockEligibilityLister {
+				return &mockEligibilityLister{
+					listFunc: func(ctx context.Context, csp scamodels.CSP) (*scamodels.EligibilityResponse, error) {
+						return nil, ctx.Err()
+					},
+				}
+			},
+			wantNameMapKeys: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			if tt.name == "context cancellation - no hang" {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithCancel(ctx)
+				cancel()
+			}
+
+			eligLister := tt.setupEligibility()
+			var errBuf bytes.Buffer
+			nameMap := buildWorkspaceNameMap(ctx, eligLister, tt.sessions, &errBuf)
+
+			for _, key := range tt.wantNameMapKeys {
+				if _, ok := nameMap[key]; !ok {
+					t.Errorf("nameMap missing key %q, got: %v", key, nameMap)
+				}
+			}
+
+			for k, wantV := range tt.wantNameMapVals {
+				if gotV := nameMap[k]; gotV != wantV {
+					t.Errorf("nameMap[%q] = %q, want %q", k, gotV, wantV)
+				}
+			}
+
+			if tt.wantNameMapKeys == nil && len(nameMap) > 0 {
+				t.Errorf("expected empty nameMap, got: %v", nameMap)
+			}
+		})
+	}
+}
+
 func TestBuildWorkspaceNameMap_VerboseWarning(t *testing.T) {
 	oldVerbose := verbose
 	verbose = true
