@@ -405,6 +405,174 @@ func TestRevokeCommand(t *testing.T) {
 			wantErr:     false,
 		},
 		{
+			name: "direct mode - group session ID",
+			args: []string{"group-session-1"},
+			setupAuth: func() *mockAuthLoader {
+				return &mockAuthLoader{
+					token: &authmodels.IdsecToken{Token: "jwt", Username: "user@example.com", ExpiresIn: expiresIn},
+				}
+			},
+			setupLister: func() *mockSessionLister { return &mockSessionLister{} },
+			setupElig:   func() *mockEligibilityLister { return &mockEligibilityLister{} },
+			setupRevoker: func() *mockSessionRevoker {
+				return &mockSessionRevoker{
+					revokeFunc: func(ctx context.Context, req *scamodels.RevokeRequest) (*scamodels.RevokeResponse, error) {
+						if len(req.SessionIDs) != 1 || req.SessionIDs[0] != "group-session-1" {
+							t.Errorf("expected [group-session-1], got %v", req.SessionIDs)
+						}
+						return &scamodels.RevokeResponse{
+							Response: []scamodels.RevocationResult{
+								{SessionID: "group-session-1", RevocationStatus: scamodels.RevocationSuccessful},
+							},
+						}, nil
+					},
+				}
+			},
+			setupSelector: func() *mockSessionSelector { return &mockSessionSelector{} },
+			setupConfirm:  func() *mockConfirmPrompter { return &mockConfirmPrompter{} },
+			wantContain:   []string{"group-session-1", "SUCCESSFULLY_REVOKED"},
+			wantErr:       false,
+		},
+		{
+			name: "all mode - mixed cloud and group sessions",
+			args: []string{"--all", "--yes"},
+			setupAuth: func() *mockAuthLoader {
+				return &mockAuthLoader{
+					token: &authmodels.IdsecToken{Token: "jwt", Username: "user@example.com", ExpiresIn: expiresIn},
+				}
+			},
+			setupLister: func() *mockSessionLister {
+				return &mockSessionLister{
+					sessions: &scamodels.SessionsResponse{
+						Response: []scamodels.SessionInfo{
+							{
+								SessionID:       "cloud-session-1",
+								UserID:          "user@example.com",
+								CSP:             scamodels.CSPAzure,
+								WorkspaceID:     "/subscriptions/sub-1",
+								RoleID:          "Contributor",
+								SessionDuration: 3600,
+							},
+							{
+								SessionID:       "group-session-1",
+								UserID:          "user@example.com",
+								CSP:             scamodels.CSPAzure,
+								WorkspaceID:     "29cb7961-dir-uuid",
+								SessionDuration: 3600,
+								Target:          &scamodels.SessionTarget{ID: "group-uuid-1", Type: scamodels.TargetTypeGroups},
+							},
+							{
+								SessionID:       "group-session-2",
+								UserID:          "user@example.com",
+								CSP:             scamodels.CSPAzure,
+								WorkspaceID:     "29cb7961-dir-uuid",
+								SessionDuration: 1800,
+								Target:          &scamodels.SessionTarget{ID: "group-uuid-2", Type: scamodels.TargetTypeGroups},
+							},
+						},
+						Total: 3,
+					},
+				}
+			},
+			setupElig: func() *mockEligibilityLister { return &mockEligibilityLister{} },
+			setupRevoker: func() *mockSessionRevoker {
+				return &mockSessionRevoker{
+					revokeFunc: func(ctx context.Context, req *scamodels.RevokeRequest) (*scamodels.RevokeResponse, error) {
+						if len(req.SessionIDs) != 3 {
+							t.Errorf("expected 3 session IDs, got %d", len(req.SessionIDs))
+						}
+						// Verify all session IDs are collected regardless of type
+						ids := make(map[string]bool)
+						for _, id := range req.SessionIDs {
+							ids[id] = true
+						}
+						for _, want := range []string{"cloud-session-1", "group-session-1", "group-session-2"} {
+							if !ids[want] {
+								t.Errorf("missing session ID %q in revoke request", want)
+							}
+						}
+						return &scamodels.RevokeResponse{
+							Response: []scamodels.RevocationResult{
+								{SessionID: "cloud-session-1", RevocationStatus: scamodels.RevocationSuccessful},
+								{SessionID: "group-session-1", RevocationStatus: scamodels.RevocationSuccessful},
+								{SessionID: "group-session-2", RevocationStatus: scamodels.RevocationSuccessful},
+							},
+						}, nil
+					},
+				}
+			},
+			setupSelector: func() *mockSessionSelector { return &mockSessionSelector{} },
+			setupConfirm:  func() *mockConfirmPrompter { return &mockConfirmPrompter{} },
+			wantContain:   []string{"cloud-session-1", "group-session-1", "group-session-2", "SUCCESSFULLY_REVOKED"},
+			wantErr:       false,
+		},
+		{
+			name: "interactive mode - mixed sessions with group session selected",
+			args: []string{"--yes"},
+			setupAuth: func() *mockAuthLoader {
+				return &mockAuthLoader{
+					token: &authmodels.IdsecToken{Token: "jwt", Username: "user@example.com", ExpiresIn: expiresIn},
+				}
+			},
+			setupLister: func() *mockSessionLister {
+				return &mockSessionLister{
+					sessions: &scamodels.SessionsResponse{
+						Response: []scamodels.SessionInfo{
+							{
+								SessionID:       "cloud-session-1",
+								UserID:          "user@example.com",
+								CSP:             scamodels.CSPAzure,
+								WorkspaceID:     "/subscriptions/sub-1",
+								RoleID:          "Contributor",
+								SessionDuration: 3600,
+							},
+							{
+								SessionID:       "group-session-1",
+								UserID:          "user@example.com",
+								CSP:             scamodels.CSPAzure,
+								WorkspaceID:     "29cb7961-dir-uuid",
+								SessionDuration: 3600,
+								Target:          &scamodels.SessionTarget{ID: "group-uuid", Type: scamodels.TargetTypeGroups},
+							},
+						},
+						Total: 2,
+					},
+				}
+			},
+			setupElig: func() *mockEligibilityLister { return &mockEligibilityLister{} },
+			setupRevoker: func() *mockSessionRevoker {
+				return &mockSessionRevoker{
+					revokeFunc: func(ctx context.Context, req *scamodels.RevokeRequest) (*scamodels.RevokeResponse, error) {
+						if len(req.SessionIDs) != 1 || req.SessionIDs[0] != "group-session-1" {
+							t.Errorf("expected [group-session-1], got %v", req.SessionIDs)
+						}
+						return &scamodels.RevokeResponse{
+							Response: []scamodels.RevocationResult{
+								{SessionID: "group-session-1", RevocationStatus: scamodels.RevocationSuccessful},
+							},
+						}, nil
+					},
+				}
+			},
+			setupSelector: func() *mockSessionSelector {
+				return &mockSessionSelector{
+					sessions: []scamodels.SessionInfo{
+						{
+							SessionID:       "group-session-1",
+							UserID:          "user@example.com",
+							CSP:             scamodels.CSPAzure,
+							WorkspaceID:     "29cb7961-dir-uuid",
+							SessionDuration: 3600,
+							Target:          &scamodels.SessionTarget{ID: "group-uuid", Type: scamodels.TargetTypeGroups},
+						},
+					},
+				}
+			},
+			setupConfirm: func() *mockConfirmPrompter { return &mockConfirmPrompter{} },
+			wantContain:  []string{"group-session-1", "SUCCESSFULLY_REVOKED"},
+			wantErr:      false,
+		},
+		{
 			name: "invalid provider",
 			args: []string{"--all", "--provider", "invalid"},
 			setupAuth: func() *mockAuthLoader {

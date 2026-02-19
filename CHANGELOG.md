@@ -6,7 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- `grant revoke` command for session revocation with three modes: direct (by session ID), `--all`, and interactive (multi-select)
+- `grant groups` command for Entra ID group membership elevation with interactive and direct (`--group`) modes
+- `grant revoke` command for session revocation with three modes: direct (by session ID), `--all`, and interactive (multi-select); works with both cloud and group sessions
 - `--yes`/`-y` flag on `grant revoke` to skip confirmation for scripting
 - `--provider`/`-p` flag on `grant revoke --all` and interactive mode to filter by cloud provider
 - Session ID displayed in `grant status` output for easy reference with `grant revoke`
