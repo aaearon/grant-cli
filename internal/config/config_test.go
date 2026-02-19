@@ -3,7 +3,9 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestLoadConfig_FileNotFound(t *testing.T) {
@@ -416,5 +418,92 @@ favorites:
 	}
 	if legacy.ResolvedType() != FavoriteTypeCloud {
 		t.Errorf("legacy-fav ResolvedType() = %q, want %q", legacy.ResolvedType(), FavoriteTypeCloud)
+	}
+}
+
+func TestLoadConfig_WithCacheTTL(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	content := []byte(`profile: my-profile
+default_provider: azure
+cache_ttl: 2h
+`)
+	if err := os.WriteFile(path, content, 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.CacheTTL != "2h" {
+		t.Errorf("cache_ttl = %q, want %q", cfg.CacheTTL, "2h")
+	}
+}
+
+func TestLoadConfig_BackwardsCompat_NoCacheTTL(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	content := []byte(`profile: old-profile
+default_provider: azure
+`)
+	if err := os.WriteFile(path, content, 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.CacheTTL != "" {
+		t.Errorf("cache_ttl = %q, want empty for legacy config", cfg.CacheTTL)
+	}
+}
+
+func TestSaveConfig_CacheTTL_OmitsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	cfg := DefaultConfig()
+	if err := Save(cfg, path); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+
+	if strings.Contains(string(data), "cache_ttl") {
+		t.Errorf("expected cache_ttl to be omitted when empty, got:\n%s", string(data))
+	}
+}
+
+func TestParseCacheTTL(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		value string
+		want  time.Duration
+	}{
+		{name: "empty uses default", value: "", want: DefaultCacheTTL},
+		{name: "custom 2h", value: "2h", want: 2 * time.Hour},
+		{name: "custom 30m", value: "30m", want: 30 * time.Minute},
+		{name: "invalid falls back to default", value: "garbage", want: DefaultCacheTTL},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := &Config{CacheTTL: tt.value}
+			got := ParseCacheTTL(cfg)
+			if got != tt.want {
+				t.Errorf("ParseCacheTTL(%q) = %v, want %v", tt.value, got, tt.want)
+			}
+		})
 	}
 }

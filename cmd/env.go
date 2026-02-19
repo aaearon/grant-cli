@@ -21,7 +21,8 @@ suitable for eval. No human-readable messages are printed to stdout.
 
 Usage:
   eval $(grant env --provider aws --target "Account" --role "AdminAccess")
-  eval $(grant env --favorite my-aws-fav)`,
+  eval $(grant env --favorite my-aws-fav)
+  eval $(grant env --refresh --provider aws)`,
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE:          runFn,
@@ -31,6 +32,7 @@ Usage:
 	cmd.Flags().StringP("target", "t", "", "Target name (account, subscription, etc.)")
 	cmd.Flags().StringP("role", "r", "", "Role name")
 	cmd.Flags().StringP("favorite", "f", "", "Use a saved favorite (see 'grant favorites list')")
+	cmd.Flags().Bool("refresh", false, "Bypass eligibility cache and fetch fresh data")
 
 	cmd.MarkFlagsMutuallyExclusive("favorite", "target")
 	cmd.MarkFlagsMutuallyExclusive("favorite", "role")
@@ -53,7 +55,9 @@ func NewEnvCommand() *cobra.Command {
 			return err
 		}
 
-		return runEnvWithDeps(cmd, flags, profile, ispAuth, scaService, scaService, &uiSelector{}, cfg)
+		cachedLister := buildCachedLister(cfg, flags.refresh, scaService, nil)
+
+		return runEnvWithDeps(cmd, flags, profile, ispAuth, cachedLister, scaService, &uiSelector{}, cfg)
 	})
 }
 

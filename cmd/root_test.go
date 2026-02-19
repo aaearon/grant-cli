@@ -24,7 +24,7 @@ func TestNewRootCommand_SilenceFlags(t *testing.T) {
 func TestNewRootCommand_FlagsRegistered(t *testing.T) {
 	cmd := newRootCommand(nil)
 
-	flags := []string{"verbose", "provider", "target", "role", "favorite"}
+	flags := []string{"verbose", "provider", "target", "role", "favorite", "refresh"}
 	for _, flag := range flags {
 		if cmd.Flags().Lookup(flag) == nil && cmd.PersistentFlags().Lookup(flag) == nil {
 			t.Errorf("expected --%s flag to be registered", flag)

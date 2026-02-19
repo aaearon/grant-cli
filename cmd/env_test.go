@@ -153,3 +153,10 @@ func TestEnvCommand_NotAuthenticated(t *testing.T) {
 		t.Errorf("expected 'not authenticated' error, got: %v", err)
 	}
 }
+
+func TestNewEnvCommand_RefreshFlagRegistered(t *testing.T) {
+	cmd := newEnvCommand(nil)
+	if cmd.Flags().Lookup("refresh") == nil {
+		t.Error("expected --refresh flag to be registered")
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -13,6 +14,9 @@ const (
 	FavoriteTypeCloud  = "cloud"
 	FavoriteTypeGroups = "groups"
 )
+
+// DefaultCacheTTL is the default eligibility cache TTL.
+const DefaultCacheTTL = 4 * time.Hour
 
 // Favorite represents a saved elevation target.
 type Favorite struct {
@@ -28,6 +32,7 @@ type Favorite struct {
 type Config struct {
 	Profile         string              `yaml:"profile"`
 	DefaultProvider string              `yaml:"default_provider"`
+	CacheTTL        string              `yaml:"cache_ttl,omitempty"`
 	Favorites       map[string]Favorite `yaml:"favorites"`
 }
 
@@ -99,6 +104,19 @@ func ConfigDir() (string, error) {
 		return "", fmt.Errorf("failed to determine home directory: %w", err)
 	}
 	return filepath.Join(home, ".grant"), nil
+}
+
+// ParseCacheTTL returns the configured cache TTL duration.
+// Falls back to DefaultCacheTTL if the config value is empty or unparseable.
+func ParseCacheTTL(cfg *Config) time.Duration {
+	if cfg.CacheTTL == "" {
+		return DefaultCacheTTL
+	}
+	d, err := time.ParseDuration(cfg.CacheTTL)
+	if err != nil {
+		return DefaultCacheTTL
+	}
+	return d
 }
 
 // ConfigPath returns the config file path, respecting the GRANT_CONFIG env var.
