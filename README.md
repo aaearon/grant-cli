@@ -61,28 +61,26 @@ grant revoke --all        # revoke all
 
 Download pre-built binaries from the [Releases](https://github.com/aaearon/grant-cli/releases) page.
 
-**macOS:**
+**macOS / Linux:**
 ```bash
-# Intel
-curl -LO https://github.com/aaearon/grant-cli/releases/latest/download/grant_Darwin_x86_64.tar.gz
-tar xzf grant_Darwin_x86_64.tar.gz
-sudo mv grant /usr/local/bin/
-
-# Apple Silicon
-curl -LO https://github.com/aaearon/grant-cli/releases/latest/download/grant_Darwin_arm64.tar.gz
-tar xzf grant_Darwin_arm64.tar.gz
-sudo mv grant /usr/local/bin/
-```
-
-**Linux:**
-```bash
-curl -LO https://github.com/aaearon/grant-cli/releases/latest/download/grant_Linux_x86_64.tar.gz
-tar xzf grant_Linux_x86_64.tar.gz
+VERSION=$(gh release view --repo aaearon/grant-cli --json tagName -q '.tagName' | tr -d v)
+# macOS Intel: OS=darwin ARCH=amd64
+# macOS Apple Silicon: OS=darwin ARCH=arm64
+# Linux x86_64: OS=linux ARCH=amd64
+# Linux ARM64: OS=linux ARCH=arm64
+OS=linux ARCH=amd64
+curl -LO "https://github.com/aaearon/grant-cli/releases/download/v${VERSION}/grant-cli_${VERSION}_${OS}_${ARCH}.tar.gz"
+tar xzf "grant-cli_${VERSION}_${OS}_${ARCH}.tar.gz"
 sudo mv grant /usr/local/bin/
 ```
 
 **Windows:**
-Download `grant_Windows_x86_64.zip` from releases and extract to a directory in your PATH.
+Download the appropriate `grant-cli_<version>_windows_<arch>.zip` from [releases](https://github.com/aaearon/grant-cli/releases) and extract to a directory in your PATH.
+
+**Updating:**
+```bash
+grant update
+```
 
 ### Go Install
 
@@ -110,6 +108,8 @@ Running `grant` with no subcommand elevates cloud permissions (the core behavior
 | `logout` | Clear cached tokens from keyring |
 | `status` | Show authentication state and active SCA sessions |
 | `favorites` | Manage saved role favorites (add/list/remove) |
+| `revoke` | Revoke active elevation sessions (interactive, by ID, or `--all`) |
+| `update` | Self-update to the latest release from GitHub |
 | `version` | Print version information |
 
 ### Global Flags
