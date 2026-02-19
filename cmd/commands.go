@@ -10,6 +10,5 @@ func init() {
 		NewFavoritesCommand(),
 		NewEnvCommand(),
 		NewRevokeCommand(),
-		NewGroupsCommand(),
 	)
 }

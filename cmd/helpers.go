@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 
 	scamodels "github.com/aaearon/grant-cli/internal/sca/models"
@@ -187,4 +188,18 @@ func buildWorkspaceNameMap(ctx context.Context, eligLister eligibilityLister, se
 	}
 
 	return nameMap
+}
+
+// findMatchingGroup finds a group by name (case-insensitive).
+// If directoryID is non-empty, only matches groups in that directory.
+func findMatchingGroup(groups []scamodels.GroupsEligibleTarget, name string, directoryID string) *scamodels.GroupsEligibleTarget {
+	for i := range groups {
+		if strings.EqualFold(groups[i].GroupName, name) {
+			if directoryID != "" && groups[i].DirectoryID != directoryID {
+				continue
+			}
+			return &groups[i]
+		}
+	}
+	return nil
 }

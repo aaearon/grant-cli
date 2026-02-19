@@ -208,18 +208,18 @@ func (m *mockGroupsElevator) ElevateGroups(ctx context.Context, req *models.Grou
 	return m.response, m.elevateErr
 }
 
-// mockGroupSelector implements groupSelector for testing
-type mockGroupSelector struct {
-	selectFunc func(groups []models.GroupsEligibleTarget) (*models.GroupsEligibleTarget, error)
-	group      *models.GroupsEligibleTarget
+// mockUnifiedSelector implements unifiedSelector for testing
+type mockUnifiedSelector struct {
+	selectFunc func(items []selectionItem) (*selectionItem, error)
+	item       *selectionItem
 	selectErr  error
 }
 
-func (m *mockGroupSelector) SelectGroup(groups []models.GroupsEligibleTarget) (*models.GroupsEligibleTarget, error) {
+func (m *mockUnifiedSelector) SelectItem(items []selectionItem) (*selectionItem, error) {
 	if m.selectFunc != nil {
-		return m.selectFunc(groups)
+		return m.selectFunc(items)
 	}
-	return m.group, m.selectErr
+	return m.item, m.selectErr
 }
 
 // countingEligibilityLister wraps an eligibilityLister and counts calls per CSP.
@@ -247,26 +247,3 @@ func (c *countingEligibilityLister) CallCount(csp models.CSP) int {
 	return c.counts[csp]
 }
 
-// countingGroupsEligibilityLister wraps a groupsEligibilityLister and counts calls per CSP.
-type countingGroupsEligibilityLister struct {
-	inner  groupsEligibilityLister
-	mu     sync.Mutex
-	counts map[models.CSP]int
-}
-
-func newCountingGroupsEligibilityLister(inner groupsEligibilityLister) *countingGroupsEligibilityLister {
-	return &countingGroupsEligibilityLister{inner: inner, counts: make(map[models.CSP]int)}
-}
-
-func (c *countingGroupsEligibilityLister) ListGroupsEligibility(ctx context.Context, csp models.CSP) (*models.GroupsEligibilityResponse, error) {
-	c.mu.Lock()
-	c.counts[csp]++
-	c.mu.Unlock()
-	return c.inner.ListGroupsEligibility(ctx, csp)
-}
-
-func (c *countingGroupsEligibilityLister) CallCount(csp models.CSP) int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.counts[csp]
-}

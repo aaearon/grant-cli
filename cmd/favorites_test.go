@@ -415,14 +415,15 @@ func TestFavoritesAddInteractiveMode(t *testing.T) {
 		name         string
 		setupConfig  func(string)
 		eligLister   eligibilityLister
-		selector     targetSelector
+		groupsElig   groupsEligibilityLister
+		selector     unifiedSelector
 		namePrompter namePrompter
 		args         []string
 		wantContain  []string
 		wantErr      bool
 	}{
 		{
-			name: "success - selects target from eligibility",
+			name: "success - selects cloud target from eligibility",
 			setupConfig: func(path string) {
 				cfg := config.DefaultConfig()
 				_ = config.Save(cfg, path)
@@ -435,8 +436,8 @@ func TestFavoritesAddInteractiveMode(t *testing.T) {
 					return &models.EligibilityResponse{}, nil
 				},
 			},
-			selector: &mockTargetSelector{
-				target: &twoTargets[0],
+			selector: &mockUnifiedSelector{
+				item: &selectionItem{kind: selectionCloud, cloud: &twoTargets[0]},
 			},
 			args:        []string{"myfav"},
 			wantContain: []string{"Added favorite", "myfav", "azure/Prod-EastUS/Contributor"},
@@ -454,8 +455,8 @@ func TestFavoritesAddInteractiveMode(t *testing.T) {
 					Total:    2,
 				},
 			},
-			selector: &mockTargetSelector{
-				target: &twoTargets[0],
+			selector: &mockUnifiedSelector{
+				item: &selectionItem{kind: selectionCloud, cloud: &twoTargets[0]},
 			},
 			args:        []string{"myfav", "--provider", "azure"},
 			wantContain: []string{"Added favorite", "myfav", "azure/Prod-EastUS/Contributor"},
@@ -475,11 +476,64 @@ func TestFavoritesAddInteractiveMode(t *testing.T) {
 					return &models.EligibilityResponse{}, nil
 				},
 			},
-			selector: &mockTargetSelector{
-				target: &twoTargets[1],
+			selector: &mockUnifiedSelector{
+				item: &selectionItem{kind: selectionCloud, cloud: &twoTargets[1]},
 			},
 			args:        []string{"myfav"},
 			wantContain: []string{"Added favorite", "myfav", "azure/Dev-WestEU/Reader"},
+			wantErr:     false,
+		},
+		{
+			name: "success - selects group from unified list",
+			setupConfig: func(path string) {
+				cfg := config.DefaultConfig()
+				_ = config.Save(cfg, path)
+			},
+			eligLister: &mockEligibilityLister{
+				listFunc: func(_ context.Context, csp models.CSP) (*models.EligibilityResponse, error) {
+					if csp == models.CSPAzure {
+						return &models.EligibilityResponse{Response: twoTargets, Total: 2}, nil
+					}
+					return &models.EligibilityResponse{}, nil
+				},
+			},
+			groupsElig: &mockGroupsEligibilityLister{
+				response: &models.GroupsEligibilityResponse{
+					Response: []models.GroupsEligibleTarget{
+						{DirectoryID: "dir-1", GroupID: "grp-1", GroupName: "Engineering"},
+					},
+					Total: 1,
+				},
+			},
+			selector: &mockUnifiedSelector{
+				selectFunc: func(items []selectionItem) (*selectionItem, error) {
+					// Verify both cloud and group items are present
+					hasCloud, hasGroup := false, false
+					for _, item := range items {
+						if item.kind == selectionCloud {
+							hasCloud = true
+						}
+						if item.kind == selectionGroup {
+							hasGroup = true
+						}
+					}
+					if !hasCloud {
+						return nil, errors.New("expected cloud items in unified selector")
+					}
+					if !hasGroup {
+						return nil, errors.New("expected group items in unified selector")
+					}
+					// Select the group
+					for i := range items {
+						if items[i].kind == selectionGroup {
+							return &items[i], nil
+						}
+					}
+					return nil, errors.New("no group item found")
+				},
+			},
+			args:        []string{"my-grp-fav"},
+			wantContain: []string{"Added favorite", "my-grp-fav", "groups/Engineering"},
 			wantErr:     false,
 		},
 		{
@@ -491,24 +545,23 @@ func TestFavoritesAddInteractiveMode(t *testing.T) {
 			eligLister: &mockEligibilityLister{
 				listErr: errors.New("API error: unauthorized"),
 			},
-			selector:    &mockTargetSelector{},
+			selector:    &mockUnifiedSelector{},
 			args:        []string{"myfav", "--provider", "azure"},
 			wantContain: []string{"failed to fetch eligible targets"},
 			wantErr:     true,
 		},
 		{
-			name: "no eligible targets",
+			name: "no eligible targets or groups",
 			setupConfig: func(path string) {
 				cfg := config.DefaultConfig()
 				_ = config.Save(cfg, path)
 			},
 			eligLister: &mockEligibilityLister{
-				response: &models.EligibilityResponse{
-					Response: []models.EligibleTarget{},
-					Total:    0,
+				listFunc: func(_ context.Context, csp models.CSP) (*models.EligibilityResponse, error) {
+					return &models.EligibilityResponse{Response: []models.EligibleTarget{}, Total: 0}, nil
 				},
 			},
-			selector:    &mockTargetSelector{},
+			selector:    &mockUnifiedSelector{},
 			args:        []string{"myfav"},
 			wantContain: []string{"no eligible"},
 			wantErr:     true,
@@ -520,16 +573,18 @@ func TestFavoritesAddInteractiveMode(t *testing.T) {
 				_ = config.Save(cfg, path)
 			},
 			eligLister: &mockEligibilityLister{
-				response: &models.EligibilityResponse{
-					Response: twoTargets,
-					Total:    2,
+				listFunc: func(_ context.Context, csp models.CSP) (*models.EligibilityResponse, error) {
+					if csp == models.CSPAzure {
+						return &models.EligibilityResponse{Response: twoTargets, Total: 2}, nil
+					}
+					return &models.EligibilityResponse{}, nil
 				},
 			},
-			selector: &mockTargetSelector{
+			selector: &mockUnifiedSelector{
 				selectErr: errors.New("user cancelled"),
 			},
 			args:        []string{"myfav"},
-			wantContain: []string{"target selection failed"},
+			wantContain: []string{"selection failed"},
 			wantErr:     true,
 		},
 		{
@@ -575,8 +630,8 @@ func TestFavoritesAddInteractiveMode(t *testing.T) {
 					return &models.EligibilityResponse{}, nil
 				},
 			},
-			selector: &mockTargetSelector{
-				target: &twoTargets[0],
+			selector: &mockUnifiedSelector{
+				item: &selectionItem{kind: selectionCloud, cloud: &twoTargets[0]},
 			},
 			namePrompter: &mockNamePrompter{name: "my-fav"},
 			args:         []string{},
@@ -595,13 +650,15 @@ func TestFavoritesAddInteractiveMode(t *testing.T) {
 				_ = config.Save(cfg, path)
 			},
 			eligLister: &mockEligibilityLister{
-				response: &models.EligibilityResponse{
-					Response: twoTargets,
-					Total:    2,
+				listFunc: func(_ context.Context, csp models.CSP) (*models.EligibilityResponse, error) {
+					if csp == models.CSPAzure {
+						return &models.EligibilityResponse{Response: twoTargets, Total: 2}, nil
+					}
+					return &models.EligibilityResponse{}, nil
 				},
 			},
-			selector: &mockTargetSelector{
-				target: &twoTargets[0],
+			selector: &mockUnifiedSelector{
+				item: &selectionItem{kind: selectionCloud, cloud: &twoTargets[0]},
 			},
 			namePrompter: &mockNamePrompter{name: "existing"},
 			args:         []string{},
@@ -615,13 +672,15 @@ func TestFavoritesAddInteractiveMode(t *testing.T) {
 				_ = config.Save(cfg, path)
 			},
 			eligLister: &mockEligibilityLister{
-				response: &models.EligibilityResponse{
-					Response: twoTargets,
-					Total:    2,
+				listFunc: func(_ context.Context, csp models.CSP) (*models.EligibilityResponse, error) {
+					if csp == models.CSPAzure {
+						return &models.EligibilityResponse{Response: twoTargets, Total: 2}, nil
+					}
+					return &models.EligibilityResponse{}, nil
 				},
 			},
-			selector: &mockTargetSelector{
-				target: &twoTargets[0],
+			selector: &mockUnifiedSelector{
+				item: &selectionItem{kind: selectionCloud, cloud: &twoTargets[0]},
 			},
 			namePrompter: &mockNamePrompter{promptErr: errors.New("user cancelled")},
 			args:         []string{},
@@ -651,7 +710,7 @@ func TestFavoritesAddInteractiveMode(t *testing.T) {
 			tt.setupConfig(configPath)
 
 			rootCmd := newTestRootCommand()
-			favCmd := NewFavoritesCommandWithDeps(tt.eligLister, tt.selector, tt.namePrompter)
+			favCmd := NewFavoritesCommandWithAllDeps(tt.eligLister, tt.selector, tt.namePrompter, tt.groupsElig)
 			rootCmd.AddCommand(favCmd)
 
 			cmdArgs := append([]string{"favorites", "add"}, tt.args...)
@@ -672,14 +731,14 @@ func TestFavoritesAddInteractiveMode(t *testing.T) {
 
 func TestFavoritesAddGroupFavorite(t *testing.T) {
 	tests := []struct {
-		name           string
-		setupConfig    func(string)
-		groupsElig     groupsEligibilityLister
-		groupSel       groupSelector
-		namePrompter   namePrompter
-		args           []string
-		wantContain    []string
-		wantErr        bool
+		name         string
+		setupConfig  func(string)
+		groupsElig   groupsEligibilityLister
+		selector     unifiedSelector
+		namePrompter namePrompter
+		args         []string
+		wantContain  []string
+		wantErr      bool
 	}{
 		{
 			name: "non-interactive - group via flags",
@@ -732,7 +791,7 @@ func TestFavoritesAddGroupFavorite(t *testing.T) {
 			wantErr:     true,
 		},
 		{
-			name: "interactive - selects from eligible groups",
+			name: "interactive - selects from eligible groups via unified selector",
 			setupConfig: func(path string) {
 				cfg := config.DefaultConfig()
 				_ = config.Save(cfg, path)
@@ -745,8 +804,16 @@ func TestFavoritesAddGroupFavorite(t *testing.T) {
 					Total: 1,
 				},
 			},
-			groupSel: &mockGroupSelector{
-				group: &models.GroupsEligibleTarget{DirectoryID: "dir-1", GroupID: "grp-1", GroupName: "Engineering"},
+			selector: &mockUnifiedSelector{
+				selectFunc: func(items []selectionItem) (*selectionItem, error) {
+					// Verify only group items are present (--type groups)
+					for _, item := range items {
+						if item.kind != selectionGroup {
+							return nil, errors.New("expected only group items for --type groups")
+						}
+					}
+					return &items[0], nil
+				},
 			},
 			args:        []string{"my-grp", "--type", "groups"},
 			wantContain: []string{"Added favorite", "my-grp", "groups/Engineering"},
@@ -773,7 +840,7 @@ func TestFavoritesAddGroupFavorite(t *testing.T) {
 			tt.setupConfig(configPath)
 
 			rootCmd := newTestRootCommand()
-			favCmd := NewFavoritesCommandWithAllDeps(nil, nil, tt.namePrompter, tt.groupsElig, tt.groupSel)
+			favCmd := NewFavoritesCommandWithAllDeps(nil, tt.selector, tt.namePrompter, tt.groupsElig)
 			rootCmd.AddCommand(favCmd)
 
 			cmdArgs := append([]string{"favorites", "add"}, tt.args...)
@@ -801,7 +868,7 @@ func TestFavoritesAddGroupPersistence(t *testing.T) {
 	_ = config.Save(cfg, configPath)
 
 	rootCmd := newTestRootCommand()
-	favCmd := NewFavoritesCommandWithAllDeps(nil, nil, nil, nil, nil)
+	favCmd := NewFavoritesCommandWithAllDeps(nil, nil, nil, nil)
 	rootCmd.AddCommand(favCmd)
 
 	_, err := executeCommand(rootCmd, "favorites", "add", "grp-fav", "--type", "groups", "--group", "DevOps")
@@ -859,10 +926,12 @@ func TestFavoritesAdd_CachedEligibility(t *testing.T) {
 	store := cache.NewStore(filepath.Join(tmpDir, "cache"), 4*time.Hour)
 	cachedLister := cache.NewCachedEligibilityLister(innerCloud, nil, store, false, nil)
 
-	selector := &mockTargetSelector{target: &azureTargets[0]}
+	selector := &mockUnifiedSelector{
+		item: &selectionItem{kind: selectionCloud, cloud: &azureTargets[0]},
+	}
 
 	rootCmd := newTestRootCommand()
-	favCmd := NewFavoritesCommandWithAllDeps(cachedLister, selector, nil, nil, nil)
+	favCmd := NewFavoritesCommandWithAllDeps(cachedLister, selector, nil, nil)
 	rootCmd.AddCommand(favCmd)
 
 	output, err := executeCommand(rootCmd, "favorites", "add", "myfav")

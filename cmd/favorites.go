@@ -34,13 +34,8 @@ Workflow:
 	return cmd
 }
 
-// NewFavoritesCommandWithDeps creates the favorites command with injected dependencies for testing
-func NewFavoritesCommandWithDeps(eligLister eligibilityLister, sel targetSelector, prompter namePrompter) *cobra.Command {
-	return NewFavoritesCommandWithAllDeps(eligLister, sel, prompter, nil, nil)
-}
-
 // NewFavoritesCommandWithAllDeps creates the favorites command with all injected dependencies including groups
-func NewFavoritesCommandWithAllDeps(eligLister eligibilityLister, sel targetSelector, prompter namePrompter, groupsElig groupsEligibilityLister, groupSel groupSelector) *cobra.Command {
+func NewFavoritesCommandWithAllDeps(eligLister eligibilityLister, sel unifiedSelector, prompter namePrompter, groupsElig groupsEligibilityLister) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "favorites",
 		Short: "Manage saved elevation favorites",
@@ -56,7 +51,7 @@ Workflow:
 	}
 
 	cmd.AddCommand(newFavoritesAddCommandWithRunner(func(c *cobra.Command, args []string) error {
-		return runFavoritesAddWithDeps(c, args, eligLister, sel, prompter, nil, groupsElig, groupSel)
+		return runFavoritesAddWithDeps(c, args, eligLister, sel, prompter, nil, groupsElig)
 	}))
 	cmd.AddCommand(newFavoritesListCommand())
 	cmd.AddCommand(newFavoritesRemoveCommand())
@@ -126,11 +121,11 @@ func runFavoritesAddProduction(cmd *cobra.Command, args []string) error {
 	if favType == config.FavoriteTypeGroups {
 		if group != "" {
 			// Non-interactive groups mode: no auth needed
-			return runFavoritesAddWithDeps(cmd, args, nil, nil, nil, nil, nil, nil)
+			return runFavoritesAddWithDeps(cmd, args, nil, nil, nil, nil, nil)
 		}
 	} else if target != "" && role != "" {
 		// Non-interactive cloud mode: no auth needed
-		return runFavoritesAddWithDeps(cmd, args, nil, nil, nil, nil, nil, nil)
+		return runFavoritesAddWithDeps(cmd, args, nil, nil, nil, nil, nil)
 	}
 
 	// Interactive path: load config early for fast-fail duplicate check
@@ -153,13 +148,13 @@ func runFavoritesAddProduction(cmd *cobra.Command, args []string) error {
 
 	cachedLister := buildCachedLister(cfg, false, scaService, scaService)
 
-	return runFavoritesAddWithDeps(cmd, args, cachedLister, &uiSelector{}, &surveyNamePrompter{}, cfg, cachedLister, &uiGroupSelector{})
+	return runFavoritesAddWithDeps(cmd, args, cachedLister, &uiUnifiedSelector{}, &surveyNamePrompter{}, cfg, cachedLister)
 }
 
 // runFavoritesAddWithDeps contains the core logic for favorites add.
 // When eligLister and sel are nil, it uses the non-interactive flag path.
 // If preloadedCfg is non-nil, it is used instead of loading from disk.
-func runFavoritesAddWithDeps(cmd *cobra.Command, args []string, eligLister eligibilityLister, sel targetSelector, prompter namePrompter, preloadedCfg *config.Config, groupsElig groupsEligibilityLister, groupSel groupSelector) error {
+func runFavoritesAddWithDeps(cmd *cobra.Command, args []string, eligLister eligibilityLister, sel unifiedSelector, prompter namePrompter, preloadedCfg *config.Config, groupsElig groupsEligibilityLister) error {
 	// Read flags
 	provider, _ := cmd.Flags().GetString("provider")
 	target, _ := cmd.Flags().GetString("target")
@@ -224,12 +219,13 @@ func runFavoritesAddWithDeps(cmd *cobra.Command, args []string, eligLister eligi
 
 	// Groups flow
 	if favType == config.FavoriteTypeGroups {
-		return addGroupFavorite(cmd, name, group, cfg, cfgPath, groupsElig, groupSel, prompter)
+		return addGroupFavorite(cmd, name, group, cfg, cfgPath, groupsElig, sel, prompter)
 	}
 
 	// Cloud flow
 	var fav config.Favorite
 	if target != "" && role != "" {
+		// Non-interactive: target and role specified via flags
 		fav.Target = target
 		fav.Role = role
 		fav.Provider = provider
@@ -237,6 +233,7 @@ func runFavoritesAddWithDeps(cmd *cobra.Command, args []string, eligLister eligi
 			fav.Provider = cfg.DefaultProvider
 		}
 	} else {
+		// Interactive: unified selector showing cloud targets and groups
 		ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
 		defer cancel()
 
@@ -245,19 +242,46 @@ func runFavoritesAddWithDeps(cmd *cobra.Command, args []string, eligLister eligi
 			return err
 		}
 
-		selectedTarget, err := sel.SelectTarget(allTargets)
-		if err != nil {
-			return fmt.Errorf("target selection failed: %w", err)
+		var items []selectionItem
+		for i := range allTargets {
+			items = append(items, selectionItem{kind: selectionCloud, cloud: &allTargets[i]})
 		}
-		resolveTargetCSP(selectedTarget, allTargets, provider)
 
-		if provider != "" {
-			fav.Provider = provider
-		} else {
-			fav.Provider = strings.ToLower(string(selectedTarget.CSP))
+		// Fetch groups eligibility (best-effort)
+		if groupsElig != nil {
+			eligResp, gErr := groupsElig.ListGroupsEligibility(ctx, scamodels.CSPAzure)
+			if gErr == nil && len(eligResp.Response) > 0 {
+				for i := range eligResp.Response {
+					items = append(items, selectionItem{kind: selectionGroup, group: &eligResp.Response[i]})
+				}
+			}
 		}
-		fav.Target = selectedTarget.WorkspaceName
-		fav.Role = selectedTarget.RoleInfo.Name
+
+		if len(items) == 0 {
+			return fmt.Errorf("no eligible targets or groups found")
+		}
+
+		selected, err := sel.SelectItem(items)
+		if err != nil {
+			return fmt.Errorf("selection failed: %w", err)
+		}
+
+		switch selected.kind {
+		case selectionCloud:
+			resolveTargetCSP(selected.cloud, allTargets, provider)
+			if provider != "" {
+				fav.Provider = provider
+			} else {
+				fav.Provider = strings.ToLower(string(selected.cloud.CSP))
+			}
+			fav.Target = selected.cloud.WorkspaceName
+			fav.Role = selected.cloud.RoleInfo.Name
+		case selectionGroup:
+			fav.Type = config.FavoriteTypeGroups
+			fav.Provider = "azure"
+			fav.Group = selected.group.GroupName
+			fav.DirectoryID = selected.group.DirectoryID
+		}
 
 		if name == "" {
 			name, err = prompter.PromptName()
@@ -276,12 +300,17 @@ func runFavoritesAddWithDeps(cmd *cobra.Command, args []string, eligLister eligi
 	if err := config.Save(cfg, cfgPath); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "Added favorite %q: %s/%s/%s\n", name, fav.Provider, fav.Target, fav.Role)
+
+	if fav.ResolvedType() == config.FavoriteTypeGroups {
+		fmt.Fprintf(cmd.OutOrStdout(), "Added favorite %q: groups/%s\n", name, fav.Group)
+	} else {
+		fmt.Fprintf(cmd.OutOrStdout(), "Added favorite %q: %s/%s/%s\n", name, fav.Provider, fav.Target, fav.Role)
+	}
 	return nil
 }
 
 // addGroupFavorite handles the --type groups flow for favorites add.
-func addGroupFavorite(cmd *cobra.Command, name, group string, cfg *config.Config, cfgPath string, groupsElig groupsEligibilityLister, groupSel groupSelector, prompter namePrompter) error {
+func addGroupFavorite(cmd *cobra.Command, name, group string, cfg *config.Config, cfgPath string, groupsElig groupsEligibilityLister, sel unifiedSelector, prompter namePrompter) error {
 	var fav config.Favorite
 	fav.Type = config.FavoriteTypeGroups
 	fav.Provider = "azure"
@@ -290,7 +319,7 @@ func addGroupFavorite(cmd *cobra.Command, name, group string, cfg *config.Config
 		// Non-interactive: group specified via flag
 		fav.Group = group
 	} else {
-		// Interactive: select from eligible groups
+		// Interactive: select from eligible groups via unified selector
 		ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
 		defer cancel()
 
@@ -302,13 +331,18 @@ func addGroupFavorite(cmd *cobra.Command, name, group string, cfg *config.Config
 			return fmt.Errorf("no eligible groups found")
 		}
 
-		selected, err := groupSel.SelectGroup(eligResp.Response)
+		var items []selectionItem
+		for i := range eligResp.Response {
+			items = append(items, selectionItem{kind: selectionGroup, group: &eligResp.Response[i]})
+		}
+
+		selected, err := sel.SelectItem(items)
 		if err != nil {
 			return fmt.Errorf("group selection failed: %w", err)
 		}
 
-		fav.Group = selected.GroupName
-		fav.DirectoryID = selected.DirectoryID
+		fav.Group = selected.group.GroupName
+		fav.DirectoryID = selected.group.DirectoryID
 
 		if name == "" {
 			name, err = prompter.PromptName()

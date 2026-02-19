@@ -9,8 +9,9 @@ All notable changes to this project will be documented in this file.
 - Local file-based eligibility cache (`~/.grant/cache/`) with 4-hour default TTL — skips API roundtrip on subsequent runs
 - `--refresh` flag on `grant` and `grant env` to bypass the eligibility cache and fetch fresh data
 - `cache_ttl` config option in `~/.grant/config.yaml` to customize cache TTL (e.g., `cache_ttl: 2h`)
-- `grant groups` command for Entra ID group membership elevation with interactive, direct (`--group`), and favorite (`--favorite`) modes
-- `grant --favorite <name>` now detects group-type favorites and redirects users to `grant groups --favorite <name>`
+- `--groups` flag on root command to show only Entra ID groups in the interactive selector
+- `--group` / `-g` flag on root command for direct group membership elevation (`grant --group "Cloud Admins"`)
+- `grant --favorite <name>` now handles both cloud and group favorites directly
 - `grant revoke` command for session revocation with three modes: direct (by session ID), `--all`, and interactive (multi-select); works with both cloud and group sessions
 - `--yes`/`-y` flag on `grant revoke` to skip confirmation for scripting
 - `--provider`/`-p` flag on `grant revoke --all` and interactive mode to filter by cloud provider
@@ -18,7 +19,9 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
-- Eligibility caching now covers all commands (`grant status`, `grant revoke`, `grant groups`, `grant favorites add`) — previously only `grant` and `grant env` used the cache
+- `grant favorites add` interactive selector now shows both cloud roles and Entra ID groups in a unified list (previously cloud-only)
+- Group membership elevation merged into root command — `grant` interactive selector shows both cloud roles and Entra ID groups in a unified list
+- Eligibility caching now covers all commands (`grant status`, `grant revoke`, `grant favorites add`) — previously only `grant` and `grant env` used the cache
 - `grant status` now fetches sessions and eligibility data concurrently, reducing wall-clock time by ~2s
 - `grant revoke` interactive mode now fetches workspace names concurrently across CSPs
 
@@ -27,12 +30,13 @@ All notable changes to this project will be documented in this file.
 - `grant revoke` now rejects `--provider` in direct mode (session IDs are already explicit)
 - `grant status` session formatting reuses shared `ui.FormatSessionOption` instead of duplicated logic
 - `buildWorkspaceNameMap` moved to shared `cmd/helpers.go` to eliminate cross-command dependency
-- `grant groups --favorite` now verifies DirectoryID from the favorite, preventing wrong-group elevation when multiple directories have identically-named groups
-- `grant groups` interactive selector sorts a local copy of groups, fixing wrong-group selection when display strings collide
+- Group favorites now verify DirectoryID, preventing wrong-group elevation when multiple directories have identically-named groups
 - `grant status` now resolves directory names for group sessions via `buildDirectoryNameMap`
-- `grant groups` subcommand no longer sets `SilenceErrors`/`SilenceUsage`, matching other subcommand patterns
-- Removed dead code in `TestGroupsCommandFavoriteMode` and consolidated `NewGroupsCommandWithDeps`/`NewGroupsCommandWithDepsAndConfig` into a single test constructor
 - `buildDirectoryNameMap` now handles nil eligibility response gracefully
+
+### Removed
+
+- `grant groups` subcommand — functionality absorbed into the root command with `--groups` and `--group` flags
 
 ## [0.2.1] - 2026-02-18
 
