@@ -102,6 +102,43 @@ func TestBuildGroupOptions(t *testing.T) {
 	}
 }
 
+func TestBuildGroupOptions_DuplicateDisplayStrings(t *testing.T) {
+	t.Parallel()
+	// Two groups with same name and no DirectoryName produce identical display strings
+	groups := []models.GroupsEligibleTarget{
+		{DirectoryID: "dir1", GroupID: "grp1", GroupName: "Engineering"},
+		{DirectoryID: "dir2", GroupID: "grp2", GroupName: "Engineering"},
+	}
+	options := BuildGroupOptions(groups)
+	if len(options) != 2 {
+		t.Fatalf("expected 2 options, got %d", len(options))
+	}
+	// Both should be "Group: Engineering" (duplicate is expected)
+	for _, opt := range options {
+		if opt != "Group: Engineering" {
+			t.Errorf("unexpected option %q", opt)
+		}
+	}
+}
+
+func TestFindGroupByDisplay_DuplicateDisplayStrings(t *testing.T) {
+	t.Parallel()
+	// When display strings collide, FindGroupByDisplay returns the first match
+	// in the slice it's given. SelectGroup sorts a copy, so the caller controls order.
+	groups := []models.GroupsEligibleTarget{
+		{DirectoryID: "dir2", GroupID: "grp2", GroupName: "Engineering"},
+		{DirectoryID: "dir1", GroupID: "grp1", GroupName: "Engineering"},
+	}
+	got, err := FindGroupByDisplay(groups, "Group: Engineering")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Should return first in slice (grp2 since dir2 is first)
+	if got.GroupID != "grp2" {
+		t.Errorf("expected grp2 (first in slice), got %q", got.GroupID)
+	}
+}
+
 func TestFindGroupByDisplay(t *testing.T) {
 	t.Parallel()
 	groups := []models.GroupsEligibleTarget{

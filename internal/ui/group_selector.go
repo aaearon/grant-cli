@@ -43,12 +43,23 @@ func FindGroupByDisplay(groups []models.GroupsEligibleTarget, display string) (*
 }
 
 // SelectGroup presents an interactive selector for choosing a group.
+// It sorts a copy of the groups so that FindGroupByDisplay searches the same
+// ordered slice the user saw, avoiding wrong-group selection on display collisions.
 func SelectGroup(groups []models.GroupsEligibleTarget) (*models.GroupsEligibleTarget, error) {
 	if len(groups) == 0 {
 		return nil, fmt.Errorf("no eligible groups available")
 	}
 
-	options := BuildGroupOptions(groups)
+	sorted := make([]models.GroupsEligibleTarget, len(groups))
+	copy(sorted, groups)
+	sort.Slice(sorted, func(i, j int) bool {
+		return FormatGroupOption(sorted[i]) < FormatGroupOption(sorted[j])
+	})
+
+	options := make([]string, len(sorted))
+	for i := range sorted {
+		options[i] = FormatGroupOption(sorted[i])
+	}
 
 	var selected string
 	prompt := &survey.Select{
@@ -61,5 +72,5 @@ func SelectGroup(groups []models.GroupsEligibleTarget) (*models.GroupsEligibleTa
 		return nil, fmt.Errorf("group selection failed: %w", err)
 	}
 
-	return FindGroupByDisplay(groups, selected)
+	return FindGroupByDisplay(sorted, selected)
 }

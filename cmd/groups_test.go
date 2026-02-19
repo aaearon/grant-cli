@@ -374,7 +374,7 @@ func TestGroupsCommand(t *testing.T) {
 			elevator := tt.setupElevator()
 			selector := tt.setupSelector()
 
-			cmd := NewGroupsCommandWithDeps(auth, cloudElig, elig, elevator, selector)
+			cmd := NewGroupsCommandWithDeps(nil, auth, cloudElig, elig, elevator, selector, nil)
 			output, err := executeCommand(cmd, tt.args...)
 
 			if tt.wantErr && err == nil {
@@ -472,6 +472,97 @@ func TestGroupsCommandFavoriteMode(t *testing.T) {
 			wantErr:        true,
 		},
 		{
+			name: "favorite mode - directory ID filters correct group",
+			args: []string{"--favorite", "my-grp"},
+			cfg: func() *config.Config {
+				cfg := config.DefaultConfig()
+				_ = config.AddFavorite(cfg, "my-grp", config.Favorite{
+					Type:        config.FavoriteTypeGroups,
+					Provider:    "azure",
+					Group:       "Engineering",
+					DirectoryID: "dir1",
+				})
+				return cfg
+			}(),
+			setupAuth: func() *mockAuthLoader {
+				return &mockAuthLoader{
+					token: &authmodels.IdsecToken{Token: "jwt", Username: "user@example.com", ExpiresIn: expiresIn},
+				}
+			},
+			setupCloudElig: func() *mockEligibilityLister {
+				return &mockEligibilityLister{response: &scamodels.EligibilityResponse{Response: []scamodels.EligibleTarget{}}}
+			},
+			setupElig: func() *mockGroupsEligibilityLister {
+				return &mockGroupsEligibilityLister{
+					response: &scamodels.GroupsEligibilityResponse{
+						Response: []scamodels.GroupsEligibleTarget{
+							{DirectoryID: "dir2", GroupID: "grp-wrong", GroupName: "Engineering"},
+							{DirectoryID: "dir1", GroupID: "grp-right", GroupName: "Engineering"},
+						},
+						Total: 2,
+					},
+				}
+			},
+			setupElevator: func() *mockGroupsElevator {
+				return &mockGroupsElevator{
+					elevateFunc: func(ctx context.Context, req *scamodels.GroupsElevateRequest) (*scamodels.GroupsElevateResponse, error) {
+						if req.Targets[0].GroupID != "grp-right" {
+							t.Errorf("expected group ID grp-right, got %s", req.Targets[0].GroupID)
+						}
+						if req.DirectoryID != "dir1" {
+							t.Errorf("expected directory ID dir1, got %s", req.DirectoryID)
+						}
+						return &scamodels.GroupsElevateResponse{
+							DirectoryID: "dir1",
+							CSP:         scamodels.CSPAzure,
+							Results: []scamodels.GroupsElevateTargetResult{
+								{GroupID: "grp-right", SessionID: "sess1"},
+							},
+						}, nil
+					},
+				}
+			},
+			setupSelector: func() *mockGroupSelector { return &mockGroupSelector{} },
+			wantContain:   []string{"Elevated to group Engineering", "Session ID: sess1"},
+			wantErr:       false,
+		},
+		{
+			name: "favorite mode - directory ID mismatch returns error",
+			args: []string{"--favorite", "my-grp"},
+			cfg: func() *config.Config {
+				cfg := config.DefaultConfig()
+				_ = config.AddFavorite(cfg, "my-grp", config.Favorite{
+					Type:        config.FavoriteTypeGroups,
+					Provider:    "azure",
+					Group:       "Engineering",
+					DirectoryID: "dir-nonexistent",
+				})
+				return cfg
+			}(),
+			setupAuth: func() *mockAuthLoader {
+				return &mockAuthLoader{
+					token: &authmodels.IdsecToken{Token: "jwt", Username: "user@example.com", ExpiresIn: expiresIn},
+				}
+			},
+			setupCloudElig: func() *mockEligibilityLister {
+				return &mockEligibilityLister{response: &scamodels.EligibilityResponse{Response: []scamodels.EligibleTarget{}}}
+			},
+			setupElig: func() *mockGroupsEligibilityLister {
+				return &mockGroupsEligibilityLister{
+					response: &scamodels.GroupsEligibilityResponse{
+						Response: []scamodels.GroupsEligibleTarget{
+							{DirectoryID: "dir1", GroupID: "grp1", GroupName: "Engineering"},
+						},
+						Total: 1,
+					},
+				}
+			},
+			setupElevator: func() *mockGroupsElevator { return &mockGroupsElevator{} },
+			setupSelector: func() *mockGroupSelector { return &mockGroupSelector{} },
+			wantContain:   []string{"not found in directory"},
+			wantErr:       true,
+		},
+		{
 			name: "cloud favorite is rejected",
 			args: []string{"--favorite", "cloud-fav"},
 			cfg: func() *config.Config {
@@ -505,12 +596,7 @@ func TestGroupsCommandFavoriteMode(t *testing.T) {
 			elevator := tt.setupElevator()
 			selector := tt.setupSelector()
 
-			cmd := NewGroupsCommandWithDeps(auth, cloudElig, elig, elevator, selector)
-			cmd.SetContext(context.Background())
-
-			// Inject config via the new cfg parameter
-			// We need to use the test constructor that accepts config
-			cmd = NewGroupsCommandWithDepsAndConfig(auth, cloudElig, elig, elevator, selector, tt.cfg)
+			cmd := NewGroupsCommandWithDeps(nil, auth, cloudElig, elig, elevator, selector, tt.cfg)
 			output, err := executeCommand(cmd, tt.args...)
 
 			if tt.wantErr && err == nil {

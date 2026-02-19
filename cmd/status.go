@@ -75,6 +75,14 @@ func runStatus(cmd *cobra.Command, authLoader authLoader, sessionLister sessionL
 		return err
 	}
 
+	// Resolve directory names for group sessions (best-effort)
+	dirNameMap := buildDirectoryNameMap(ctx, eligLister, cmd.ErrOrStderr())
+	for k, v := range dirNameMap {
+		if _, exists := data.nameMap[k]; !exists {
+			data.nameMap[k] = v
+		}
+	}
+
 	// Display sessions
 	if len(data.sessions.Response) == 0 {
 		fmt.Fprintf(cmd.OutOrStdout(), "\nNo active sessions.\n")

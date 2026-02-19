@@ -23,6 +23,12 @@ All notable changes to this project will be documented in this file.
 - `grant revoke` now rejects `--provider` in direct mode (session IDs are already explicit)
 - `grant status` session formatting reuses shared `ui.FormatSessionOption` instead of duplicated logic
 - `buildWorkspaceNameMap` moved to shared `cmd/helpers.go` to eliminate cross-command dependency
+- `grant groups --favorite` now verifies DirectoryID from the favorite, preventing wrong-group elevation when multiple directories have identically-named groups
+- `grant groups` interactive selector sorts a local copy of groups, fixing wrong-group selection when display strings collide
+- `grant status` now resolves directory names for group sessions via `buildDirectoryNameMap`
+- `grant groups` subcommand no longer sets `SilenceErrors`/`SilenceUsage`, matching other subcommand patterns
+- Removed dead code in `TestGroupsCommandFavoriteMode` and consolidated `NewGroupsCommandWithDeps`/`NewGroupsCommandWithDepsAndConfig` into a single test constructor
+- `buildDirectoryNameMap` now handles nil eligibility response gracefully
 
 ## [0.2.1] - 2026-02-18
 

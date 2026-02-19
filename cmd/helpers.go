@@ -103,8 +103,8 @@ func buildDirectoryNameMap(ctx context.Context, eligLister eligibilityLister, er
 	nameMap := make(map[string]string)
 
 	resp, err := eligLister.ListEligibility(ctx, scamodels.CSPAzure)
-	if err != nil {
-		if verbose {
+	if err != nil || resp == nil {
+		if verbose && err != nil {
 			fmt.Fprintf(errWriter, "Warning: failed to resolve directory names: %v\n", err)
 		}
 		return nameMap

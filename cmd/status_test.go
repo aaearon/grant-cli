@@ -492,6 +492,12 @@ func TestStatusCommand(t *testing.T) {
 					response: &scamodels.EligibilityResponse{
 						Response: []scamodels.EligibleTarget{
 							{WorkspaceID: "/subscriptions/sub-1", WorkspaceName: "My Subscription"},
+							{
+								OrganizationID: "29cb7961-dir-uuid",
+								WorkspaceID:    "29cb7961-dir-uuid",
+								WorkspaceName:  "Contoso Directory",
+								WorkspaceType:  scamodels.WorkspaceTypeDirectory,
+							},
 						},
 					},
 				}
@@ -501,7 +507,7 @@ func TestStatusCommand(t *testing.T) {
 				"Contributor on My Subscription (/subscriptions/sub-1)",
 				"session: cloud-session-1",
 				"Groups sessions:",
-				"Group: group-uuid-1 in 29cb7961-dir-uuid",
+				"Group: group-uuid-1 in Contoso Directory",
 				"session: group-session-1",
 			},
 			wantErr: false,

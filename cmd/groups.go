@@ -40,9 +40,7 @@ Examples:
 
   # Favorite mode
   grant groups --favorite my-group`,
-		SilenceErrors: true,
-		SilenceUsage:  true,
-		RunE:          runFn,
+		RunE: runFn,
 	}
 
 	cmd.Flags().StringP("group", "g", "", "Group name for direct mode")
@@ -65,19 +63,7 @@ func NewGroupsCommand() *cobra.Command {
 
 // NewGroupsCommandWithDeps creates a groups command with injected dependencies for testing.
 func NewGroupsCommandWithDeps(
-	auth authLoader,
-	cloudElig eligibilityLister,
-	groupsElig groupsEligibilityLister,
-	elevator groupsElevator,
-	selector groupSelector,
-) *cobra.Command {
-	return newGroupsCommand(func(cmd *cobra.Command, args []string) error {
-		return runGroups(cmd, auth, cloudElig, groupsElig, elevator, selector, nil, nil)
-	})
-}
-
-// NewGroupsCommandWithDepsAndConfig creates a groups command with injected dependencies and config for testing.
-func NewGroupsCommandWithDepsAndConfig(
+	profile *sdkmodels.IdsecProfile,
 	auth authLoader,
 	cloudElig eligibilityLister,
 	groupsElig groupsEligibilityLister,
@@ -86,7 +72,7 @@ func NewGroupsCommandWithDepsAndConfig(
 	cfg *config.Config,
 ) *cobra.Command {
 	return newGroupsCommand(func(cmd *cobra.Command, args []string) error {
-		return runGroups(cmd, auth, cloudElig, groupsElig, elevator, selector, nil, cfg)
+		return runGroups(cmd, auth, cloudElig, groupsElig, elevator, selector, profile, cfg)
 	})
 }
 
@@ -102,6 +88,8 @@ func runGroups(
 ) error {
 	groupFlag, _ := cmd.Flags().GetString("group")
 	favoriteFlag, _ := cmd.Flags().GetString("favorite")
+
+	var favDirectoryID string
 
 	if favoriteFlag != "" {
 		if cfg == nil {
@@ -122,6 +110,7 @@ func runGroups(
 		}
 
 		groupFlag = fav.Group
+		favDirectoryID = fav.DirectoryID
 	}
 
 	// Check authentication
@@ -155,9 +144,12 @@ func runGroups(
 	var selectedGroup *scamodels.GroupsEligibleTarget
 
 	if groupFlag != "" {
-		// Direct mode
-		selectedGroup = findMatchingGroup(eligResp.Response, groupFlag)
+		// Direct mode (or favorite-resolved)
+		selectedGroup = findMatchingGroup(eligResp.Response, groupFlag, favDirectoryID)
 		if selectedGroup == nil {
+			if favDirectoryID != "" {
+				return fmt.Errorf("group %q not found in directory %q, run 'grant groups' to see available options", groupFlag, favDirectoryID)
+			}
 			return fmt.Errorf("group %q not found, run 'grant groups' to see available options", groupFlag)
 		}
 	} else {
@@ -207,10 +199,14 @@ func runGroups(
 	return nil
 }
 
-// findMatchingGroup finds a group by name (case-insensitive)
-func findMatchingGroup(groups []scamodels.GroupsEligibleTarget, name string) *scamodels.GroupsEligibleTarget {
+// findMatchingGroup finds a group by name (case-insensitive).
+// If directoryID is non-empty, only matches groups in that directory.
+func findMatchingGroup(groups []scamodels.GroupsEligibleTarget, name string, directoryID string) *scamodels.GroupsEligibleTarget {
 	for i := range groups {
 		if strings.EqualFold(groups[i].GroupName, name) {
+			if directoryID != "" && groups[i].DirectoryID != directoryID {
+				continue
+			}
 			return &groups[i]
 		}
 	}
