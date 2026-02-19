@@ -733,6 +733,7 @@ func TestFavoritesAddGroupFavorite(t *testing.T) {
 	tests := []struct {
 		name         string
 		setupConfig  func(string)
+		eligLister   eligibilityLister
 		groupsElig   groupsEligibilityLister
 		selector     unifiedSelector
 		namePrompter namePrompter
@@ -796,6 +797,17 @@ func TestFavoritesAddGroupFavorite(t *testing.T) {
 				cfg := config.DefaultConfig()
 				_ = config.Save(cfg, path)
 			},
+			eligLister: &mockEligibilityLister{
+				response: &models.EligibilityResponse{
+					Response: []models.EligibleTarget{
+						{
+							WorkspaceID:   "dir-1",
+							WorkspaceName: "CyberIAM Tech Labs",
+							WorkspaceType: models.WorkspaceTypeDirectory,
+						},
+					},
+				},
+			},
 			groupsElig: &mockGroupsEligibilityLister{
 				response: &models.GroupsEligibilityResponse{
 					Response: []models.GroupsEligibleTarget{
@@ -811,6 +823,37 @@ func TestFavoritesAddGroupFavorite(t *testing.T) {
 						if item.kind != selectionGroup {
 							return nil, errors.New("expected only group items for --type groups")
 						}
+					}
+					// Verify directory name was enriched
+					if items[0].group.DirectoryName != "CyberIAM Tech Labs" {
+						return nil, errors.New("expected DirectoryName to be enriched")
+					}
+					return &items[0], nil
+				},
+			},
+			args:        []string{"my-grp", "--type", "groups"},
+			wantContain: []string{"Added favorite", "my-grp", "groups/Engineering"},
+			wantErr:     false,
+		},
+		{
+			name: "interactive - works without eligLister (no directory enrichment)",
+			setupConfig: func(path string) {
+				cfg := config.DefaultConfig()
+				_ = config.Save(cfg, path)
+			},
+			groupsElig: &mockGroupsEligibilityLister{
+				response: &models.GroupsEligibilityResponse{
+					Response: []models.GroupsEligibleTarget{
+						{DirectoryID: "dir-1", GroupID: "grp-1", GroupName: "Engineering"},
+					},
+					Total: 1,
+				},
+			},
+			selector: &mockUnifiedSelector{
+				selectFunc: func(items []selectionItem) (*selectionItem, error) {
+					// Directory name should be empty when no eligLister
+					if items[0].group.DirectoryName != "" {
+						return nil, errors.New("expected empty DirectoryName without eligLister")
 					}
 					return &items[0], nil
 				},
@@ -840,7 +883,7 @@ func TestFavoritesAddGroupFavorite(t *testing.T) {
 			tt.setupConfig(configPath)
 
 			rootCmd := newTestRootCommand()
-			favCmd := NewFavoritesCommandWithAllDeps(nil, tt.selector, tt.namePrompter, tt.groupsElig)
+			favCmd := NewFavoritesCommandWithAllDeps(tt.eligLister, tt.selector, tt.namePrompter, tt.groupsElig)
 			rootCmd.AddCommand(favCmd)
 
 			cmdArgs := append([]string{"favorites", "add"}, tt.args...)

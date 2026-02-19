@@ -102,6 +102,9 @@ func fetchStatusData(
 // Errors are silently ignored (graceful degradation — groups display without directory context).
 func buildDirectoryNameMap(ctx context.Context, eligLister eligibilityLister, errWriter io.Writer) map[string]string {
 	nameMap := make(map[string]string)
+	if eligLister == nil {
+		return nameMap
+	}
 
 	resp, err := eligLister.ListEligibility(ctx, scamodels.CSPAzure)
 	if err != nil || resp == nil {
