@@ -4,8 +4,10 @@ import (
 	"context"
 
 	"github.com/aaearon/grant-cli/internal/sca/models"
+	"github.com/blang/semver"
 	sdkmodels "github.com/cyberark/idsec-sdk-golang/pkg/models"
 	authmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
+	"github.com/rhysd/go-github-selfupdate/selfupdate"
 )
 
 // authLoader interface for loading authentication
@@ -81,4 +83,9 @@ type groupsElevator interface {
 // unifiedSelector interface for interactive selection of cloud targets or groups
 type unifiedSelector interface {
 	SelectItem(items []selectionItem) (*selectionItem, error)
+}
+
+// selfUpdater interface for self-updating the binary via GitHub Releases
+type selfUpdater interface {
+	UpdateSelf(current semver.Version, slug string) (*selfupdate.Release, error)
 }

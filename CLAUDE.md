@@ -56,6 +56,7 @@ Custom `SCAAccessService` follows SDK conventions:
 - `Iilun/survey/v2` for interactive prompts
 - `grant env` — performs elevation, outputs only `export` statements (no human text); usage: `eval $(grant env --provider aws)`; supports `--refresh`
 - `grant revoke` — revoke sessions: direct (`grant revoke <id>`), `--all`, or interactive multi-select; `--yes` skips confirmation
+- `grant update` — self-update binary via GitHub Releases (`rhysd/go-github-selfupdate`); guards against dev builds
 - `--groups` flag on root command shows only Entra ID groups in the interactive selector
 - `--group` / `-g` flag on root command for direct group membership elevation (`grant --group "Cloud Admins"`)
 - Root command unified selector shows both cloud roles and Entra ID groups; groups use `/eligibility/groups` and `/elevate/groups` API endpoints

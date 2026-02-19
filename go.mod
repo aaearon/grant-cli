@@ -4,7 +4,9 @@ go 1.25.0
 
 require (
 	github.com/Iilun/survey/v2 v2.5.3
+	github.com/blang/semver v3.5.1+incompatible
 	github.com/cyberark/idsec-sdk-golang v0.1.14
+	github.com/rhysd/go-github-selfupdate v1.2.3
 	github.com/spf13/cobra v1.9.1
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -15,7 +17,6 @@ require (
 	github.com/EDDYCJY/fake-useragent v0.2.0 // indirect
 	github.com/PuerkitoBio/goquery v1.10.3 // indirect
 	github.com/andybalholm/cascadia v1.3.3 // indirect
-	github.com/blang/semver v3.5.1+incompatible // indirect
 	github.com/danieljoos/wincred v1.2.2 // indirect
 	github.com/dvsekhvalnov/jose2go v1.5.0 // indirect
 	github.com/ebitengine/purego v0.9.0 // indirect
@@ -39,7 +40,6 @@ require (
 	github.com/mgutz/ansi v0.0.0-20200706080929-d51e80ef957d // indirect
 	github.com/mtibben/percent v0.2.1 // indirect
 	github.com/power-devops/perfstat v0.0.0-20240221224432-82ca36839d55 // indirect
-	github.com/rhysd/go-github-selfupdate v1.2.3 // indirect
 	github.com/shirou/gopsutil/v4 v4.25.10 // indirect
 	github.com/spf13/pflag v1.0.6 // indirect
 	github.com/tcnksm/go-gitconfig v0.1.2 // indirect

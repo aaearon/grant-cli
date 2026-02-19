@@ -6,8 +6,10 @@ import (
 	"sync"
 
 	"github.com/aaearon/grant-cli/internal/sca/models"
+	"github.com/blang/semver"
 	sdkmodels "github.com/cyberark/idsec-sdk-golang/pkg/models"
 	authmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
+	"github.com/rhysd/go-github-selfupdate/selfupdate"
 )
 
 // errNotAuthenticated is a sentinel error used in tests to simulate
@@ -220,6 +222,20 @@ func (m *mockUnifiedSelector) SelectItem(items []selectionItem) (*selectionItem,
 		return m.selectFunc(items)
 	}
 	return m.item, m.selectErr
+}
+
+// mockSelfUpdater implements selfUpdater interface for testing
+type mockSelfUpdater struct {
+	updateSelfFn func(semver.Version, string) (*selfupdate.Release, error)
+	release      *selfupdate.Release
+	updateErr    error
+}
+
+func (m *mockSelfUpdater) UpdateSelf(current semver.Version, slug string) (*selfupdate.Release, error) {
+	if m.updateSelfFn != nil {
+		return m.updateSelfFn(current, slug)
+	}
+	return m.release, m.updateErr
 }
 
 // countingEligibilityLister wraps an eligibilityLister and counts calls per CSP.
