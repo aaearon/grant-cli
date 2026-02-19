@@ -150,6 +150,34 @@ func (s *SCAAccessService) Elevate(ctx context.Context, req *models.ElevateReque
 	return &result, nil
 }
 
+// RevokeSessions revokes one or more active sessions by their IDs.
+// POST /api/access/sessions/revoke
+func (s *SCAAccessService) RevokeSessions(ctx context.Context, req *models.RevokeRequest) (*models.RevokeResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("revoke request cannot be nil")
+	}
+	if len(req.SessionIDs) == 0 {
+		return nil, fmt.Errorf("revoke request must contain at least one session ID")
+	}
+
+	resp, err := s.httpClient.Post(ctx, "/api/access/sessions/revoke", req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to revoke sessions: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if err := checkResponse(resp, "revoke sessions request"); err != nil {
+		return nil, err
+	}
+
+	var result models.RevokeResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode revoke response: %w", err)
+	}
+
+	return &result, nil
+}
+
 // ListSessions retrieves active elevated sessions, optionally filtered by CSP.
 // GET /api/access/sessions
 func (s *SCAAccessService) ListSessions(ctx context.Context, csp *models.CSP) (*models.SessionsResponse, error) {

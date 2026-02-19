@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `grant revoke` command for session revocation with three modes: direct (by session ID), `--all`, and interactive (multi-select)
+- `--yes`/`-y` flag on `grant revoke` to skip confirmation for scripting
+- `--provider`/`-p` flag on `grant revoke --all` and interactive mode to filter by cloud provider
+- Session ID displayed in `grant status` output for easy reference with `grant revoke`
+
+### Fixed
+
+- `grant revoke` now rejects `--provider` in direct mode (session IDs are already explicit)
+- `grant status` session formatting reuses shared `ui.FormatSessionOption` instead of duplicated logic
+- `buildWorkspaceNameMap` moved to shared `cmd/helpers.go` to eliminate cross-command dependency
+
 ## [0.2.1] - 2026-02-18
 
 ### Fixed

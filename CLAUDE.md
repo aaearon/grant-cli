@@ -39,6 +39,7 @@ Custom `SCAAccessService` follows SDK conventions:
   - `GET /api/access/{CSP}/eligibility` — list eligible targets
   - `POST /api/access/elevate` — request JIT elevation (AWS responses include `accessCredentials` JSON string)
   - `GET /api/access/sessions` — list active sessions
+  - `POST /api/access/sessions/revoke` — revoke sessions by ID (request: `sessionIds[]`, response: `SessionRevocationInfo[]`)
 - **Headers:** `Authorization: Bearer {jwt}`, `X-API-Version: 2.0`, `Content-Type: application/json`
 
 ## Testing
@@ -52,6 +53,7 @@ Custom `SCAAccessService` follows SDK conventions:
 - `spf13/cobra` for CLI framework
 - `Iilun/survey/v2` for interactive prompts
 - `grant env` — performs elevation, outputs only `export` statements (no human text); usage: `eval $(grant env --provider aws)`
+- `grant revoke` — revoke sessions: direct (`grant revoke <id>`), `--all`, or interactive multi-select; `--yes` skips confirmation
 - Multi-CSP: omitting `--provider` fetches eligibility from all supported CSPs and merges results
 - `fetchEligibility()` and `resolveTargetCSP()` in `cmd/root.go` — shared by root, env, and favorites
 

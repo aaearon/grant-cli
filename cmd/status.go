@@ -3,11 +3,11 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"io"
 	"sort"
 	"strings"
 
 	scamodels "github.com/aaearon/grant-cli/internal/sca/models"
+	"github.com/aaearon/grant-cli/internal/ui"
 	"github.com/cyberark/idsec-sdk-golang/pkg/models"
 	"github.com/spf13/cobra"
 )
@@ -96,7 +96,7 @@ func runStatus(cmd *cobra.Command, authLoader authLoader, sessionLister sessionL
 	for _, p := range sortedProviders(sessionsByProvider) {
 		fmt.Fprintf(cmd.OutOrStdout(), "%s sessions:\n", formatProviderName(p))
 		for _, session := range sessionsByProvider[p] {
-			fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", formatSession(session, nameMap))
+			fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", ui.FormatSessionOption(session, nameMap))
 		}
 	}
 
@@ -147,57 +147,3 @@ func formatProviderName(provider string) string {
 	}
 }
 
-// buildWorkspaceNameMap fetches eligibility for each unique CSP in sessions
-// and builds a workspaceID -> workspaceName map. Errors are silently ignored
-// (graceful degradation — the raw workspace ID is shown as fallback).
-func buildWorkspaceNameMap(ctx context.Context, eligLister eligibilityLister, sessions []scamodels.SessionInfo, errWriter io.Writer) map[string]string {
-	nameMap := make(map[string]string)
-
-	// Collect unique CSPs
-	csps := make(map[scamodels.CSP]bool)
-	for _, s := range sessions {
-		csps[s.CSP] = true
-	}
-
-	// Fetch eligibility for each CSP
-	for csp := range csps {
-		if ctx.Err() != nil {
-			break
-		}
-		resp, err := eligLister.ListEligibility(ctx, csp)
-		if err != nil || resp == nil {
-			if verbose && err != nil {
-				fmt.Fprintf(errWriter, "Warning: failed to fetch names for %s: %v\n", csp, err)
-			}
-			continue
-		}
-		for _, target := range resp.Response {
-			if target.WorkspaceName != "" {
-				nameMap[target.WorkspaceID] = target.WorkspaceName
-			}
-		}
-	}
-
-	return nameMap
-}
-
-// formatSession formats a session for display.
-// The live API's role_id field contains the role display name (e.g., "User Access Administrator").
-// workspace_id contains the ARM resource path. If a friendly name is available from
-// the eligibility API, it is shown as "name (path)"; otherwise the raw path is shown.
-func formatSession(session scamodels.SessionInfo, nameMap map[string]string) string {
-	durationMin := session.SessionDuration / 60
-	var durationStr string
-	if durationMin >= 60 {
-		durationStr = fmt.Sprintf("%dh %dm", durationMin/60, durationMin%60)
-	} else {
-		durationStr = fmt.Sprintf("%dm", durationMin)
-	}
-
-	workspace := session.WorkspaceID
-	if name, ok := nameMap[session.WorkspaceID]; ok {
-		workspace = fmt.Sprintf("%s (%s)", name, session.WorkspaceID)
-	}
-
-	return fmt.Sprintf("%s on %s - duration: %s", session.RoleID, workspace, durationStr)
-}
