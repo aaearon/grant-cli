@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"slices"
 	"strings"
@@ -182,14 +181,14 @@ func runElevateProduction(cmd *cobra.Command, args []string) error {
 // buildCachedLister creates a CachedEligibilityLister wrapping the given services.
 // If the cache directory cannot be resolved, it falls back to the unwrapped services.
 func buildCachedLister(cfg *config.Config, refresh bool, cloudInner cache.EligibilityLister, groupsInner cache.GroupsEligibilityLister) *cache.CachedEligibilityLister {
-	log := common.GetLogger("grant", -1)
+	cacheLog := common.GetLogger("grant", -1)
 	cacheDir, err := cache.CacheDir()
 	if err != nil {
 		return cache.NewCachedEligibilityLister(cloudInner, groupsInner, cache.NewStore("", 0), true, nil)
 	}
 	ttl := config.ParseCacheTTL(cfg)
 	store := cache.NewStore(cacheDir, ttl)
-	return cache.NewCachedEligibilityLister(cloudInner, groupsInner, store, refresh, log)
+	return cache.NewCachedEligibilityLister(cloudInner, groupsInner, store, refresh, cacheLog)
 }
 
 // NewRootCommandWithDeps creates a root command with injected dependencies for testing.
@@ -257,9 +256,7 @@ func fetchEligibility(ctx context.Context, eligLister eligibilityLister, provide
 		var all []models.EligibleTarget
 		for r := range results {
 			if r.err != nil {
-				if verbose {
-					fmt.Fprintf(os.Stderr, "[verbose] %s eligibility query failed: %v\n", r.csp, r.err)
-				}
+				log.Info("%s eligibility query failed: %v", r.csp, r.err)
 				continue
 			}
 			for _, t := range r.targets {
@@ -439,7 +436,7 @@ func resolveAndElevate(
 }
 
 // fetchGroupsEligibility fetches groups eligibility and enriches with directory names.
-func fetchGroupsEligibility(ctx context.Context, groupsEligLister groupsEligibilityLister, cloudEligLister eligibilityLister, errWriter io.Writer) ([]models.GroupsEligibleTarget, error) {
+func fetchGroupsEligibility(ctx context.Context, groupsEligLister groupsEligibilityLister, cloudEligLister eligibilityLister) ([]models.GroupsEligibleTarget, error) {
 	eligResp, err := groupsEligLister.ListGroupsEligibility(ctx, models.CSPAzure)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch eligible groups: %w", err)
@@ -449,7 +446,7 @@ func fetchGroupsEligibility(ctx context.Context, groupsEligLister groupsEligibil
 	}
 
 	// Resolve directory names from cloud eligibility (best-effort)
-	dirNameMap := buildDirectoryNameMap(ctx, cloudEligLister, errWriter)
+	dirNameMap := buildDirectoryNameMap(ctx, cloudEligLister)
 	for i := range eligResp.Response {
 		if name, ok := dirNameMap[eligResp.Response[i].DirectoryID]; ok {
 			eligResp.Response[i].DirectoryName = name
@@ -522,7 +519,7 @@ func resolveAndElevateUnified(
 
 	// Group-only path (--group flag or group favorite)
 	if flags.group != "" {
-		groups, err := fetchGroupsEligibility(ctx, groupsEligLister, eligibilityLister, cmd.ErrOrStderr())
+		groups, err := fetchGroupsEligibility(ctx, groupsEligLister, eligibilityLister)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -540,7 +537,7 @@ func resolveAndElevateUnified(
 
 	// Groups-filter path (--groups flag, no --group)
 	if flags.groups {
-		groups, err := fetchGroupsEligibility(ctx, groupsEligLister, eligibilityLister, cmd.ErrOrStderr())
+		groups, err := fetchGroupsEligibility(ctx, groupsEligLister, eligibilityLister)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -608,7 +605,7 @@ func resolveAndElevateUnified(
 	}()
 
 	go func() {
-		groups, err := fetchGroupsEligibility(ctx, groupsEligLister, eligibilityLister, cmd.ErrOrStderr())
+		groups, err := fetchGroupsEligibility(ctx, groupsEligLister, eligibilityLister)
 		groupsCh <- groupsResult{groups: groups, err: err}
 	}()
 

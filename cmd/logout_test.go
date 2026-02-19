@@ -56,6 +56,33 @@ func TestLogoutCommand(t *testing.T) {
 	}
 }
 
+func TestLogoutCommand_VerboseLogs(t *testing.T) {
+	spy := &spyLogger{}
+	oldLog := log
+	log = spy
+	defer func() { log = oldLog }()
+
+	cmd := NewLogoutCommandWithDeps(&mockKeyringClearer{})
+	_, err := executeCommand(cmd)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	wantMessages := []string{"Clearing keyring", "Keyring cleared"}
+	for _, want := range wantMessages {
+		found := false
+		for _, msg := range spy.messages {
+			if strings.Contains(msg, want) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected log containing %q, got: %v", want, spy.messages)
+		}
+	}
+}
+
 func TestLogoutCommandIntegration(t *testing.T) {
 	// Test that logout command is properly registered
 	rootCmd := newTestRootCommand()

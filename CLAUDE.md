@@ -77,6 +77,8 @@ Custom `SCAAccessService` follows SDK conventions:
 ## Verbose / Logging
 - `--verbose` / `-v` global flag wired via `PersistentPreRunE` in `cmd/root.go`
 - Calls `config.EnableVerboseLogging("INFO")` (sets `IDSEC_LOG_LEVEL=INFO`) or `config.DisableVerboseLogging()` (sets `IDSEC_LOG_LEVEL=CRITICAL`)
+- `cmdLogger` interface in `cmd/verbose.go` — `Info(msg string, v ...interface{})`, satisfied by `*common.IdsecLogger`
+- `log` package-level var in `cmd/verbose.go` — all commands use `log.Info(...)` for verbose output; tests swap with `spyLogger`
 - `loggingClient` in `internal/sca/logging_client.go` decorates `httpClient`, logging method/route/status/duration at INFO, response headers at DEBUG with Authorization redaction
 - `NewSCAAccessService()` wraps ISP client with `loggingClient` using `common.GetLogger("grant", -1)` (dynamic level from env)
 - `NewSCAAccessServiceWithClient()` (test constructor) does not wrap — tests don't need logging

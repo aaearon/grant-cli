@@ -162,7 +162,7 @@ func runRevoke(
 			}
 		} else {
 			// Interactive mode
-			nameMap := buildWorkspaceNameMap(ctx, elig, sessions.Response, cmd.ErrOrStderr())
+			nameMap := buildWorkspaceNameMap(ctx, elig, sessions.Response)
 
 			selected, err := selector.SelectSessions(sessions.Response, nameMap)
 			if err != nil {

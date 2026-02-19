@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"strings"
@@ -204,9 +203,8 @@ func TestFetchStatusData(t *testing.T) {
 
 			sessionLister := tt.setupSessions()
 			eligLister := tt.setupEligibility()
-			var errBuf bytes.Buffer
 
-			data, err := fetchStatusData(ctx, sessionLister, eligLister, tt.cspFilter, &errBuf)
+			data, err := fetchStatusData(ctx, sessionLister, eligLister, tt.cspFilter)
 
 			if tt.wantErr {
 				if err == nil {
@@ -235,9 +233,10 @@ func TestFetchStatusData(t *testing.T) {
 }
 
 func TestFetchStatusData_VerboseWarning(t *testing.T) {
-	oldVerbose := verbose
-	verbose = true
-	defer func() { verbose = oldVerbose }()
+	spy := &spyLogger{}
+	oldLog := log
+	log = spy
+	defer func() { log = oldLog }()
 
 	ctx := context.Background()
 	sessionLister := &mockSessionLister{
@@ -252,8 +251,7 @@ func TestFetchStatusData_VerboseWarning(t *testing.T) {
 		listErr: errors.New("eligibility API unavailable"),
 	}
 
-	var errBuf bytes.Buffer
-	data, err := fetchStatusData(ctx, sessionLister, eligLister, nil, &errBuf)
+	data, err := fetchStatusData(ctx, sessionLister, eligLister, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -264,10 +262,19 @@ func TestFetchStatusData_VerboseWarning(t *testing.T) {
 		t.Errorf("expected empty nameMap, got %v", data.nameMap)
 	}
 
-	// Verify verbose warnings were written for both CSPs
-	errOutput := errBuf.String()
-	if !strings.Contains(errOutput, "Warning:") {
-		t.Errorf("expected verbose warning, got: %q", errOutput)
+	// Verify verbose warnings were logged via SDK logger
+	if len(spy.messages) == 0 {
+		t.Error("expected verbose log messages, got none")
+	}
+	found := false
+	for _, msg := range spy.messages {
+		if strings.Contains(msg, "failed to fetch names") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected 'failed to fetch names' log message, got: %v", spy.messages)
 	}
 }
 
@@ -410,8 +417,7 @@ func TestBuildWorkspaceNameMap(t *testing.T) {
 			}
 
 			eligLister := tt.setupEligibility()
-			var errBuf bytes.Buffer
-			nameMap := buildWorkspaceNameMap(ctx, eligLister, tt.sessions, &errBuf)
+			nameMap := buildWorkspaceNameMap(ctx, eligLister, tt.sessions)
 
 			for _, key := range tt.wantNameMapKeys {
 				if _, ok := nameMap[key]; !ok {
@@ -433,9 +439,10 @@ func TestBuildWorkspaceNameMap(t *testing.T) {
 }
 
 func TestBuildWorkspaceNameMap_VerboseWarning(t *testing.T) {
-	oldVerbose := verbose
-	verbose = true
-	defer func() { verbose = oldVerbose }()
+	spy := &spyLogger{}
+	oldLog := log
+	log = spy
+	defer func() { log = oldLog }()
 
 	ctx := context.Background()
 	eligLister := &mockEligibilityLister{
@@ -446,10 +453,16 @@ func TestBuildWorkspaceNameMap_VerboseWarning(t *testing.T) {
 		{CSP: scamodels.CSPAzure, WorkspaceID: "/subscriptions/sub-1"},
 	}
 
-	var buf bytes.Buffer
-	_ = buildWorkspaceNameMap(ctx, eligLister, sessions, &buf)
+	_ = buildWorkspaceNameMap(ctx, eligLister, sessions)
 
-	if !strings.Contains(buf.String(), "Warning: failed to fetch names for AZURE") {
-		t.Errorf("expected verbose warning, got: %q", buf.String())
+	found := false
+	for _, msg := range spy.messages {
+		if strings.Contains(msg, "failed to fetch names") && strings.Contains(msg, "AZURE") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected 'failed to fetch names for AZURE' log, got: %v", spy.messages)
 	}
 }

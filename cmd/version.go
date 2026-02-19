@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"runtime"
 
 	"github.com/spf13/cobra"
 )
@@ -39,6 +40,9 @@ func printVersion(cmd *cobra.Command) error {
 	if d == "" {
 		d = "unknown"
 	}
+
+	log.Info("Go version: %s", runtime.Version())
+	log.Info("OS/Arch: %s/%s", runtime.GOOS, runtime.GOARCH)
 
 	fmt.Fprintf(cmd.OutOrStdout(), "grant version %s\ncommit: %s\nbuilt: %s\n", v, c, d)
 	return nil

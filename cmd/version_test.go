@@ -74,6 +74,37 @@ func TestVersionCommand(t *testing.T) {
 	}
 }
 
+func TestVersionCommand_VerboseLogs(t *testing.T) {
+	spy := &spyLogger{}
+	oldLog := log
+	log = spy
+	defer func() { log = oldLog }()
+
+	oldVersion, oldCommit, oldDate := version, commit, buildDate
+	version, commit, buildDate = "1.0.0", "abc1234", "2026-02-10"
+	defer func() { version, commit, buildDate = oldVersion, oldCommit, oldDate }()
+
+	cmd := NewVersionCommand()
+	_, err := executeCommand(cmd)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	wantMessages := []string{"Go version", "OS/Arch"}
+	for _, want := range wantMessages {
+		found := false
+		for _, msg := range spy.messages {
+			if strings.Contains(msg, want) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected log containing %q, got: %v", want, spy.messages)
+		}
+	}
+}
+
 func TestVersionCommandIntegration(t *testing.T) {
 	// Test that version command is properly registered
 	rootCmd := newTestRootCommand()
