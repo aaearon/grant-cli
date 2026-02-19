@@ -23,7 +23,7 @@ func NewConfigureCommand() *cobra.Command {
 		Long: `Configure grant by providing your CyberArk username and optional Identity URL.
 
 This command creates two configuration files:
-- SDK profile at ~/.idsec_profiles/grant.json
+- SDK profile at ~/.idsec_profiles/grant
 - App config at ~/.grant/config.yaml
 
 The Identity URL is optional — the SDK can auto-discover it from your username.
@@ -114,7 +114,7 @@ func runConfigure(cmd *cobra.Command, saver profileSaver, tenantURL, username st
 		home, _ := os.UserHomeDir()
 		profileDir = filepath.Join(home, ".idsec_profiles")
 	}
-	profilePath := filepath.Join(profileDir, "grant.json")
+	profilePath := filepath.Join(profileDir, "grant")
 
 	// Create app config
 	cfg := &config.Config{
