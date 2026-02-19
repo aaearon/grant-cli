@@ -83,6 +83,48 @@ func (m *mockTargetSelector) SelectTarget(targets []models.EligibleTarget) (*mod
 	return m.target, m.selectErr
 }
 
+// mockSessionRevoker implements the sessionRevoker interface for testing
+type mockSessionRevoker struct {
+	revokeFunc func(ctx context.Context, req *models.RevokeRequest) (*models.RevokeResponse, error)
+	response   *models.RevokeResponse
+	revokeErr  error
+}
+
+func (m *mockSessionRevoker) RevokeSessions(ctx context.Context, req *models.RevokeRequest) (*models.RevokeResponse, error) {
+	if m.revokeFunc != nil {
+		return m.revokeFunc(ctx, req)
+	}
+	return m.response, m.revokeErr
+}
+
+// mockSessionSelector implements the sessionSelector interface for testing
+type mockSessionSelector struct {
+	selectFunc func(sessions []models.SessionInfo, nameMap map[string]string) ([]models.SessionInfo, error)
+	sessions   []models.SessionInfo
+	selectErr  error
+}
+
+func (m *mockSessionSelector) SelectSessions(sessions []models.SessionInfo, nameMap map[string]string) ([]models.SessionInfo, error) {
+	if m.selectFunc != nil {
+		return m.selectFunc(sessions, nameMap)
+	}
+	return m.sessions, m.selectErr
+}
+
+// mockConfirmPrompter implements the confirmPrompter interface for testing
+type mockConfirmPrompter struct {
+	confirmFunc func(count int) (bool, error)
+	confirmed   bool
+	confirmErr  error
+}
+
+func (m *mockConfirmPrompter) ConfirmRevocation(count int) (bool, error) {
+	if m.confirmFunc != nil {
+		return m.confirmFunc(count)
+	}
+	return m.confirmed, m.confirmErr
+}
+
 // mockAuthenticator implements the authenticator interface for testing
 type mockAuthenticator struct {
 	authenticateFunc func(profile *sdkmodels.IdsecProfile, authProfile *authmodels.IdsecAuthProfile, secret *authmodels.IdsecSecret, force bool, refreshAuth bool) (*authmodels.IdsecToken, error)

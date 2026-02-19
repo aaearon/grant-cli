@@ -318,6 +318,124 @@ func TestElevate_EmptyTargets(t *testing.T) {
 	}
 }
 
+func TestRevokeSessions_Success(t *testing.T) {
+	resp := models.RevokeResponse{
+		Response: []models.RevocationResult{
+			{
+				SessionID:        "session-1",
+				RevocationStatus: models.RevocationSuccessful,
+			},
+		},
+	}
+
+	body, _ := json.Marshal(resp)
+	mock := &mockHTTPClient{
+		postResponse: &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(string(body))),
+		},
+	}
+
+	svc := &SCAAccessService{httpClient: mock}
+	result, err := svc.RevokeSessions(context.Background(), &models.RevokeRequest{
+		SessionIDs: []string{"session-1"},
+	})
+
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if len(result.Response) != 1 {
+		t.Errorf("expected 1 result, got %d", len(result.Response))
+	}
+	if result.Response[0].SessionID != "session-1" {
+		t.Errorf("expected session ID session-1, got %s", result.Response[0].SessionID)
+	}
+	if result.Response[0].RevocationStatus != models.RevocationSuccessful {
+		t.Errorf("expected status %s, got %s", models.RevocationSuccessful, result.Response[0].RevocationStatus)
+	}
+}
+
+func TestRevokeSessions_Multiple(t *testing.T) {
+	resp := models.RevokeResponse{
+		Response: []models.RevocationResult{
+			{SessionID: "session-1", RevocationStatus: models.RevocationSuccessful},
+			{SessionID: "session-2", RevocationStatus: models.RevocationInProgress},
+		},
+	}
+
+	body, _ := json.Marshal(resp)
+	mock := &mockHTTPClient{
+		postResponse: &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(string(body))),
+		},
+	}
+
+	svc := &SCAAccessService{httpClient: mock}
+	result, err := svc.RevokeSessions(context.Background(), &models.RevokeRequest{
+		SessionIDs: []string{"session-1", "session-2"},
+	})
+
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(result.Response) != 2 {
+		t.Errorf("expected 2 results, got %d", len(result.Response))
+	}
+}
+
+func TestRevokeSessions_NilRequest(t *testing.T) {
+	mock := &mockHTTPClient{}
+	svc := &SCAAccessService{httpClient: mock}
+
+	_, err := svc.RevokeSessions(context.Background(), nil)
+	if err == nil {
+		t.Fatal("expected error for nil request")
+	}
+	if !strings.Contains(err.Error(), "nil") {
+		t.Errorf("expected error to mention nil, got: %v", err)
+	}
+}
+
+func TestRevokeSessions_EmptySessionIDs(t *testing.T) {
+	mock := &mockHTTPClient{}
+	svc := &SCAAccessService{httpClient: mock}
+
+	_, err := svc.RevokeSessions(context.Background(), &models.RevokeRequest{
+		SessionIDs: []string{},
+	})
+	if err == nil {
+		t.Fatal("expected error for empty session IDs")
+	}
+	if !strings.Contains(err.Error(), "session ID") {
+		t.Errorf("expected error about session IDs, got: %v", err)
+	}
+}
+
+func TestRevokeSessions_HTTPError(t *testing.T) {
+	mock := &mockHTTPClient{
+		postResponse: &http.Response{
+			StatusCode: http.StatusForbidden,
+			Body:       io.NopCloser(strings.NewReader(`{"error": "forbidden"}`)),
+		},
+	}
+
+	svc := &SCAAccessService{httpClient: mock}
+	_, err := svc.RevokeSessions(context.Background(), &models.RevokeRequest{
+		SessionIDs: []string{"session-1"},
+	})
+
+	if err == nil {
+		t.Fatal("expected error for 403 response")
+	}
+	if !strings.Contains(err.Error(), "403") {
+		t.Errorf("expected error to mention status code 403, got: %v", err)
+	}
+}
+
 func TestListSessions_Success(t *testing.T) {
 	resp := models.SessionsResponse{
 		Response: []models.SessionInfo{

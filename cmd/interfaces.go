@@ -33,6 +33,21 @@ type sessionLister interface {
 	ListSessions(ctx context.Context, csp *models.CSP) (*models.SessionsResponse, error)
 }
 
+// sessionRevoker interface for revoking sessions
+type sessionRevoker interface {
+	RevokeSessions(ctx context.Context, req *models.RevokeRequest) (*models.RevokeResponse, error)
+}
+
+// sessionSelector interface for interactive session selection
+type sessionSelector interface {
+	SelectSessions(sessions []models.SessionInfo, nameMap map[string]string) ([]models.SessionInfo, error)
+}
+
+// confirmPrompter interface for confirmation prompts
+type confirmPrompter interface {
+	ConfirmRevocation(count int) (bool, error)
+}
+
 // keyringClearer interface for clearing keyring passwords
 type keyringClearer interface {
 	ClearAllPasswords() error
