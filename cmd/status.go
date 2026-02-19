@@ -78,13 +78,13 @@ func runStatus(cmd *cobra.Command, authLoader authLoader, sessionLister sessionL
 	// Fetch sessions and eligibility concurrently
 	ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
 	defer cancel()
-	data, err := fetchStatusData(ctx, sessionLister, eligLister, cspFilter, cmd.ErrOrStderr())
+	data, err := fetchStatusData(ctx, sessionLister, eligLister, cspFilter)
 	if err != nil {
 		return err
 	}
 
 	// Resolve directory names for group sessions (best-effort)
-	dirNameMap := buildDirectoryNameMap(ctx, eligLister, cmd.ErrOrStderr())
+	dirNameMap := buildDirectoryNameMap(ctx, eligLister)
 	for k, v := range dirNameMap {
 		if _, exists := data.nameMap[k]; !exists {
 			data.nameMap[k] = v

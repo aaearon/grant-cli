@@ -36,10 +36,12 @@ func NewLogoutCommandWithDeps(clearer keyringClearer) *cobra.Command {
 }
 
 func runLogout(cmd *cobra.Command, clearer keyringClearer) error {
+	log.Info("Clearing keyring...")
 	if err := clearer.ClearAllPasswords(); err != nil {
 		return fmt.Errorf("failed to clear authentication: %w", err)
 	}
 
+	log.Info("Keyring cleared")
 	fmt.Fprintln(cmd.OutOrStdout(), "Logged out successfully")
 	return nil
 }

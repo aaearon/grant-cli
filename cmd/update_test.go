@@ -149,6 +149,48 @@ func TestUpdateCommandPassesSlug(t *testing.T) {
 	}
 }
 
+func TestUpdateCommand_VerboseLogs(t *testing.T) {
+	spy := &spyLogger{}
+	oldLog := log
+	log = spy
+	defer func() { log = oldLog }()
+
+	oldVersion := version
+	version = "1.0.0"
+	defer func() { version = oldVersion }()
+
+	updater := &mockSelfUpdater{
+		release: &selfupdate.Release{
+			Version: semver.MustParse("1.1.0"),
+		},
+	}
+
+	cmd := NewUpdateCommandWithDeps(updater)
+	_, err := executeCommand(cmd)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	wantMessages := []string{
+		"Current version: 1.0.0",
+		"Checking for updates",
+		updateSlug,
+	}
+
+	for _, want := range wantMessages {
+		found := false
+		for _, msg := range spy.messages {
+			if strings.Contains(msg, want) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected log containing %q, got: %v", want, spy.messages)
+		}
+	}
+}
+
 func TestUpdateCommandIntegration(t *testing.T) {
 	rootCmd := newTestRootCommand()
 	updateCmd := NewUpdateCommandWithDeps(&mockSelfUpdater{

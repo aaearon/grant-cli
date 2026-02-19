@@ -89,6 +89,125 @@ func TestFavoritesListCommand(t *testing.T) {
 	}
 }
 
+func TestFavoritesList_VerboseLogs(t *testing.T) {
+	spy := &spyLogger{}
+	oldLog := log
+	log = spy
+	defer func() { log = oldLog }()
+
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	t.Setenv("GRANT_CONFIG", configPath)
+
+	cfg := config.DefaultConfig()
+	_ = config.AddFavorite(cfg, "dev", config.Favorite{
+		Provider: "azure",
+		Target:   "sub-123",
+		Role:     "Contributor",
+	})
+	_ = config.AddFavorite(cfg, "prod", config.Favorite{
+		Provider: "azure",
+		Target:   "sub-456",
+		Role:     "Reader",
+	})
+	_ = config.Save(cfg, configPath)
+
+	rootCmd := newTestRootCommand()
+	rootCmd.AddCommand(NewFavoritesCommand())
+	_, err := executeCommand(rootCmd, "favorites", "list")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	wantMessages := []string{"Loading config", "2 favorite"}
+	for _, want := range wantMessages {
+		found := false
+		for _, msg := range spy.messages {
+			if strings.Contains(msg, want) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected log containing %q, got: %v", want, spy.messages)
+		}
+	}
+}
+
+func TestFavoritesRemove_VerboseLogs(t *testing.T) {
+	spy := &spyLogger{}
+	oldLog := log
+	log = spy
+	defer func() { log = oldLog }()
+
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	t.Setenv("GRANT_CONFIG", configPath)
+
+	cfg := config.DefaultConfig()
+	_ = config.AddFavorite(cfg, "dev", config.Favorite{
+		Provider: "azure",
+		Target:   "sub-123",
+		Role:     "Contributor",
+	})
+	_ = config.Save(cfg, configPath)
+
+	rootCmd := newTestRootCommand()
+	rootCmd.AddCommand(NewFavoritesCommand())
+	_, err := executeCommand(rootCmd, "favorites", "remove", "dev")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	wantMessages := []string{"Loading config", "Removing favorite", "Saving config"}
+	for _, want := range wantMessages {
+		found := false
+		for _, msg := range spy.messages {
+			if strings.Contains(msg, want) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected log containing %q, got: %v", want, spy.messages)
+		}
+	}
+}
+
+func TestFavoritesAddNonInteractive_VerboseLogs(t *testing.T) {
+	spy := &spyLogger{}
+	oldLog := log
+	log = spy
+	defer func() { log = oldLog }()
+
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	t.Setenv("GRANT_CONFIG", configPath)
+	cfg := config.DefaultConfig()
+	_ = config.Save(cfg, configPath)
+
+	rootCmd := newTestRootCommand()
+	rootCmd.AddCommand(NewFavoritesCommand())
+	_, err := executeCommand(rootCmd, "favorites", "add", "myfav", "--target", "sub-123", "--role", "Contributor")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	wantMessages := []string{"Non-interactive mode", "Saving"}
+	for _, want := range wantMessages {
+		found := false
+		for _, msg := range spy.messages {
+			if strings.Contains(msg, want) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected log containing %q, got: %v", want, spy.messages)
+		}
+	}
+}
+
 func TestFavoritesRemoveCommand(t *testing.T) {
 	tests := []struct {
 		name        string

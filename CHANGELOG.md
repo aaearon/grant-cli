@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Verbose logging (`--verbose`/`-v`) now produces output for all commands, not just those using `SCAAccessService`
+- Commands `update`, `version`, `login`, `logout`, `configure`, and `favorites` now emit SDK-format verbose logs (`grant | timestamp | INFO | message`)
+
+### Changed
+
+- Migrated 4 ad-hoc `[verbose]`/`Warning:` messages in `fetchStatusData`, `buildDirectoryNameMap`, `buildWorkspaceNameMap`, and `fetchEligibility` to use the SDK logger for consistent format
+- Removed `errWriter io.Writer` parameter from `fetchStatusData`, `buildDirectoryNameMap`, `buildWorkspaceNameMap`, and `fetchGroupsEligibility` (verbose output now goes through SDK logger, not injected writer)
+
 ## [0.4.0] - 2026-02-19
 
 ### Added

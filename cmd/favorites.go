@@ -188,6 +188,9 @@ func runFavoritesAddWithDeps(cmd *cobra.Command, args []string, eligLister eligi
 
 	// Non-interactive mode requires name upfront
 	isNonInteractive := (target != "" && role != "") || (favType == config.FavoriteTypeGroups && group != "")
+	if isNonInteractive {
+		log.Info("Non-interactive mode: target=%q role=%q provider=%q group=%q", target, role, provider, group)
+	}
 	if isNonInteractive && name == "" {
 		if favType == config.FavoriteTypeGroups {
 			return fmt.Errorf("name is required when using --group flag\n\nUsage:\n  grant favorites add <name> --type groups --group <group>")
@@ -248,7 +251,7 @@ func runFavoritesAddWithDeps(cmd *cobra.Command, args []string, eligLister eligi
 
 		// Fetch groups eligibility (best-effort, enriched with directory names)
 		if groupsElig != nil {
-			groups, gErr := fetchGroupsEligibility(ctx, groupsElig, eligLister, cmd.ErrOrStderr())
+			groups, gErr := fetchGroupsEligibility(ctx, groupsElig, eligLister)
 			if gErr == nil {
 				for i := range groups {
 					items = append(items, selectionItem{kind: selectionGroup, group: &groups[i]})
@@ -293,6 +296,7 @@ func runFavoritesAddWithDeps(cmd *cobra.Command, args []string, eligLister eligi
 		}
 	}
 
+	log.Info("Saving favorite %q...", name)
 	if err := config.AddFavorite(cfg, name, fav); err != nil {
 		return fmt.Errorf("failed to add favorite: %w", err)
 	}
@@ -322,7 +326,7 @@ func addGroupFavorite(cmd *cobra.Command, name, group string, cfg *config.Config
 		ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
 		defer cancel()
 
-		groups, err := fetchGroupsEligibility(ctx, groupsElig, eligLister, cmd.ErrOrStderr())
+		groups, err := fetchGroupsEligibility(ctx, groupsElig, eligLister)
 		if err != nil {
 			return err
 		}
@@ -392,6 +396,7 @@ func newFavoritesRemoveCommand() *cobra.Command {
 }
 
 func runFavoritesList(cmd *cobra.Command, args []string) error {
+	log.Info("Loading config...")
 	cfg, _, err := config.LoadDefaultWithPath()
 	if err != nil {
 		return err
@@ -399,6 +404,7 @@ func runFavoritesList(cmd *cobra.Command, args []string) error {
 
 	// List favorites
 	favorites := config.ListFavorites(cfg)
+	log.Info("Found %d favorite(s)", len(favorites))
 	if len(favorites) == 0 {
 		fmt.Fprintln(cmd.OutOrStdout(), "No favorites saved. Run 'grant favorites add' to create one.")
 		return nil
@@ -418,17 +424,20 @@ func runFavoritesList(cmd *cobra.Command, args []string) error {
 func runFavoritesRemove(cmd *cobra.Command, args []string) error {
 	name := args[0]
 
+	log.Info("Loading config...")
 	cfg, cfgPath, err := config.LoadDefaultWithPath()
 	if err != nil {
 		return err
 	}
 
 	// Remove favorite
+	log.Info("Removing favorite %q", name)
 	if err := config.RemoveFavorite(cfg, name); err != nil {
 		return err
 	}
 
 	// Save config
+	log.Info("Saving config...")
 	if err := config.Save(cfg, cfgPath); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}

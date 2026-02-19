@@ -166,6 +166,61 @@ func TestLoginCommand(t *testing.T) {
 	}
 }
 
+func TestLoginCommand_VerboseLogs(t *testing.T) {
+	spy := &spyLogger{}
+	oldLog := log
+	log = spy
+	defer func() { log = oldLog }()
+
+	tempDir := t.TempDir()
+	t.Setenv("IDSEC_PROFILES_FOLDER", tempDir)
+
+	profile := &models.IdsecProfile{
+		ProfileName: "grant",
+		AuthProfiles: map[string]*authmodels.IdsecAuthProfile{
+			"isp": {
+				Username:   "test.user@example.com",
+				AuthMethod: authmodels.Identity,
+				AuthMethodSettings: &authmodels.IdentityIdsecAuthMethodSettings{
+					IdentityURL:            "https://example.cyberark.cloud",
+					IdentityMFAInteractive: true,
+				},
+			},
+		},
+	}
+	loader := &profiles.FileSystemProfilesLoader{}
+	if err := loader.SaveProfile(profile); err != nil {
+		t.Fatalf("failed to create test profile: %v", err)
+	}
+
+	auth := &mockAuthenticator{
+		token: &authmodels.IdsecToken{
+			Token:    "test-jwt",
+			Username: "test.user@example.com",
+		},
+	}
+
+	cmd := NewLoginCommandWithAuth(auth)
+	_, err := executeCommand(cmd)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	wantMessages := []string{"Loading profile", "Authenticating"}
+	for _, want := range wantMessages {
+		found := false
+		for _, msg := range spy.messages {
+			if strings.Contains(msg, want) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected log containing %q, got: %v", want, spy.messages)
+		}
+	}
+}
+
 func TestLoginCommandIntegration(t *testing.T) {
 	// Test that login command is properly registered
 	rootCmd := newTestRootCommand()

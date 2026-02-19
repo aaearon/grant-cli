@@ -104,6 +104,7 @@ func runConfigure(cmd *cobra.Command, saver profileSaver, tenantURL, username st
 	}
 
 	// Save SDK profile
+	log.Info("Saving profile...")
 	if err := saver.SaveProfile(profile); err != nil {
 		return fmt.Errorf("failed to save profile: %w", err)
 	}
@@ -124,6 +125,7 @@ func runConfigure(cmd *cobra.Command, saver profileSaver, tenantURL, username st
 	}
 
 	// Save app config
+	log.Info("Saving config...")
 	cfgPath, err := config.ConfigPath()
 	if err != nil {
 		return err

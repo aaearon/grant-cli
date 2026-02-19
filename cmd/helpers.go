@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"io"
 	"strings"
 	"sync"
 
@@ -18,13 +17,12 @@ type statusData struct {
 
 // fetchStatusData fires sessions and all-CSP eligibility calls concurrently,
 // then joins results. A sessions error is fatal; eligibility errors are
-// gracefully degraded (empty nameMap entry, verbose warning).
+// gracefully degraded (empty nameMap entry, verbose warning via SDK logger).
 func fetchStatusData(
 	ctx context.Context,
 	sessionLister sessionLister,
 	eligLister eligibilityLister,
 	cspFilter *scamodels.CSP,
-	errWriter io.Writer,
 ) (*statusData, error) {
 	type eligResult struct {
 		csp     scamodels.CSP
@@ -76,9 +74,7 @@ func fetchStatusData(
 	nameMap := make(map[string]string)
 	for r := range eligResults {
 		if r.err != nil {
-			if verbose {
-				fmt.Fprintf(errWriter, "Warning: failed to fetch names for %s: %v\n", r.csp, r.err)
-			}
+			log.Info("failed to fetch names for %s: %v", r.csp, r.err)
 			continue
 		}
 		for _, t := range r.targets {
@@ -99,8 +95,8 @@ func fetchStatusData(
 // buildDirectoryNameMap fetches Azure cloud eligibility to resolve directoryId -> name.
 // It looks for DIRECTORY-type workspace entries whose workspaceId matches a directory ID.
 // Falls back to organizationId -> first workspace name if no DIRECTORY entries exist.
-// Errors are silently ignored (graceful degradation — groups display without directory context).
-func buildDirectoryNameMap(ctx context.Context, eligLister eligibilityLister, errWriter io.Writer) map[string]string {
+// Errors are logged via SDK logger (graceful degradation — groups display without directory context).
+func buildDirectoryNameMap(ctx context.Context, eligLister eligibilityLister) map[string]string {
 	nameMap := make(map[string]string)
 	if eligLister == nil {
 		return nameMap
@@ -108,8 +104,8 @@ func buildDirectoryNameMap(ctx context.Context, eligLister eligibilityLister, er
 
 	resp, err := eligLister.ListEligibility(ctx, scamodels.CSPAzure)
 	if err != nil || resp == nil {
-		if verbose && err != nil {
-			fmt.Fprintf(errWriter, "Warning: failed to resolve directory names: %v\n", err)
+		if err != nil {
+			log.Info("failed to resolve directory names: %v", err)
 		}
 		return nameMap
 	}
@@ -136,9 +132,9 @@ func buildDirectoryNameMap(ctx context.Context, eligLister eligibilityLister, er
 
 // buildWorkspaceNameMap fetches eligibility for each unique CSP in sessions
 // concurrently and builds a workspaceID -> workspaceName map. Errors are
-// silently ignored (graceful degradation — the raw workspace ID is shown
+// logged via SDK logger (graceful degradation — the raw workspace ID is shown
 // as fallback).
-func buildWorkspaceNameMap(ctx context.Context, eligLister eligibilityLister, sessions []scamodels.SessionInfo, errWriter io.Writer) map[string]string {
+func buildWorkspaceNameMap(ctx context.Context, eligLister eligibilityLister, sessions []scamodels.SessionInfo) map[string]string {
 	nameMap := make(map[string]string)
 
 	// Collect unique CSPs
@@ -178,9 +174,7 @@ func buildWorkspaceNameMap(ctx context.Context, eligLister eligibilityLister, se
 
 	for r := range results {
 		if r.err != nil {
-			if verbose {
-				fmt.Fprintf(errWriter, "Warning: failed to fetch names for %s: %v\n", r.csp, r.err)
-			}
+			log.Info("failed to fetch names for %s: %v", r.csp, r.err)
 			continue
 		}
 		for _, t := range r.targets {

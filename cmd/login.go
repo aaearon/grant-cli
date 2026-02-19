@@ -40,6 +40,7 @@ func NewLoginCommandWithAuth(auth authenticator) *cobra.Command {
 
 func runLogin(cmd *cobra.Command, auth authenticator) error {
 	// Load the SDK profile
+	log.Info("Loading profile...")
 	loader := profiles.DefaultProfilesLoader()
 	profile, err := (*loader).LoadProfile("grant")
 	if err != nil {
@@ -68,6 +69,7 @@ func runLogin(cmd *cobra.Command, auth authenticator) error {
 	}
 
 	// Authenticate (pass empty secret for interactive auth)
+	log.Info("Authenticating...")
 	token, err := auth.Authenticate(profile, nil, &authmodels.IdsecSecret{Secret: ""}, false, true)
 	if err != nil {
 		return fmt.Errorf("authentication failed: %w", err)
