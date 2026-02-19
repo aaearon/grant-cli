@@ -67,7 +67,8 @@ Custom `SCAAccessService` follows SDK conventions:
 - `--refresh` flag on `grant` and `grant env` bypasses cache reads but still writes fresh data
 - `internal/cache/cache.go` — generic `Store` with `Get[T]`/`Set[T]`, injectable clock for testing
 - `internal/cache/cached_eligibility.go` — `CachedEligibilityLister` decorator implementing `eligibilityLister` + `groupsEligibilityLister`
-- `buildCachedLister()` in `cmd/root.go` — shared factory used by root and env commands
+- `buildCachedLister()` in `cmd/root.go` — shared factory used by all commands (root, env, status, revoke, groups, favorites add)
+- Commands without `--refresh` (status, revoke, groups, favorites add) always pass `refresh: false` — they use eligibility for display only
 - Cache failures (read/write) silently fall through to the live API
 
 ## Verbose / Logging

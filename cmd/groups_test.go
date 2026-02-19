@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aaearon/grant-cli/internal/cache"
 	"github.com/aaearon/grant-cli/internal/config"
 	scamodels "github.com/aaearon/grant-cli/internal/sca/models"
 	authmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
@@ -612,6 +613,67 @@ func TestGroupsCommandFavoriteMode(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestGroupsCommand_CachedEligibility(t *testing.T) {
+	now := time.Now()
+	expiresIn := commonmodels.IdsecRFC3339Time(now.Add(1 * time.Hour))
+
+	innerCloud := newCountingEligibilityLister(&mockEligibilityLister{
+		response: &scamodels.EligibilityResponse{
+			Response: []scamodels.EligibleTarget{
+				{
+					OrganizationID: "dir1",
+					WorkspaceID:    "dir1",
+					WorkspaceName:  "Contoso",
+					WorkspaceType:  scamodels.WorkspaceTypeDirectory,
+				},
+			},
+		},
+	})
+	innerGroups := newCountingGroupsEligibilityLister(&mockGroupsEligibilityLister{
+		response: &scamodels.GroupsEligibilityResponse{
+			Response: []scamodels.GroupsEligibleTarget{
+				{DirectoryID: "dir1", GroupID: "grp1", GroupName: "Engineering"},
+			},
+			Total: 1,
+		},
+	})
+
+	store := cache.NewStore(t.TempDir(), 4*time.Hour)
+	cachedLister := cache.NewCachedEligibilityLister(innerCloud, innerGroups, store, false, nil)
+
+	auth := &mockAuthLoader{
+		token: &authmodels.IdsecToken{Token: "jwt", Username: "user@example.com", ExpiresIn: expiresIn},
+	}
+	elevator := &mockGroupsElevator{
+		response: &scamodels.GroupsElevateResponse{
+			DirectoryID: "dir1",
+			CSP:         scamodels.CSPAzure,
+			Results: []scamodels.GroupsElevateTargetResult{
+				{GroupID: "grp1", SessionID: "sess1"},
+			},
+		},
+	}
+
+	cmd := NewGroupsCommandWithDeps(nil, auth, cachedLister, cachedLister, elevator, &mockGroupSelector{}, nil)
+	output, err := executeCommand(cmd, "--group", "Engineering")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(output, "Elevated to group Engineering in Contoso") {
+		t.Errorf("output missing expected text, got:\n%s", output)
+	}
+
+	// Cloud inner called once for Azure (by buildDirectoryNameMap)
+	if got := innerCloud.CallCount(scamodels.CSPAzure); got != 1 {
+		t.Errorf("cloud inner Azure called %d times, want 1", got)
+	}
+	// Groups inner called once for Azure (by ListGroupsEligibility)
+	if got := innerGroups.CallCount(scamodels.CSPAzure); got != 1 {
+		t.Errorf("groups inner Azure called %d times, want 1", got)
 	}
 }
 

@@ -6,7 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/aaearon/grant-cli/internal/cache"
 	"github.com/aaearon/grant-cli/internal/config"
 	"github.com/aaearon/grant-cli/internal/sca/models"
 )
@@ -825,6 +827,59 @@ func TestFavoritesAddGroupPersistence(t *testing.T) {
 	}
 	if fav.Provider != "azure" {
 		t.Errorf("Provider = %q, want %q", fav.Provider, "azure")
+	}
+}
+
+func TestFavoritesAdd_CachedEligibility(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	t.Setenv("GRANT_CONFIG", configPath)
+	cfg := config.DefaultConfig()
+	_ = config.Save(cfg, configPath)
+
+	azureTargets := []models.EligibleTarget{
+		{
+			OrganizationID: "org-123",
+			WorkspaceID:    "sub-456",
+			WorkspaceName:  "Prod-EastUS",
+			WorkspaceType:  models.WorkspaceTypeSubscription,
+			RoleInfo:       models.RoleInfo{ID: "role-789", Name: "Contributor"},
+		},
+	}
+
+	innerCloud := newCountingEligibilityLister(&mockEligibilityLister{
+		listFunc: func(_ context.Context, csp models.CSP) (*models.EligibilityResponse, error) {
+			if csp == models.CSPAzure {
+				return &models.EligibilityResponse{Response: azureTargets, Total: 1}, nil
+			}
+			return &models.EligibilityResponse{}, nil
+		},
+	})
+
+	store := cache.NewStore(filepath.Join(tmpDir, "cache"), 4*time.Hour)
+	cachedLister := cache.NewCachedEligibilityLister(innerCloud, nil, store, false, nil)
+
+	selector := &mockTargetSelector{target: &azureTargets[0]}
+
+	rootCmd := newTestRootCommand()
+	favCmd := NewFavoritesCommandWithAllDeps(cachedLister, selector, nil, nil, nil)
+	rootCmd.AddCommand(favCmd)
+
+	output, err := executeCommand(rootCmd, "favorites", "add", "myfav")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(output, "Added favorite") {
+		t.Errorf("output missing expected text, got:\n%s", output)
+	}
+
+	// fetchEligibility calls all CSPs when no provider specified
+	if got := innerCloud.CallCount(models.CSPAzure); got != 1 {
+		t.Errorf("Azure inner called %d times, want 1", got)
+	}
+	if got := innerCloud.CallCount(models.CSPAWS); got != 1 {
+		t.Errorf("AWS inner called %d times, want 1", got)
 	}
 }
 
