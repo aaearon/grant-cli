@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - `grant groups` command for Entra ID group membership elevation with interactive and direct (`--group`) modes
+- `grant --favorite <name>` now detects group-type favorites and redirects users to `grant groups --favorite <name>`
 - `grant revoke` command for session revocation with three modes: direct (by session ID), `--all`, and interactive (multi-select); works with both cloud and group sessions
 - `--yes`/`-y` flag on `grant revoke` to skip confirmation for scripting
 - `--provider`/`-p` flag on `grant revoke --all` and interactive mode to filter by cloud provider

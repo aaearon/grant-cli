@@ -696,6 +696,30 @@ func TestRootElevate_FavoriteMode(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "group favorite redirects to grant groups",
+			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *config.Config) {
+				authLoader := &mockAuthLoader{
+					token: &authmodels.IdsecToken{Token: "test-jwt"},
+				}
+
+				cfg := config.DefaultConfig()
+				_ = config.AddFavorite(cfg, "my-grp", config.Favorite{
+					Type:        config.FavoriteTypeGroups,
+					Provider:    "azure",
+					Group:       "Engineering",
+					DirectoryID: "dir-uuid",
+				})
+
+				return authLoader, nil, nil, cfg
+			},
+			args: []string{"--favorite", "my-grp"},
+			wantContain: []string{
+				"group favorite",
+				"grant groups --favorite my-grp",
+			},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
