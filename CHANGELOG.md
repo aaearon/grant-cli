@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-02-19
+
 ### Added
 
 - Verbose logging (`--verbose`/`-v`) now produces output for all commands, not just those using `SCAAccessService`
