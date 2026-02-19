@@ -11,6 +11,10 @@ All notable changes to this project will be documented in this file.
 - `--provider`/`-p` flag on `grant revoke --all` and interactive mode to filter by cloud provider
 - Session ID displayed in `grant status` output for easy reference with `grant revoke`
 
+### Changed
+
+- `grant status` now fetches sessions and eligibility data concurrently, reducing wall-clock time by ~2s
+
 ### Fixed
 
 - `grant revoke` now rejects `--provider` in direct mode (session IDs are already explicit)

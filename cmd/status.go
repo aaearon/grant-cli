@@ -67,32 +67,29 @@ func runStatus(cmd *cobra.Command, authLoader authLoader, sessionLister sessionL
 		cspFilter = &csp
 	}
 
-	// List sessions
+	// Fetch sessions and eligibility concurrently
 	ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
 	defer cancel()
-	sessions, err := sessionLister.ListSessions(ctx, cspFilter)
+	data, err := fetchStatusData(ctx, sessionLister, eligLister, cspFilter, cmd.ErrOrStderr())
 	if err != nil {
-		return fmt.Errorf("failed to list sessions: %w", err)
+		return err
 	}
 
 	// Display sessions
-	if len(sessions.Response) == 0 {
+	if len(data.sessions.Response) == 0 {
 		fmt.Fprintf(cmd.OutOrStdout(), "\nNo active sessions.\n")
 		return nil
 	}
 
-	// Build workspace name map from eligibility data
-	nameMap := buildWorkspaceNameMap(ctx, eligLister, sessions.Response, cmd.ErrOrStderr())
-
 	// Group sessions by provider
-	sessionsByProvider := groupSessionsByProvider(sessions.Response)
+	sessionsByProvider := groupSessionsByProvider(data.sessions.Response)
 
 	// Display grouped sessions
 	fmt.Fprintf(cmd.OutOrStdout(), "\n")
 	for _, p := range sortedProviders(sessionsByProvider) {
 		fmt.Fprintf(cmd.OutOrStdout(), "%s sessions:\n", formatProviderName(p))
 		for _, session := range sessionsByProvider[p] {
-			fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", ui.FormatSessionOption(session, nameMap))
+			fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", ui.FormatSessionOption(session, data.nameMap))
 		}
 	}
 
