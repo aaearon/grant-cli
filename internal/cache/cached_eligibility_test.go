@@ -281,7 +281,6 @@ func TestCachedEligibilityLister_DifferentCSPs_SeparateKeys(t *testing.T) {
 	t.Parallel()
 	store := NewStore(t.TempDir(), 4*time.Hour)
 
-	callCSPs := []models.CSP{}
 	inner := &mockEligibilityLister{
 		response: &models.EligibilityResponse{
 			Response: []models.EligibleTarget{{WorkspaceID: "ws-1"}},
@@ -293,10 +292,7 @@ func TestCachedEligibilityLister_DifferentCSPs_SeparateKeys(t *testing.T) {
 	ctx := context.Background()
 
 	_, _ = cached.ListEligibility(ctx, models.CSPAzure)
-	callCSPs = append(callCSPs, models.CSPAzure)
-
 	_, _ = cached.ListEligibility(ctx, models.CSPAWS)
-	callCSPs = append(callCSPs, models.CSPAWS)
 
 	// Both CSPs should have called inner (separate cache keys)
 	if inner.calls != 2 {
