@@ -199,5 +199,5 @@ func formatSession(session scamodels.SessionInfo, nameMap map[string]string) str
 		workspace = fmt.Sprintf("%s (%s)", name, session.WorkspaceID)
 	}
 
-	return fmt.Sprintf("%s on %s - duration: %s", session.RoleID, workspace, durationStr)
+	return fmt.Sprintf("%s on %s - duration: %s (session: %s)", session.RoleID, workspace, durationStr, session.SessionID)
 }
