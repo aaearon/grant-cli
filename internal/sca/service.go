@@ -205,3 +205,56 @@ func (s *SCAAccessService) ListSessions(ctx context.Context, csp *models.CSP) (*
 
 	return &result, nil
 }
+
+// ListGroupsEligibility retrieves eligible Entra ID groups for the specified CSP.
+// GET /api/access/{CSP}/eligibility/groups
+func (s *SCAAccessService) ListGroupsEligibility(ctx context.Context, csp models.CSP) (*models.GroupsEligibilityResponse, error) {
+	route := fmt.Sprintf("/api/access/%s/eligibility/groups", csp)
+
+	resp, err := s.httpClient.Get(ctx, route, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get groups eligibility: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if err := checkResponse(resp, "groups eligibility request"); err != nil {
+		return nil, err
+	}
+
+	var result models.GroupsEligibilityResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode groups eligibility response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// ElevateGroups requests JIT elevation for the specified Entra ID groups.
+// POST /api/access/elevate/groups
+func (s *SCAAccessService) ElevateGroups(ctx context.Context, req *models.GroupsElevateRequest) (*models.GroupsElevateResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("groups elevate request cannot be nil")
+	}
+	if len(req.Targets) == 0 {
+		return nil, fmt.Errorf("groups elevate request must contain at least one target")
+	}
+
+	resp, err := s.httpClient.Post(ctx, "/api/access/elevate/groups", req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to elevate groups: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if err := checkResponse(resp, "groups elevate request"); err != nil {
+		return nil, err
+	}
+
+	var wrapper struct {
+		Response models.GroupsElevateResponse `json:"response"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&wrapper); err != nil {
+		return nil, fmt.Errorf("failed to decode groups elevate response: %w", err)
+	}
+
+	return &wrapper.Response, nil
+}
