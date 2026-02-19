@@ -96,8 +96,9 @@ func fetchStatusData(
 }
 
 // buildWorkspaceNameMap fetches eligibility for each unique CSP in sessions
-// and builds a workspaceID -> workspaceName map. Errors are silently ignored
-// (graceful degradation — the raw workspace ID is shown as fallback).
+// concurrently and builds a workspaceID -> workspaceName map. Errors are
+// silently ignored (graceful degradation — the raw workspace ID is shown
+// as fallback).
 func buildWorkspaceNameMap(ctx context.Context, eligLister eligibilityLister, sessions []scamodels.SessionInfo, errWriter io.Writer) map[string]string {
 	nameMap := make(map[string]string)
 
@@ -106,22 +107,46 @@ func buildWorkspaceNameMap(ctx context.Context, eligLister eligibilityLister, se
 	for _, s := range sessions {
 		csps[s.CSP] = true
 	}
+	if len(csps) == 0 {
+		return nameMap
+	}
 
-	// Fetch eligibility for each CSP
+	type eligResult struct {
+		csp     scamodels.CSP
+		targets []scamodels.EligibleTarget
+		err     error
+	}
+
+	// Fetch eligibility for each CSP concurrently
+	results := make(chan eligResult, len(csps))
+	var wg sync.WaitGroup
 	for csp := range csps {
-		if ctx.Err() != nil {
-			break
-		}
-		resp, err := eligLister.ListEligibility(ctx, csp)
-		if err != nil || resp == nil {
-			if verbose && err != nil {
-				fmt.Fprintf(errWriter, "Warning: failed to fetch names for %s: %v\n", csp, err)
+		wg.Add(1)
+		go func(csp scamodels.CSP) {
+			defer wg.Done()
+			resp, err := eligLister.ListEligibility(ctx, csp)
+			if err != nil || resp == nil {
+				results <- eligResult{csp: csp, err: err}
+				return
+			}
+			results <- eligResult{csp: csp, targets: resp.Response}
+		}(csp)
+	}
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	for r := range results {
+		if r.err != nil {
+			if verbose {
+				fmt.Fprintf(errWriter, "Warning: failed to fetch names for %s: %v\n", r.csp, r.err)
 			}
 			continue
 		}
-		for _, target := range resp.Response {
-			if target.WorkspaceName != "" {
-				nameMap[target.WorkspaceID] = target.WorkspaceName
+		for _, t := range r.targets {
+			if t.WorkspaceName != "" {
+				nameMap[t.WorkspaceID] = t.WorkspaceName
 			}
 		}
 	}

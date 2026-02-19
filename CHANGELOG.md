@@ -14,6 +14,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - `grant status` now fetches sessions and eligibility data concurrently, reducing wall-clock time by ~2s
+- `grant revoke` interactive mode now fetches workspace names concurrently across CSPs
 
 ### Fixed
 
