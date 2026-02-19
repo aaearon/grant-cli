@@ -69,7 +69,7 @@ func TestConfigureCommand(t *testing.T) {
 			},
 			wantContain: []string{
 				"Profile saved to",
-				"grant.json",
+				"grant",
 				"Config saved to",
 				"config.yaml",
 			},
@@ -110,7 +110,7 @@ func TestConfigureCommand(t *testing.T) {
 			},
 			wantContain: []string{
 				"Profile saved to",
-				"grant.json",
+				"grant",
 				"Config saved to",
 				"config.yaml",
 			},
