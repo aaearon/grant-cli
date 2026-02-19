@@ -54,11 +54,21 @@ Custom `SCAAccessService` follows SDK conventions:
 ## CLI
 - `spf13/cobra` for CLI framework
 - `Iilun/survey/v2` for interactive prompts
-- `grant env` — performs elevation, outputs only `export` statements (no human text); usage: `eval $(grant env --provider aws)`
+- `grant env` — performs elevation, outputs only `export` statements (no human text); usage: `eval $(grant env --provider aws)`; supports `--refresh`
 - `grant revoke` — revoke sessions: direct (`grant revoke <id>`), `--all`, or interactive multi-select; `--yes` skips confirmation
 - `grant groups` — Entra ID group membership elevation: interactive or direct (`--group "name"`); always targets Azure; uses separate API endpoints (`/eligibility/groups`, `/elevate/groups`)
 - Multi-CSP: omitting `--provider` fetches eligibility from all supported CSPs and merges results
+- `--refresh` bypasses eligibility cache on `grant` and `grant env`
 - `fetchEligibility()` and `resolveTargetCSP()` in `cmd/root.go` — shared by root, env, and favorites
+
+## Cache
+- Eligibility responses cached in `~/.grant/cache/` as JSON files (e.g., `eligibility_azure.json`, `groups_eligibility_azure.json`)
+- Default TTL: 4 hours, configurable via `cache_ttl` in `~/.grant/config.yaml` (Go duration syntax: `2h`, `30m`)
+- `--refresh` flag on `grant` and `grant env` bypasses cache reads but still writes fresh data
+- `internal/cache/cache.go` — generic `Store` with `Get[T]`/`Set[T]`, injectable clock for testing
+- `internal/cache/cached_eligibility.go` — `CachedEligibilityLister` decorator implementing `eligibilityLister` + `groupsEligibilityLister`
+- `buildCachedLister()` in `cmd/root.go` — shared factory used by root and env commands
+- Cache failures (read/write) silently fall through to the live API
 
 ## Verbose / Logging
 - `--verbose` / `-v` global flag wired via `PersistentPreRunE` in `cmd/root.go`

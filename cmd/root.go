@@ -9,11 +9,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aaearon/grant-cli/internal/cache"
 	"github.com/aaearon/grant-cli/internal/config"
 	"github.com/aaearon/grant-cli/internal/sca"
 	"github.com/aaearon/grant-cli/internal/sca/models"
 	"github.com/aaearon/grant-cli/internal/ui"
 	"github.com/cyberark/idsec-sdk-golang/pkg/auth"
+	"github.com/cyberark/idsec-sdk-golang/pkg/common"
 	sdkconfig "github.com/cyberark/idsec-sdk-golang/pkg/config"
 	sdkmodels "github.com/cyberark/idsec-sdk-golang/pkg/models"
 	authmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
@@ -40,6 +42,7 @@ type elevateFlags struct {
 	target   string
 	role     string
 	favorite string
+	refresh  bool
 }
 
 // newRootCommand creates the root cobra command with the given RunE function.
@@ -69,7 +72,10 @@ Examples:
 
   # Specify provider explicitly
   grant --provider azure
-  grant --provider aws`,
+  grant --provider aws
+
+  # Bypass eligibility cache and fetch fresh data
+  grant --refresh`,
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
@@ -89,6 +95,7 @@ Examples:
 	cmd.Flags().StringP("target", "t", "", "Target name (subscription, resource group, etc.)")
 	cmd.Flags().StringP("role", "r", "", "Role name")
 	cmd.Flags().StringP("favorite", "f", "", "Use a saved favorite (see 'grant favorites list')")
+	cmd.Flags().Bool("refresh", false, "Bypass eligibility cache and fetch fresh data")
 
 	cmd.MarkFlagsMutuallyExclusive("favorite", "target")
 	cmd.MarkFlagsMutuallyExclusive("favorite", "role")
@@ -128,6 +135,7 @@ func parseElevateFlags(cmd *cobra.Command) *elevateFlags {
 	flags.target, _ = cmd.Flags().GetString("target")
 	flags.role, _ = cmd.Flags().GetString("role")
 	flags.favorite, _ = cmd.Flags().GetString("favorite")
+	flags.refresh, _ = cmd.Flags().GetBool("refresh")
 	return flags
 }
 
@@ -145,7 +153,22 @@ func runElevateProduction(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	return runElevateWithDeps(cmd, flags, profile, ispAuth, scaService, scaService, &uiSelector{}, cfg)
+	cachedLister := buildCachedLister(cfg, flags.refresh, scaService, nil)
+
+	return runElevateWithDeps(cmd, flags, profile, ispAuth, cachedLister, scaService, &uiSelector{}, cfg)
+}
+
+// buildCachedLister creates a CachedEligibilityLister wrapping the given services.
+// If the cache directory cannot be resolved, it falls back to the unwrapped services.
+func buildCachedLister(cfg *config.Config, refresh bool, cloudInner cache.EligibilityLister, groupsInner cache.GroupsEligibilityLister) *cache.CachedEligibilityLister {
+	log := common.GetLogger("grant", -1)
+	cacheDir, err := cache.CacheDir()
+	if err != nil {
+		return cache.NewCachedEligibilityLister(cloudInner, groupsInner, cache.NewStore("", 0), true, nil)
+	}
+	ttl := config.ParseCacheTTL(cfg)
+	store := cache.NewStore(cacheDir, ttl)
+	return cache.NewCachedEligibilityLister(cloudInner, groupsInner, store, refresh, log)
 }
 
 // NewRootCommandWithDeps creates a root command with injected dependencies for testing.

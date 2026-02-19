@@ -6,6 +6,9 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Local file-based eligibility cache (`~/.grant/cache/`) with 4-hour default TTL — skips API roundtrip on subsequent runs
+- `--refresh` flag on `grant` and `grant env` to bypass the eligibility cache and fetch fresh data
+- `cache_ttl` config option in `~/.grant/config.yaml` to customize cache TTL (e.g., `cache_ttl: 2h`)
 - `grant groups` command for Entra ID group membership elevation with interactive, direct (`--group`), and favorite (`--favorite`) modes
 - `grant --favorite <name>` now detects group-type favorites and redirects users to `grant groups --favorite <name>`
 - `grant revoke` command for session revocation with three modes: direct (by session ID), `--all`, and interactive (multi-select); works with both cloud and group sessions
