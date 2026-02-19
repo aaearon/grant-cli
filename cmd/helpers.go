@@ -95,6 +95,41 @@ func fetchStatusData(
 	return &statusData{sessions: sessions, nameMap: nameMap}, nil
 }
 
+// buildDirectoryNameMap fetches Azure cloud eligibility to resolve directoryId -> name.
+// It looks for DIRECTORY-type workspace entries whose workspaceId matches a directory ID.
+// Falls back to organizationId -> first workspace name if no DIRECTORY entries exist.
+// Errors are silently ignored (graceful degradation — groups display without directory context).
+func buildDirectoryNameMap(ctx context.Context, eligLister eligibilityLister, errWriter io.Writer) map[string]string {
+	nameMap := make(map[string]string)
+
+	resp, err := eligLister.ListEligibility(ctx, scamodels.CSPAzure)
+	if err != nil || resp == nil {
+		if verbose && err != nil {
+			fmt.Fprintf(errWriter, "Warning: failed to resolve directory names: %v\n", err)
+		}
+		return nameMap
+	}
+
+	// First pass: look for DIRECTORY-type workspaces (most specific)
+	for _, t := range resp.Response {
+		if t.WorkspaceType == scamodels.WorkspaceTypeDirectory && t.WorkspaceName != "" {
+			nameMap[t.WorkspaceID] = t.WorkspaceName
+		}
+	}
+
+	// Second pass: fall back to organizationId -> first workspace name
+	// for orgs that didn't have a DIRECTORY entry
+	for _, t := range resp.Response {
+		if t.OrganizationID != "" && t.WorkspaceName != "" {
+			if _, exists := nameMap[t.OrganizationID]; !exists {
+				nameMap[t.OrganizationID] = t.WorkspaceName
+			}
+		}
+	}
+
+	return nameMap
+}
+
 // buildWorkspaceNameMap fetches eligibility for each unique CSP in sessions
 // concurrently and builds a workspaceID -> workspaceName map. Errors are
 // silently ignored (graceful degradation — the raw workspace ID is shown

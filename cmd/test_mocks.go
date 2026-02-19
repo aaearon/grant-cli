@@ -178,3 +178,45 @@ func (m *mockNamePrompter) PromptName() (string, error) {
 	}
 	return m.name, m.promptErr
 }
+
+// mockGroupsEligibilityLister implements groupsEligibilityLister for testing
+type mockGroupsEligibilityLister struct {
+	listFunc func(ctx context.Context, csp models.CSP) (*models.GroupsEligibilityResponse, error)
+	response *models.GroupsEligibilityResponse
+	listErr  error
+}
+
+func (m *mockGroupsEligibilityLister) ListGroupsEligibility(ctx context.Context, csp models.CSP) (*models.GroupsEligibilityResponse, error) {
+	if m.listFunc != nil {
+		return m.listFunc(ctx, csp)
+	}
+	return m.response, m.listErr
+}
+
+// mockGroupsElevator implements groupsElevator for testing
+type mockGroupsElevator struct {
+	elevateFunc func(ctx context.Context, req *models.GroupsElevateRequest) (*models.GroupsElevateResponse, error)
+	response    *models.GroupsElevateResponse
+	elevateErr  error
+}
+
+func (m *mockGroupsElevator) ElevateGroups(ctx context.Context, req *models.GroupsElevateRequest) (*models.GroupsElevateResponse, error) {
+	if m.elevateFunc != nil {
+		return m.elevateFunc(ctx, req)
+	}
+	return m.response, m.elevateErr
+}
+
+// mockGroupSelector implements groupSelector for testing
+type mockGroupSelector struct {
+	selectFunc func(groups []models.GroupsEligibleTarget) (*models.GroupsEligibleTarget, error)
+	group      *models.GroupsEligibleTarget
+	selectErr  error
+}
+
+func (m *mockGroupSelector) SelectGroup(groups []models.GroupsEligibleTarget) (*models.GroupsEligibleTarget, error) {
+	if m.selectFunc != nil {
+		return m.selectFunc(groups)
+	}
+	return m.group, m.selectErr
+}

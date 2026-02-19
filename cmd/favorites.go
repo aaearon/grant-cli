@@ -7,6 +7,7 @@ import (
 
 	survey "github.com/Iilun/survey/v2"
 	"github.com/aaearon/grant-cli/internal/config"
+	scamodels "github.com/aaearon/grant-cli/internal/sca/models"
 	"github.com/spf13/cobra"
 )
 
@@ -35,6 +36,11 @@ Workflow:
 
 // NewFavoritesCommandWithDeps creates the favorites command with injected dependencies for testing
 func NewFavoritesCommandWithDeps(eligLister eligibilityLister, sel targetSelector, prompter namePrompter) *cobra.Command {
+	return NewFavoritesCommandWithAllDeps(eligLister, sel, prompter, nil, nil)
+}
+
+// NewFavoritesCommandWithAllDeps creates the favorites command with all injected dependencies including groups
+func NewFavoritesCommandWithAllDeps(eligLister eligibilityLister, sel targetSelector, prompter namePrompter, groupsElig groupsEligibilityLister, groupSel groupSelector) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "favorites",
 		Short: "Manage saved elevation favorites",
@@ -50,7 +56,7 @@ Workflow:
 	}
 
 	cmd.AddCommand(newFavoritesAddCommandWithRunner(func(c *cobra.Command, args []string) error {
-		return runFavoritesAddWithDeps(c, args, eligLister, sel, prompter, nil)
+		return runFavoritesAddWithDeps(c, args, eligLister, sel, prompter, nil, groupsElig, groupSel)
 	}))
 	cmd.AddCommand(newFavoritesListCommand())
 	cmd.AddCommand(newFavoritesRemoveCommand())
@@ -80,6 +86,8 @@ func newFavoritesAddCommandWithRunner(runFn func(*cobra.Command, []string) error
 	cmd.Flags().StringP("provider", "p", "", "Cloud provider: azure, aws (omit to show all)")
 	cmd.Flags().StringP("target", "t", "", "Target name (subscription, resource group, etc.)")
 	cmd.Flags().StringP("role", "r", "", "Role name")
+	cmd.Flags().String("type", "", "Favorite type: cloud, groups (default: cloud)")
+	cmd.Flags().StringP("group", "g", "", "Group name (for --type groups)")
 
 	return cmd
 }
@@ -112,9 +120,17 @@ func runFavoritesAddProduction(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("both --target and --role must be provided")
 	}
 
-	if target != "" && role != "" {
-		// Non-interactive: no auth needed
-		return runFavoritesAddWithDeps(cmd, args, nil, nil, nil, nil)
+	favType, _ := cmd.Flags().GetString("type")
+	group, _ := cmd.Flags().GetString("group")
+
+	if favType == config.FavoriteTypeGroups {
+		if group != "" {
+			// Non-interactive groups mode: no auth needed
+			return runFavoritesAddWithDeps(cmd, args, nil, nil, nil, nil, nil, nil)
+		}
+	} else if target != "" && role != "" {
+		// Non-interactive cloud mode: no auth needed
+		return runFavoritesAddWithDeps(cmd, args, nil, nil, nil, nil, nil, nil)
 	}
 
 	// Interactive path: load config early for fast-fail duplicate check
@@ -135,31 +151,51 @@ func runFavoritesAddProduction(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	return runFavoritesAddWithDeps(cmd, args, scaService, &uiSelector{}, &surveyNamePrompter{}, cfg)
+	return runFavoritesAddWithDeps(cmd, args, scaService, &uiSelector{}, &surveyNamePrompter{}, cfg, scaService, &uiGroupSelector{})
 }
 
 // runFavoritesAddWithDeps contains the core logic for favorites add.
 // When eligLister and sel are nil, it uses the non-interactive flag path.
 // If preloadedCfg is non-nil, it is used instead of loading from disk.
-func runFavoritesAddWithDeps(cmd *cobra.Command, args []string, eligLister eligibilityLister, sel targetSelector, prompter namePrompter, preloadedCfg *config.Config) error {
+func runFavoritesAddWithDeps(cmd *cobra.Command, args []string, eligLister eligibilityLister, sel targetSelector, prompter namePrompter, preloadedCfg *config.Config, groupsElig groupsEligibilityLister, groupSel groupSelector) error {
 	// Read flags
 	provider, _ := cmd.Flags().GetString("provider")
 	target, _ := cmd.Flags().GetString("target")
 	role, _ := cmd.Flags().GetString("role")
+	favType, _ := cmd.Flags().GetString("type")
+	group, _ := cmd.Flags().GetString("group")
 
-	// Validate: target and role must both be provided or both omitted
-	if (target != "" && role == "") || (target == "" && role != "") {
-		return fmt.Errorf("both --target and --role must be provided")
+	// Validate type flag
+	if favType != "" && favType != config.FavoriteTypeCloud && favType != config.FavoriteTypeGroups {
+		return fmt.Errorf("invalid --type %q: must be one of: cloud, groups", favType)
 	}
 
-	// Determine name from arg (may be empty for interactive prompt-after-selection)
+	// Validate flag combinations
+	if favType == config.FavoriteTypeGroups {
+		if target != "" || role != "" {
+			return fmt.Errorf("--target and --role cannot be used with --type groups")
+		}
+	} else {
+		if group != "" {
+			return fmt.Errorf("--group requires --type groups")
+		}
+		if (target != "" && role == "") || (target == "" && role != "") {
+			return fmt.Errorf("both --target and --role must be provided")
+		}
+	}
+
+	// Determine name from arg
 	var name string
 	if len(args) > 0 {
 		name = args[0]
 	}
 
 	// Non-interactive mode requires name upfront
-	if target != "" && role != "" && name == "" {
+	isNonInteractive := (target != "" && role != "") || (favType == config.FavoriteTypeGroups && group != "")
+	if isNonInteractive && name == "" {
+		if favType == config.FavoriteTypeGroups {
+			return fmt.Errorf("name is required when using --group flag\n\nUsage:\n  grant favorites add <name> --type groups --group <group>")
+		}
 		return fmt.Errorf("name is required when using --target and --role flags\n\nUsage:\n  grant favorites add <name> --target <target> --role <role>")
 	}
 
@@ -184,10 +220,14 @@ func runFavoritesAddWithDeps(cmd *cobra.Command, args []string, eligLister eligi
 		}
 	}
 
-	var fav config.Favorite
+	// Groups flow
+	if favType == config.FavoriteTypeGroups {
+		return addGroupFavorite(cmd, name, group, cfg, cfgPath, groupsElig, groupSel, prompter)
+	}
 
+	// Cloud flow
+	var fav config.Favorite
 	if target != "" && role != "" {
-		// Non-interactive mode: use flags directly
 		fav.Target = target
 		fav.Role = role
 		fav.Provider = provider
@@ -195,7 +235,6 @@ func runFavoritesAddWithDeps(cmd *cobra.Command, args []string, eligLister eligi
 			fav.Provider = cfg.DefaultProvider
 		}
 	} else {
-		// Interactive mode: select from eligible targets (all CSPs when provider is empty)
 		ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
 		defer cancel()
 
@@ -204,13 +243,10 @@ func runFavoritesAddWithDeps(cmd *cobra.Command, args []string, eligLister eligi
 			return err
 		}
 
-		// Interactive selection
 		selectedTarget, err := sel.SelectTarget(allTargets)
 		if err != nil {
 			return fmt.Errorf("target selection failed: %w", err)
 		}
-
-		// Ensure CSP is set on selected target
 		resolveTargetCSP(selectedTarget, allTargets, provider)
 
 		if provider != "" {
@@ -221,31 +257,75 @@ func runFavoritesAddWithDeps(cmd *cobra.Command, args []string, eligLister eligi
 		fav.Target = selectedTarget.WorkspaceName
 		fav.Role = selectedTarget.RoleInfo.Name
 
-		// Prompt for name after selection if not provided
 		if name == "" {
 			name, err = prompter.PromptName()
 			if err != nil {
 				return fmt.Errorf("failed to read favorite name: %w", err)
 			}
-
-			// Check duplicate for prompted name
 			if _, err := config.GetFavorite(cfg, name); err == nil {
 				return fmt.Errorf("favorite %q already exists", name)
 			}
 		}
 	}
 
-	// Add favorite
 	if err := config.AddFavorite(cfg, name, fav); err != nil {
 		return fmt.Errorf("failed to add favorite: %w", err)
 	}
-
-	// Save config
 	if err := config.Save(cfg, cfgPath); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
-
 	fmt.Fprintf(cmd.OutOrStdout(), "Added favorite %q: %s/%s/%s\n", name, fav.Provider, fav.Target, fav.Role)
+	return nil
+}
+
+// addGroupFavorite handles the --type groups flow for favorites add.
+func addGroupFavorite(cmd *cobra.Command, name, group string, cfg *config.Config, cfgPath string, groupsElig groupsEligibilityLister, groupSel groupSelector, prompter namePrompter) error {
+	var fav config.Favorite
+	fav.Type = config.FavoriteTypeGroups
+	fav.Provider = "azure"
+
+	if group != "" {
+		// Non-interactive: group specified via flag
+		fav.Group = group
+	} else {
+		// Interactive: select from eligible groups
+		ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
+		defer cancel()
+
+		eligResp, err := groupsElig.ListGroupsEligibility(ctx, scamodels.CSPAzure)
+		if err != nil {
+			return fmt.Errorf("failed to fetch eligible groups: %w", err)
+		}
+		if len(eligResp.Response) == 0 {
+			return fmt.Errorf("no eligible groups found")
+		}
+
+		selected, err := groupSel.SelectGroup(eligResp.Response)
+		if err != nil {
+			return fmt.Errorf("group selection failed: %w", err)
+		}
+
+		fav.Group = selected.GroupName
+		fav.DirectoryID = selected.DirectoryID
+
+		if name == "" {
+			name, err = prompter.PromptName()
+			if err != nil {
+				return fmt.Errorf("failed to read favorite name: %w", err)
+			}
+			if _, err := config.GetFavorite(cfg, name); err == nil {
+				return fmt.Errorf("favorite %q already exists", name)
+			}
+		}
+	}
+
+	if err := config.AddFavorite(cfg, name, fav); err != nil {
+		return fmt.Errorf("failed to add favorite: %w", err)
+	}
+	if err := config.Save(cfg, cfgPath); err != nil {
+		return fmt.Errorf("failed to save config: %w", err)
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "Added favorite %q: groups/%s\n", name, fav.Group)
 	return nil
 }
 
@@ -293,11 +373,11 @@ func runFavoritesList(cmd *cobra.Command, args []string) error {
 	}
 
 	for _, entry := range favorites {
-		fmt.Fprintf(cmd.OutOrStdout(), "%s: %s/%s/%s\n",
-			entry.Name,
-			entry.Provider,
-			entry.Target,
-			entry.Role)
+		if entry.ResolvedType() == config.FavoriteTypeGroups {
+			fmt.Fprintf(cmd.OutOrStdout(), "%s: groups/%s\n", entry.Name, entry.Group)
+		} else {
+			fmt.Fprintf(cmd.OutOrStdout(), "%s: %s/%s/%s\n", entry.Name, entry.Provider, entry.Target, entry.Role)
+		}
 	}
 
 	return nil

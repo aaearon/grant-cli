@@ -9,11 +9,19 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const (
+	FavoriteTypeCloud  = "cloud"
+	FavoriteTypeGroups = "groups"
+)
+
 // Favorite represents a saved elevation target.
 type Favorite struct {
-	Provider string `yaml:"provider"`
-	Target   string `yaml:"target"`
-	Role     string `yaml:"role"`
+	Type        string `yaml:"type,omitempty"`         // "cloud" or "groups"; empty → "cloud"
+	Provider    string `yaml:"provider"`
+	Target      string `yaml:"target"`
+	Role        string `yaml:"role"`
+	Group       string `yaml:"group,omitempty"`        // Group name (groups only)
+	DirectoryID string `yaml:"directory_id,omitempty"` // Directory ID (groups only)
 }
 
 // Config holds the grant application configuration.

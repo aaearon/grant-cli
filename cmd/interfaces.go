@@ -67,3 +67,18 @@ type authenticator interface {
 type profileSaver interface {
 	SaveProfile(profile *sdkmodels.IdsecProfile) error
 }
+
+// groupsEligibilityLister interface for listing eligible Entra ID groups
+type groupsEligibilityLister interface {
+	ListGroupsEligibility(ctx context.Context, csp models.CSP) (*models.GroupsEligibilityResponse, error)
+}
+
+// groupsElevator interface for Entra ID group elevation
+type groupsElevator interface {
+	ElevateGroups(ctx context.Context, req *models.GroupsElevateRequest) (*models.GroupsElevateResponse, error)
+}
+
+// groupSelector interface for interactive group selection
+type groupSelector interface {
+	SelectGroup(groups []models.GroupsEligibleTarget) (*models.GroupsEligibleTarget, error)
+}

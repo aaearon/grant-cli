@@ -19,6 +19,16 @@ func FormatSessionOption(session models.SessionInfo, nameMap map[string]string) 
 		durationStr = fmt.Sprintf("%dm", durationMin)
 	}
 
+	if session.IsGroupSession() {
+		directory := session.WorkspaceID
+		if nameMap != nil {
+			if name, ok := nameMap[session.WorkspaceID]; ok {
+				directory = name
+			}
+		}
+		return fmt.Sprintf("Group: %s in %s - duration: %s (session: %s)", session.Target.ID, directory, durationStr, session.SessionID)
+	}
+
 	workspace := session.WorkspaceID
 	if nameMap != nil {
 		if name, ok := nameMap[session.WorkspaceID]; ok {

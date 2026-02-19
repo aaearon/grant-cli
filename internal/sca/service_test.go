@@ -544,3 +544,210 @@ func TestListSessions_WithCSPFilter(t *testing.T) {
 		t.Errorf("expected CSP AZURE, got %s", result.Response[0].CSP)
 	}
 }
+
+func TestListGroupsEligibility_Success(t *testing.T) {
+	resp := models.GroupsEligibilityResponse{
+		Response: []models.GroupsEligibleTarget{
+			{
+				DirectoryID: "dir1",
+				GroupID:     "grp1",
+				GroupName:   "Engineering",
+			},
+		},
+		Total: 1,
+	}
+
+	body, _ := json.Marshal(resp)
+	mock := &mockHTTPClient{
+		getResponse: &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(string(body))),
+		},
+	}
+
+	svc := &SCAAccessService{httpClient: mock}
+	result, err := svc.ListGroupsEligibility(context.Background(), models.CSPAzure)
+
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if len(result.Response) != 1 {
+		t.Errorf("expected 1 group, got %d", len(result.Response))
+	}
+	if result.Response[0].GroupName != "Engineering" {
+		t.Errorf("expected group name Engineering, got %s", result.Response[0].GroupName)
+	}
+}
+
+func TestListGroupsEligibility_Empty(t *testing.T) {
+	resp := models.GroupsEligibilityResponse{
+		Response: []models.GroupsEligibleTarget{},
+		Total:    0,
+	}
+
+	body, _ := json.Marshal(resp)
+	mock := &mockHTTPClient{
+		getResponse: &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(string(body))),
+		},
+	}
+
+	svc := &SCAAccessService{httpClient: mock}
+	result, err := svc.ListGroupsEligibility(context.Background(), models.CSPAzure)
+
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(result.Response) != 0 {
+		t.Errorf("expected 0 groups, got %d", len(result.Response))
+	}
+}
+
+func TestListGroupsEligibility_HTTPError(t *testing.T) {
+	mock := &mockHTTPClient{
+		getResponse: &http.Response{
+			StatusCode: http.StatusUnauthorized,
+			Body:       io.NopCloser(strings.NewReader(`{"error": "unauthorized"}`)),
+		},
+	}
+
+	svc := &SCAAccessService{httpClient: mock}
+	_, err := svc.ListGroupsEligibility(context.Background(), models.CSPAzure)
+
+	if err == nil {
+		t.Fatal("expected error for 401 response")
+	}
+	if !strings.Contains(err.Error(), "401") {
+		t.Errorf("expected error to mention status code 401, got: %v", err)
+	}
+}
+
+func TestElevateGroups_Success(t *testing.T) {
+	req := &models.GroupsElevateRequest{
+		DirectoryID: "dir1",
+		CSP:         models.CSPAzure,
+		Targets:     []models.GroupsElevateTarget{{GroupID: "grp1"}},
+	}
+
+	// Groups elevate response IS wrapped in "response" key (confirmed via live API)
+	resp := struct {
+		Response models.GroupsElevateResponse `json:"response"`
+	}{
+		Response: models.GroupsElevateResponse{
+			DirectoryID: "dir1",
+			CSP:         models.CSPAzure,
+			Results: []models.GroupsElevateTargetResult{
+				{
+					GroupID:   "grp1",
+					SessionID: "sess1",
+				},
+			},
+		},
+	}
+
+	body, _ := json.Marshal(resp)
+	mock := &mockHTTPClient{
+		postResponse: &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(string(body))),
+		},
+	}
+
+	svc := &SCAAccessService{httpClient: mock}
+	result, err := svc.ElevateGroups(context.Background(), req)
+
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if len(result.Results) != 1 {
+		t.Errorf("expected 1 result, got %d", len(result.Results))
+	}
+	if result.Results[0].SessionID != "sess1" {
+		t.Errorf("expected session ID sess1, got %s", result.Results[0].SessionID)
+	}
+}
+
+func TestElevateGroups_WithError(t *testing.T) {
+	req := &models.GroupsElevateRequest{
+		DirectoryID: "dir1",
+		CSP:         models.CSPAzure,
+		Targets:     []models.GroupsElevateTarget{{GroupID: "grp1"}},
+	}
+
+	resp := struct {
+		Response models.GroupsElevateResponse `json:"response"`
+	}{
+		Response: models.GroupsElevateResponse{
+			DirectoryID: "dir1",
+			CSP:         models.CSPAzure,
+			Results: []models.GroupsElevateTargetResult{
+				{
+					GroupID:   "grp1",
+					SessionID: "",
+					ErrorInfo: &models.ErrorInfo{
+						Code:        "ERR_INELIGIBLE",
+						Message:     "Not eligible",
+						Description: "User not eligible for this group",
+					},
+				},
+			},
+		},
+	}
+
+	body, _ := json.Marshal(resp)
+	mock := &mockHTTPClient{
+		postResponse: &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(string(body))),
+		},
+	}
+
+	svc := &SCAAccessService{httpClient: mock}
+	result, err := svc.ElevateGroups(context.Background(), req)
+
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if result.Results[0].ErrorInfo == nil {
+		t.Error("expected error info, got nil")
+	}
+}
+
+func TestElevateGroups_NilRequest(t *testing.T) {
+	mock := &mockHTTPClient{}
+	svc := &SCAAccessService{httpClient: mock}
+
+	_, err := svc.ElevateGroups(context.Background(), nil)
+	if err == nil {
+		t.Fatal("expected error for nil request")
+	}
+	if !strings.Contains(err.Error(), "nil") {
+		t.Errorf("expected error to mention nil, got: %v", err)
+	}
+}
+
+func TestElevateGroups_EmptyTargets(t *testing.T) {
+	req := &models.GroupsElevateRequest{
+		DirectoryID: "dir1",
+		CSP:         models.CSPAzure,
+		Targets:     []models.GroupsElevateTarget{},
+	}
+
+	mock := &mockHTTPClient{}
+	svc := &SCAAccessService{httpClient: mock}
+
+	_, err := svc.ElevateGroups(context.Background(), req)
+	if err == nil {
+		t.Fatal("expected error for empty targets")
+	}
+	if !strings.Contains(err.Error(), "target") {
+		t.Errorf("expected error about targets, got: %v", err)
+	}
+}

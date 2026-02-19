@@ -62,6 +62,42 @@ func TestFormatSessionOption(t *testing.T) {
 			nameMap: map[string]string{},
 			want:    "Owner on /subscriptions/sub-1 - duration: 0m (session: session-4)",
 		},
+		{
+			name: "group session with directory name",
+			session: models.SessionInfo{
+				SessionID:       "group-session-1",
+				CSP:             models.CSPAzure,
+				WorkspaceID:     "29cb7961-e16d-42c7-8ade-1794bbb76782",
+				SessionDuration: 3600,
+				Target:          &models.SessionTarget{ID: "d554b344-group-uuid", Type: models.TargetTypeGroups},
+			},
+			nameMap: map[string]string{"29cb7961-e16d-42c7-8ade-1794bbb76782": "CyberIAM Tech Labs"},
+			want:    "Group: d554b344-group-uuid in CyberIAM Tech Labs - duration: 1h 0m (session: group-session-1)",
+		},
+		{
+			name: "group session without directory name",
+			session: models.SessionInfo{
+				SessionID:       "group-session-2",
+				CSP:             models.CSPAzure,
+				WorkspaceID:     "29cb7961-dir-uuid",
+				SessionDuration: 1800,
+				Target:          &models.SessionTarget{ID: "abcd-group-uuid", Type: models.TargetTypeGroups},
+			},
+			nameMap: map[string]string{},
+			want:    "Group: abcd-group-uuid in 29cb7961-dir-uuid - duration: 30m (session: group-session-2)",
+		},
+		{
+			name: "group session with nil name map",
+			session: models.SessionInfo{
+				SessionID:       "group-session-3",
+				CSP:             models.CSPAzure,
+				WorkspaceID:     "dir-uuid-123",
+				SessionDuration: 7200,
+				Target:          &models.SessionTarget{ID: "group-uuid-456", Type: models.TargetTypeGroups},
+			},
+			nameMap: nil,
+			want:    "Group: group-uuid-456 in dir-uuid-123 - duration: 2h 0m (session: group-session-3)",
+		},
 	}
 
 	for _, tt := range tests {

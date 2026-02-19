@@ -152,3 +152,129 @@ func TestAddFavorite_DefaultProvider(t *testing.T) {
 		t.Errorf("provider = %q, want %q (should default to 'azure')", got.Provider, "azure")
 	}
 }
+
+func TestAddFavorite_GroupFavorite(t *testing.T) {
+	t.Parallel()
+	cfg := DefaultConfig()
+	fav := Favorite{
+		Type:        FavoriteTypeGroups,
+		Provider:    "azure",
+		Group:       "SG-Admin",
+		DirectoryID: "dir-abc-123",
+	}
+
+	err := AddFavorite(cfg, "my-group", fav)
+	if err != nil {
+		t.Fatalf("AddFavorite() error = %v", err)
+	}
+
+	got, ok := cfg.Favorites["my-group"]
+	if !ok {
+		t.Fatal("expected favorite 'my-group' to exist")
+	}
+	if got.Type != FavoriteTypeGroups {
+		t.Errorf("type = %q, want %q", got.Type, FavoriteTypeGroups)
+	}
+	if got.Provider != "azure" {
+		t.Errorf("provider = %q, want %q", got.Provider, "azure")
+	}
+	if got.Group != "SG-Admin" {
+		t.Errorf("group = %q, want %q", got.Group, "SG-Admin")
+	}
+	if got.DirectoryID != "dir-abc-123" {
+		t.Errorf("directory_id = %q, want %q", got.DirectoryID, "dir-abc-123")
+	}
+}
+
+func TestGetFavorite_GroupFavorite(t *testing.T) {
+	t.Parallel()
+	cfg := DefaultConfig()
+	expected := Favorite{
+		Type:        FavoriteTypeGroups,
+		Provider:    "azure",
+		Group:       "SG-Dev",
+		DirectoryID: "dir-xyz",
+	}
+	cfg.Favorites["my-group"] = expected
+
+	got, err := GetFavorite(cfg, "my-group")
+	if err != nil {
+		t.Fatalf("GetFavorite() error = %v", err)
+	}
+
+	if got.Type != expected.Type {
+		t.Errorf("type = %q, want %q", got.Type, expected.Type)
+	}
+	if got.Provider != expected.Provider {
+		t.Errorf("provider = %q, want %q", got.Provider, expected.Provider)
+	}
+	if got.Group != expected.Group {
+		t.Errorf("group = %q, want %q", got.Group, expected.Group)
+	}
+	if got.DirectoryID != expected.DirectoryID {
+		t.Errorf("directory_id = %q, want %q", got.DirectoryID, expected.DirectoryID)
+	}
+}
+
+func TestListFavorites_MixedCloudAndGroups(t *testing.T) {
+	t.Parallel()
+	cfg := DefaultConfig()
+	cfg.Favorites["cloud-fav"] = Favorite{
+		Type:     FavoriteTypeCloud,
+		Provider: "aws",
+		Target:   "account-123",
+		Role:     "Admin",
+	}
+	cfg.Favorites["group-fav"] = Favorite{
+		Type:        FavoriteTypeGroups,
+		Provider:    "azure",
+		Group:       "SG-Admin",
+		DirectoryID: "dir-abc",
+	}
+
+	entries := ListFavorites(cfg)
+	if len(entries) != 2 {
+		t.Fatalf("ListFavorites() length = %d, want 2", len(entries))
+	}
+
+	// Sorted alphabetically: cloud-fav, group-fav
+	if entries[0].Name != "cloud-fav" {
+		t.Errorf("entries[0].Name = %q, want %q", entries[0].Name, "cloud-fav")
+	}
+	if entries[0].Type != FavoriteTypeCloud {
+		t.Errorf("entries[0].Type = %q, want %q", entries[0].Type, FavoriteTypeCloud)
+	}
+	if entries[1].Name != "group-fav" {
+		t.Errorf("entries[1].Name = %q, want %q", entries[1].Name, "group-fav")
+	}
+	if entries[1].Type != FavoriteTypeGroups {
+		t.Errorf("entries[1].Type = %q, want %q", entries[1].Type, FavoriteTypeGroups)
+	}
+	if entries[1].Group != "SG-Admin" {
+		t.Errorf("entries[1].Group = %q, want %q", entries[1].Group, "SG-Admin")
+	}
+}
+
+func TestResolvedType(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		favType  string
+		wantType string
+	}{
+		{name: "empty defaults to cloud", favType: "", wantType: FavoriteTypeCloud},
+		{name: "explicit cloud", favType: FavoriteTypeCloud, wantType: FavoriteTypeCloud},
+		{name: "explicit groups", favType: FavoriteTypeGroups, wantType: FavoriteTypeGroups},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			fav := Favorite{Type: tt.favType}
+			got := fav.ResolvedType()
+			if got != tt.wantType {
+				t.Errorf("ResolvedType() = %q, want %q", got, tt.wantType)
+			}
+		})
+	}
+}

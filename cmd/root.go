@@ -306,6 +306,11 @@ func resolveAndElevate(
 			return nil, fmt.Errorf("favorite %q not found, run 'grant favorites list'", flags.favorite)
 		}
 
+		// Group favorites must be used via the groups command
+		if fav.ResolvedType() == config.FavoriteTypeGroups {
+			return nil, fmt.Errorf("favorite %q is a group favorite; use 'grant groups --favorite %s' instead", flags.favorite, flags.favorite)
+		}
+
 		// Check provider mismatch
 		if flags.provider != "" && !strings.EqualFold(flags.provider, fav.Provider) {
 			return nil, fmt.Errorf("provider %q does not match favorite provider %q", flags.provider, fav.Provider)

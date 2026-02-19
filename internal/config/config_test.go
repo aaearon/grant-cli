@@ -265,3 +265,156 @@ func TestConfigPath_Default(t *testing.T) {
 		t.Error("expected non-empty config path")
 	}
 }
+
+func TestSaveConfig_RoundTrip_GroupFavorite(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	original := &Config{
+		Profile:         "test-profile",
+		DefaultProvider: "azure",
+		Favorites: map[string]Favorite{
+			"my-group": {
+				Type:        FavoriteTypeGroups,
+				Provider:    "azure",
+				Group:       "SG-Admin",
+				DirectoryID: "dir-abc-123",
+			},
+		},
+	}
+
+	if err := Save(original, path); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	fav, ok := loaded.Favorites["my-group"]
+	if !ok {
+		t.Fatal("expected favorite 'my-group' to exist")
+	}
+	if fav.Type != FavoriteTypeGroups {
+		t.Errorf("type = %q, want %q", fav.Type, FavoriteTypeGroups)
+	}
+	if fav.Provider != "azure" {
+		t.Errorf("provider = %q, want %q", fav.Provider, "azure")
+	}
+	if fav.Group != "SG-Admin" {
+		t.Errorf("group = %q, want %q", fav.Group, "SG-Admin")
+	}
+	if fav.DirectoryID != "dir-abc-123" {
+		t.Errorf("directory_id = %q, want %q", fav.DirectoryID, "dir-abc-123")
+	}
+}
+
+func TestLoadConfig_LegacyWithoutType(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	// Legacy YAML: no type field
+	content := []byte(`profile: legacy-profile
+default_provider: azure
+favorites:
+  old-fav:
+    provider: azure
+    target: sub-999
+    role: Reader
+`)
+	if err := os.WriteFile(path, content, 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	fav, ok := cfg.Favorites["old-fav"]
+	if !ok {
+		t.Fatal("expected favorite 'old-fav' to exist")
+	}
+	if fav.Type != "" {
+		t.Errorf("type = %q, want empty string for legacy favorite", fav.Type)
+	}
+	if fav.ResolvedType() != FavoriteTypeCloud {
+		t.Errorf("ResolvedType() = %q, want %q", fav.ResolvedType(), FavoriteTypeCloud)
+	}
+	if fav.Provider != "azure" {
+		t.Errorf("provider = %q, want %q", fav.Provider, "azure")
+	}
+	if fav.Target != "sub-999" {
+		t.Errorf("target = %q, want %q", fav.Target, "sub-999")
+	}
+	if fav.Role != "Reader" {
+		t.Errorf("role = %q, want %q", fav.Role, "Reader")
+	}
+}
+
+func TestLoadConfig_MixedFavorites(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+
+	content := []byte(`profile: mixed-profile
+default_provider: azure
+favorites:
+  cloud-fav:
+    type: cloud
+    provider: aws
+    target: account-123
+    role: Admin
+  group-fav:
+    type: groups
+    provider: azure
+    group: SG-Dev
+    directory_id: dir-xyz
+  legacy-fav:
+    provider: azure
+    target: sub-old
+    role: Reader
+`)
+	if err := os.WriteFile(path, content, 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if len(cfg.Favorites) != 3 {
+		t.Fatalf("favorites length = %d, want 3", len(cfg.Favorites))
+	}
+
+	cloud := cfg.Favorites["cloud-fav"]
+	if cloud.Type != FavoriteTypeCloud {
+		t.Errorf("cloud-fav type = %q, want %q", cloud.Type, FavoriteTypeCloud)
+	}
+	if cloud.Provider != "aws" {
+		t.Errorf("cloud-fav provider = %q, want %q", cloud.Provider, "aws")
+	}
+	if cloud.Target != "account-123" {
+		t.Errorf("cloud-fav target = %q, want %q", cloud.Target, "account-123")
+	}
+
+	group := cfg.Favorites["group-fav"]
+	if group.Type != FavoriteTypeGroups {
+		t.Errorf("group-fav type = %q, want %q", group.Type, FavoriteTypeGroups)
+	}
+	if group.Group != "SG-Dev" {
+		t.Errorf("group-fav group = %q, want %q", group.Group, "SG-Dev")
+	}
+	if group.DirectoryID != "dir-xyz" {
+		t.Errorf("group-fav directory_id = %q, want %q", group.DirectoryID, "dir-xyz")
+	}
+
+	legacy := cfg.Favorites["legacy-fav"]
+	if legacy.Type != "" {
+		t.Errorf("legacy-fav type = %q, want empty", legacy.Type)
+	}
+	if legacy.ResolvedType() != FavoriteTypeCloud {
+		t.Errorf("legacy-fav ResolvedType() = %q, want %q", legacy.ResolvedType(), FavoriteTypeCloud)
+	}
+}
