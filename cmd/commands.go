@@ -9,5 +9,6 @@ func init() {
 		NewVersionCommand(),
 		NewFavoritesCommand(),
 		NewEnvCommand(),
+		NewRevokeCommand(),
 	)
 }
