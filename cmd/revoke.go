@@ -24,8 +24,8 @@ func (p *uiConfirmPrompter) ConfirmRevocation(count int) (bool, error) {
 	return ui.ConfirmRevocation(count)
 }
 
-// NewRevokeCommand creates the revoke command
-func NewRevokeCommand() *cobra.Command {
+// newRevokeCommand creates the revoke cobra command with the given RunE function.
+func newRevokeCommand(runFn func(*cobra.Command, []string) error) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "revoke [session-id...]",
 		Short: "Revoke active elevated sessions",
@@ -39,14 +39,7 @@ Three execution modes:
 Use 'grant status' to view session IDs.`,
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			ispAuth, svc, profile, err := bootstrapSCAService()
-			if err != nil {
-				return err
-			}
-
-			return runRevoke(cmd, args, ispAuth, svc, svc, svc, &uiSessionSelector{}, &uiConfirmPrompter{}, profile)
-		},
+		RunE:          runFn,
 	}
 
 	cmd.Flags().BoolP("all", "a", false, "revoke all active sessions")
@@ -56,7 +49,19 @@ Use 'grant status' to view session IDs.`,
 	return cmd
 }
 
-// NewRevokeCommandWithDeps creates a revoke command with injected dependencies for testing
+// NewRevokeCommand creates the production revoke command.
+func NewRevokeCommand() *cobra.Command {
+	return newRevokeCommand(func(cmd *cobra.Command, args []string) error {
+		ispAuth, svc, profile, err := bootstrapSCAService()
+		if err != nil {
+			return err
+		}
+
+		return runRevoke(cmd, args, ispAuth, svc, svc, svc, &uiSessionSelector{}, &uiConfirmPrompter{}, profile)
+	})
+}
+
+// NewRevokeCommandWithDeps creates a revoke command with injected dependencies for testing.
 func NewRevokeCommandWithDeps(
 	auth authLoader,
 	lister sessionLister,
@@ -65,29 +70,9 @@ func NewRevokeCommandWithDeps(
 	selector sessionSelector,
 	confirmer confirmPrompter,
 ) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "revoke [session-id...]",
-		Short: "Revoke active elevated sessions",
-		Long: `Revoke one or more active elevated sessions.
-
-Three execution modes:
-1. Direct mode: grant revoke <session-id> [<session-id>...]
-2. All mode: grant revoke --all [--provider azure]
-3. Interactive mode: grant revoke (multi-select prompt)
-
-Use 'grant status' to view session IDs.`,
-		SilenceErrors: true,
-		SilenceUsage:  true,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runRevoke(cmd, args, auth, lister, elig, revoker, selector, confirmer, nil)
-		},
-	}
-
-	cmd.Flags().BoolP("all", "a", false, "revoke all active sessions")
-	cmd.Flags().BoolP("yes", "y", false, "skip confirmation prompt")
-	cmd.Flags().StringP("provider", "p", "", "filter sessions by provider (azure, aws)")
-
-	return cmd
+	return newRevokeCommand(func(cmd *cobra.Command, args []string) error {
+		return runRevoke(cmd, args, auth, lister, elig, revoker, selector, confirmer, nil)
+	})
 }
 
 func runRevoke(
@@ -108,6 +93,9 @@ func runRevoke(
 	// Validate mutual exclusivity
 	if allFlag && len(args) > 0 {
 		return fmt.Errorf("--all cannot be used with session ID arguments")
+	}
+	if len(args) > 0 && provider != "" {
+		return fmt.Errorf("--provider cannot be used with session ID arguments")
 	}
 
 	// Validate provider

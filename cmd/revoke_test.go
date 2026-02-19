@@ -312,6 +312,99 @@ func TestRevokeCommand(t *testing.T) {
 			wantErr:       true,
 		},
 		{
+			name: "direct mode with --provider - mutual exclusivity error",
+			args: []string{"--provider", "azure", "session-1"},
+			setupAuth: func() *mockAuthLoader {
+				return &mockAuthLoader{
+					token: &authmodels.IdsecToken{Token: "jwt", Username: "user@example.com", ExpiresIn: expiresIn},
+				}
+			},
+			setupLister:   func() *mockSessionLister { return &mockSessionLister{} },
+			setupElig:     func() *mockEligibilityLister { return &mockEligibilityLister{} },
+			setupRevoker:  func() *mockSessionRevoker { return &mockSessionRevoker{} },
+			setupSelector: func() *mockSessionSelector { return &mockSessionSelector{} },
+			setupConfirm:  func() *mockConfirmPrompter { return &mockConfirmPrompter{} },
+			wantContain:   []string{"--provider cannot be used with session ID arguments"},
+			wantErr:       true,
+		},
+		{
+			name: "all mode - list sessions error",
+			args: []string{"--all", "--yes"},
+			setupAuth: func() *mockAuthLoader {
+				return &mockAuthLoader{
+					token: &authmodels.IdsecToken{Token: "jwt", Username: "user@example.com", ExpiresIn: expiresIn},
+				}
+			},
+			setupLister: func() *mockSessionLister {
+				return &mockSessionLister{listErr: errors.New("service unavailable")}
+			},
+			setupElig:     func() *mockEligibilityLister { return &mockEligibilityLister{} },
+			setupRevoker:  func() *mockSessionRevoker { return &mockSessionRevoker{} },
+			setupSelector: func() *mockSessionSelector { return &mockSessionSelector{} },
+			setupConfirm:  func() *mockConfirmPrompter { return &mockConfirmPrompter{} },
+			wantContain:   []string{"failed to list sessions"},
+			wantErr:       true,
+		},
+		{
+			name: "interactive mode - selection error",
+			args: []string{},
+			setupAuth: func() *mockAuthLoader {
+				return &mockAuthLoader{
+					token: &authmodels.IdsecToken{Token: "jwt", Username: "user@example.com", ExpiresIn: expiresIn},
+				}
+			},
+			setupLister: func() *mockSessionLister {
+				return &mockSessionLister{sessions: activeSessions}
+			},
+			setupElig: func() *mockEligibilityLister { return &mockEligibilityLister{} },
+			setupRevoker: func() *mockSessionRevoker { return &mockSessionRevoker{} },
+			setupSelector: func() *mockSessionSelector {
+				return &mockSessionSelector{selectErr: errors.New("prompt interrupted")}
+			},
+			setupConfirm: func() *mockConfirmPrompter { return &mockConfirmPrompter{} },
+			wantContain:  []string{"session selection failed"},
+			wantErr:      true,
+		},
+		{
+			name: "interactive mode with --yes skips confirmation",
+			args: []string{"--yes"},
+			setupAuth: func() *mockAuthLoader {
+				return &mockAuthLoader{
+					token: &authmodels.IdsecToken{Token: "jwt", Username: "user@example.com", ExpiresIn: expiresIn},
+				}
+			},
+			setupLister: func() *mockSessionLister {
+				return &mockSessionLister{sessions: activeSessions}
+			},
+			setupElig: func() *mockEligibilityLister { return &mockEligibilityLister{} },
+			setupRevoker: func() *mockSessionRevoker {
+				return &mockSessionRevoker{
+					response: &scamodels.RevokeResponse{
+						Response: []scamodels.RevocationResult{
+							{SessionID: "session-1", RevocationStatus: scamodels.RevocationSuccessful},
+						},
+					},
+				}
+			},
+			setupSelector: func() *mockSessionSelector {
+				return &mockSessionSelector{
+					sessions: []scamodels.SessionInfo{
+						{SessionID: "session-1", CSP: scamodels.CSPAzure, WorkspaceID: "/subscriptions/sub-1", RoleID: "Contributor", SessionDuration: 3600},
+					},
+				}
+			},
+			setupConfirm: func() *mockConfirmPrompter {
+				return &mockConfirmPrompter{
+					confirmFunc: func(count int) (bool, error) {
+						t.Error("ConfirmRevocation should not be called with --yes flag")
+						return false, nil
+					},
+				}
+			},
+			wantContain: []string{"session-1", "SUCCESSFULLY_REVOKED"},
+			wantErr:     false,
+		},
+		{
 			name: "invalid provider",
 			args: []string{"--all", "--provider", "invalid"},
 			setupAuth: func() *mockAuthLoader {
