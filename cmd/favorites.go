@@ -7,7 +7,6 @@ import (
 
 	survey "github.com/Iilun/survey/v2"
 	"github.com/aaearon/grant-cli/internal/config"
-	scamodels "github.com/aaearon/grant-cli/internal/sca/models"
 	"github.com/spf13/cobra"
 )
 
@@ -219,7 +218,7 @@ func runFavoritesAddWithDeps(cmd *cobra.Command, args []string, eligLister eligi
 
 	// Groups flow
 	if favType == config.FavoriteTypeGroups {
-		return addGroupFavorite(cmd, name, group, cfg, cfgPath, groupsElig, sel, prompter)
+		return addGroupFavorite(cmd, name, group, cfg, cfgPath, groupsElig, eligLister, sel, prompter)
 	}
 
 	// Cloud flow
@@ -247,12 +246,12 @@ func runFavoritesAddWithDeps(cmd *cobra.Command, args []string, eligLister eligi
 			items = append(items, selectionItem{kind: selectionCloud, cloud: &allTargets[i]})
 		}
 
-		// Fetch groups eligibility (best-effort)
+		// Fetch groups eligibility (best-effort, enriched with directory names)
 		if groupsElig != nil {
-			eligResp, gErr := groupsElig.ListGroupsEligibility(ctx, scamodels.CSPAzure)
-			if gErr == nil && len(eligResp.Response) > 0 {
-				for i := range eligResp.Response {
-					items = append(items, selectionItem{kind: selectionGroup, group: &eligResp.Response[i]})
+			groups, gErr := fetchGroupsEligibility(ctx, groupsElig, eligLister, cmd.ErrOrStderr())
+			if gErr == nil {
+				for i := range groups {
+					items = append(items, selectionItem{kind: selectionGroup, group: &groups[i]})
 				}
 			}
 		}
@@ -310,7 +309,7 @@ func runFavoritesAddWithDeps(cmd *cobra.Command, args []string, eligLister eligi
 }
 
 // addGroupFavorite handles the --type groups flow for favorites add.
-func addGroupFavorite(cmd *cobra.Command, name, group string, cfg *config.Config, cfgPath string, groupsElig groupsEligibilityLister, sel unifiedSelector, prompter namePrompter) error {
+func addGroupFavorite(cmd *cobra.Command, name, group string, cfg *config.Config, cfgPath string, groupsElig groupsEligibilityLister, eligLister eligibilityLister, sel unifiedSelector, prompter namePrompter) error {
 	var fav config.Favorite
 	fav.Type = config.FavoriteTypeGroups
 	fav.Provider = "azure"
@@ -323,17 +322,14 @@ func addGroupFavorite(cmd *cobra.Command, name, group string, cfg *config.Config
 		ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
 		defer cancel()
 
-		eligResp, err := groupsElig.ListGroupsEligibility(ctx, scamodels.CSPAzure)
+		groups, err := fetchGroupsEligibility(ctx, groupsElig, eligLister, cmd.ErrOrStderr())
 		if err != nil {
-			return fmt.Errorf("failed to fetch eligible groups: %w", err)
-		}
-		if len(eligResp.Response) == 0 {
-			return fmt.Errorf("no eligible groups found")
+			return err
 		}
 
 		var items []selectionItem
-		for i := range eligResp.Response {
-			items = append(items, selectionItem{kind: selectionGroup, group: &eligResp.Response[i]})
+		for i := range groups {
+			items = append(items, selectionItem{kind: selectionGroup, group: &groups[i]})
 		}
 
 		selected, err := sel.SelectItem(items)

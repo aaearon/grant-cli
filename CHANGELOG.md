@@ -33,6 +33,7 @@ All notable changes to this project will be documented in this file.
 - Group favorites now verify DirectoryID, preventing wrong-group elevation when multiple directories have identically-named groups
 - `grant status` now resolves directory names for group sessions via `buildDirectoryNameMap`
 - `buildDirectoryNameMap` now handles nil eligibility response gracefully
+- `grant favorites add` now resolves directory names for groups, matching root command display (`Directory: X / Group: Y`)
 
 ### Removed
 
