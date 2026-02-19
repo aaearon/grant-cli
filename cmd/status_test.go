@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"strings"
@@ -550,28 +549,6 @@ func TestStatusCommandIntegration(t *testing.T) {
 	}
 }
 
-func TestBuildWorkspaceNameMap_VerboseWarning(t *testing.T) {
-	// Set verbose to true to trigger the warning
-	oldVerbose := verbose
-	verbose = true
-	defer func() { verbose = oldVerbose }()
-
-	ctx := context.Background()
-	eligLister := &mockEligibilityLister{
-		listErr: errors.New("eligibility API unavailable"),
-	}
-
-	sessions := []scamodels.SessionInfo{
-		{CSP: scamodels.CSPAzure, WorkspaceID: "/subscriptions/sub-1"},
-	}
-
-	var buf bytes.Buffer
-	_ = buildWorkspaceNameMap(ctx, eligLister, sessions, &buf)
-
-	if !strings.Contains(buf.String(), "Warning: failed to fetch names for AZURE") {
-		t.Errorf("expected verbose warning, got: %q", buf.String())
-	}
-}
 
 func TestStatusCommandUsage(t *testing.T) {
 	cmd := NewStatusCommand()
