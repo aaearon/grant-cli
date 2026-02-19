@@ -57,7 +57,14 @@ func NewGroupsCommand() *cobra.Command {
 			return err
 		}
 
-		return runGroups(cmd, ispAuth, svc, svc, svc, &uiGroupSelector{}, profile, nil)
+		cfg, _, err := config.LoadDefaultWithPath()
+		if err != nil {
+			return err
+		}
+
+		cachedLister := buildCachedLister(cfg, false, svc, svc)
+
+		return runGroups(cmd, ispAuth, cachedLister, cachedLister, svc, &uiGroupSelector{}, profile, cfg)
 	})
 }
 

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aaearon/grant-cli/internal/cache"
 	scamodels "github.com/aaearon/grant-cli/internal/sca/models"
 	authmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
 	commonmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/common"
@@ -656,6 +657,79 @@ func TestStatusCommandIntegration(t *testing.T) {
 	}
 }
 
+
+func TestStatusCommand_CachedEligibility(t *testing.T) {
+	now := time.Now()
+	expiresIn := commonmodels.IdsecRFC3339Time(now.Add(1 * time.Hour))
+
+	// Inner mock returns Azure targets including DIRECTORY type for directory name resolution
+	innerElig := newCountingEligibilityLister(&mockEligibilityLister{
+		listFunc: func(ctx context.Context, csp scamodels.CSP) (*scamodels.EligibilityResponse, error) {
+			if csp == scamodels.CSPAzure {
+				return &scamodels.EligibilityResponse{
+					Response: []scamodels.EligibleTarget{
+						{
+							OrganizationID: "org-1",
+							WorkspaceID:    "/subscriptions/sub-1",
+							WorkspaceName:  "Dev Sub",
+						},
+						{
+							OrganizationID: "dir-1",
+							WorkspaceID:    "dir-1",
+							WorkspaceName:  "Contoso",
+							WorkspaceType:  scamodels.WorkspaceTypeDirectory,
+						},
+					},
+				}, nil
+			}
+			return &scamodels.EligibilityResponse{Response: []scamodels.EligibleTarget{}}, nil
+		},
+	})
+
+	// Wrap in CachedEligibilityLister with a real temp dir store
+	store := cache.NewStore(t.TempDir(), 4*time.Hour)
+	cachedLister := cache.NewCachedEligibilityLister(innerElig, nil, store, false, nil)
+
+	auth := &mockAuthLoader{
+		token: &authmodels.IdsecToken{Token: "jwt", Username: "user@example.com", ExpiresIn: expiresIn},
+	}
+	sessions := &mockSessionLister{
+		sessions: &scamodels.SessionsResponse{
+			Response: []scamodels.SessionInfo{
+				{
+					SessionID:       "session-1",
+					CSP:             scamodels.CSPAzure,
+					WorkspaceID:     "/subscriptions/sub-1",
+					RoleID:          "Contributor",
+					SessionDuration: 3600,
+				},
+			},
+			Total: 1,
+		},
+	}
+
+	cmd := NewStatusCommandWithDeps(auth, sessions, cachedLister)
+	output, err := executeCommand(cmd)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(output, "Dev Sub") {
+		t.Errorf("output missing workspace name, got:\n%s", output)
+	}
+
+	// Key assertion: Azure inner was called only once.
+	// fetchStatusData calls Azure once, then buildDirectoryNameMap calls Azure again,
+	// but the second call is a cache hit.
+	if got := innerElig.CallCount(scamodels.CSPAzure); got != 1 {
+		t.Errorf("Azure inner called %d times, want 1 (cache should deduplicate)", got)
+	}
+
+	// AWS was called once by fetchStatusData
+	if got := innerElig.CallCount(scamodels.CSPAWS); got != 1 {
+		t.Errorf("AWS inner called %d times, want 1", got)
+	}
+}
 
 func TestStatusCommandUsage(t *testing.T) {
 	cmd := NewStatusCommand()

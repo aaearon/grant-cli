@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/aaearon/grant-cli/internal/config"
 	scamodels "github.com/aaearon/grant-cli/internal/sca/models"
 	"github.com/aaearon/grant-cli/internal/ui"
 	sdkmodels "github.com/cyberark/idsec-sdk-golang/pkg/models"
@@ -57,7 +58,14 @@ func NewRevokeCommand() *cobra.Command {
 			return err
 		}
 
-		return runRevoke(cmd, args, ispAuth, svc, svc, svc, &uiSessionSelector{}, &uiConfirmPrompter{}, profile)
+		cfg, _, err := config.LoadDefaultWithPath()
+		if err != nil {
+			return err
+		}
+
+		cachedLister := buildCachedLister(cfg, false, svc, nil)
+
+		return runRevoke(cmd, args, ispAuth, svc, cachedLister, svc, &uiSessionSelector{}, &uiConfirmPrompter{}, profile)
 	})
 }
 

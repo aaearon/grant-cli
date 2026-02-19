@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/aaearon/grant-cli/internal/config"
 	scamodels "github.com/aaearon/grant-cli/internal/sca/models"
 	"github.com/aaearon/grant-cli/internal/ui"
 	"github.com/cyberark/idsec-sdk-golang/pkg/models"
@@ -34,7 +35,14 @@ func NewStatusCommand() *cobra.Command {
 			return err
 		}
 
-		return runStatus(cmd, ispAuth, svc, svc, profile)
+		cfg, _, err := config.LoadDefaultWithPath()
+		if err != nil {
+			return err
+		}
+
+		cachedLister := buildCachedLister(cfg, false, svc, nil)
+
+		return runStatus(cmd, ispAuth, svc, cachedLister, profile)
 	})
 }
 

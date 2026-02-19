@@ -14,7 +14,10 @@ A CLI tool for elevating cloud permissions (Azure, AWS) via CyberArk Secure Clou
 - Direct elevation with target and role flags
 - AWS credential export via `grant env` for shell integration
 - Favorites management for frequently used roles
+- Entra ID group membership elevation via `grant groups`
+- Session revocation via `grant revoke`
 - Session status monitoring
+- Local eligibility cache with configurable TTL
 - Secure token storage in system keyring
 
 ## Usage
@@ -39,8 +42,17 @@ eval $(grant env --provider aws)
 # Use a saved favorite
 grant --favorite prod-contrib
 
+# Elevate Entra ID group membership
+grant groups
+grant groups --group "Cloud Admins"
+
 # Check active sessions
 grant status
+
+# Revoke sessions
+grant revoke              # interactive multi-select
+grant revoke <session-id> # direct by ID
+grant revoke --all        # revoke all
 ```
 
 ## Installation

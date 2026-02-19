@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"errors"
+	"sync"
 
 	"github.com/aaearon/grant-cli/internal/sca/models"
 	sdkmodels "github.com/cyberark/idsec-sdk-golang/pkg/models"
@@ -219,4 +220,53 @@ func (m *mockGroupSelector) SelectGroup(groups []models.GroupsEligibleTarget) (*
 		return m.selectFunc(groups)
 	}
 	return m.group, m.selectErr
+}
+
+// countingEligibilityLister wraps an eligibilityLister and counts calls per CSP.
+// Thread-safe for concurrent access from goroutines in fetchStatusData etc.
+type countingEligibilityLister struct {
+	inner  eligibilityLister
+	mu     sync.Mutex
+	counts map[models.CSP]int
+}
+
+func newCountingEligibilityLister(inner eligibilityLister) *countingEligibilityLister {
+	return &countingEligibilityLister{inner: inner, counts: make(map[models.CSP]int)}
+}
+
+func (c *countingEligibilityLister) ListEligibility(ctx context.Context, csp models.CSP) (*models.EligibilityResponse, error) {
+	c.mu.Lock()
+	c.counts[csp]++
+	c.mu.Unlock()
+	return c.inner.ListEligibility(ctx, csp)
+}
+
+func (c *countingEligibilityLister) CallCount(csp models.CSP) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.counts[csp]
+}
+
+// countingGroupsEligibilityLister wraps a groupsEligibilityLister and counts calls per CSP.
+type countingGroupsEligibilityLister struct {
+	inner  groupsEligibilityLister
+	mu     sync.Mutex
+	counts map[models.CSP]int
+}
+
+func newCountingGroupsEligibilityLister(inner groupsEligibilityLister) *countingGroupsEligibilityLister {
+	return &countingGroupsEligibilityLister{inner: inner, counts: make(map[models.CSP]int)}
+}
+
+func (c *countingGroupsEligibilityLister) ListGroupsEligibility(ctx context.Context, csp models.CSP) (*models.GroupsEligibilityResponse, error) {
+	c.mu.Lock()
+	c.counts[csp]++
+	c.mu.Unlock()
+	return c.inner.ListGroupsEligibility(ctx, csp)
+}
+
+func (c *countingGroupsEligibilityLister) CallCount(csp models.CSP) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.counts[csp]
 }

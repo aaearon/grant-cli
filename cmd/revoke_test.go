@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aaearon/grant-cli/internal/cache"
 	scamodels "github.com/aaearon/grant-cli/internal/sca/models"
 	authmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
 	commonmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/common"
@@ -620,6 +621,62 @@ func TestRevokeCommand(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestRevokeCommand_CachedEligibility(t *testing.T) {
+	now := time.Now()
+	expiresIn := commonmodels.IdsecRFC3339Time(now.Add(1 * time.Hour))
+
+	innerElig := newCountingEligibilityLister(&mockEligibilityLister{
+		response: &scamodels.EligibilityResponse{
+			Response: []scamodels.EligibleTarget{
+				{WorkspaceID: "/subscriptions/sub-1", WorkspaceName: "Dev Sub"},
+			},
+		},
+	})
+
+	store := cache.NewStore(t.TempDir(), 4*time.Hour)
+	cachedLister := cache.NewCachedEligibilityLister(innerElig, nil, store, false, nil)
+
+	auth := &mockAuthLoader{
+		token: &authmodels.IdsecToken{Token: "jwt", Username: "user@example.com", ExpiresIn: expiresIn},
+	}
+	sessions := &mockSessionLister{
+		sessions: &scamodels.SessionsResponse{
+			Response: []scamodels.SessionInfo{
+				{SessionID: "s1", CSP: scamodels.CSPAzure, WorkspaceID: "/subscriptions/sub-1", RoleID: "Contributor", SessionDuration: 3600},
+			},
+			Total: 1,
+		},
+	}
+	revoker := &mockSessionRevoker{
+		response: &scamodels.RevokeResponse{
+			Response: []scamodels.RevocationResult{
+				{SessionID: "s1", RevocationStatus: scamodels.RevocationSuccessful},
+			},
+		},
+	}
+	selector := &mockSessionSelector{
+		sessions: []scamodels.SessionInfo{
+			{SessionID: "s1", CSP: scamodels.CSPAzure, WorkspaceID: "/subscriptions/sub-1", RoleID: "Contributor", SessionDuration: 3600},
+		},
+	}
+	confirmer := &mockConfirmPrompter{confirmed: true}
+
+	cmd := NewRevokeCommandWithDeps(auth, sessions, cachedLister, revoker, selector, confirmer)
+	output, err := executeCommand(cmd)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(output, "SUCCESSFULLY_REVOKED") {
+		t.Errorf("expected successful revocation, got:\n%s", output)
+	}
+
+	// buildWorkspaceNameMap calls ListEligibility once per unique CSP in sessions
+	if got := innerElig.CallCount(scamodels.CSPAzure); got != 1 {
+		t.Errorf("Azure inner called %d times, want 1", got)
 	}
 }
 

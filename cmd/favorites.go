@@ -151,7 +151,9 @@ func runFavoritesAddProduction(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	return runFavoritesAddWithDeps(cmd, args, scaService, &uiSelector{}, &surveyNamePrompter{}, cfg, scaService, &uiGroupSelector{})
+	cachedLister := buildCachedLister(cfg, false, scaService, scaService)
+
+	return runFavoritesAddWithDeps(cmd, args, cachedLister, &uiSelector{}, &surveyNamePrompter{}, cfg, cachedLister, &uiGroupSelector{})
 }
 
 // runFavoritesAddWithDeps contains the core logic for favorites add.
