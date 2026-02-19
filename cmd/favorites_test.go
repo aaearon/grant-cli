@@ -667,3 +667,233 @@ func TestFavoritesAddInteractiveMode(t *testing.T) {
 		})
 	}
 }
+
+func TestFavoritesAddGroupFavorite(t *testing.T) {
+	tests := []struct {
+		name           string
+		setupConfig    func(string)
+		groupsElig     groupsEligibilityLister
+		groupSel       groupSelector
+		namePrompter   namePrompter
+		args           []string
+		wantContain    []string
+		wantErr        bool
+	}{
+		{
+			name: "non-interactive - group via flags",
+			setupConfig: func(path string) {
+				cfg := config.DefaultConfig()
+				_ = config.Save(cfg, path)
+			},
+			args:        []string{"my-grp", "--type", "groups", "--group", "Engineering"},
+			wantContain: []string{"Added favorite", "my-grp", "groups/Engineering"},
+			wantErr:     false,
+		},
+		{
+			name: "non-interactive - requires name",
+			setupConfig: func(path string) {
+				cfg := config.DefaultConfig()
+				_ = config.Save(cfg, path)
+			},
+			args:        []string{"--type", "groups", "--group", "Engineering"},
+			wantContain: []string{"name is required"},
+			wantErr:     true,
+		},
+		{
+			name: "invalid type",
+			setupConfig: func(path string) {
+				cfg := config.DefaultConfig()
+				_ = config.Save(cfg, path)
+			},
+			args:        []string{"test", "--type", "invalid"},
+			wantContain: []string{"invalid --type"},
+			wantErr:     true,
+		},
+		{
+			name: "target flag with groups type - error",
+			setupConfig: func(path string) {
+				cfg := config.DefaultConfig()
+				_ = config.Save(cfg, path)
+			},
+			args:        []string{"test", "--type", "groups", "--target", "sub-1", "--role", "Reader"},
+			wantContain: []string{"--target and --role cannot be used with --type groups"},
+			wantErr:     true,
+		},
+		{
+			name: "group flag without type groups - error",
+			setupConfig: func(path string) {
+				cfg := config.DefaultConfig()
+				_ = config.Save(cfg, path)
+			},
+			args:        []string{"test", "--group", "Engineering"},
+			wantContain: []string{"--group requires --type groups"},
+			wantErr:     true,
+		},
+		{
+			name: "interactive - selects from eligible groups",
+			setupConfig: func(path string) {
+				cfg := config.DefaultConfig()
+				_ = config.Save(cfg, path)
+			},
+			groupsElig: &mockGroupsEligibilityLister{
+				response: &models.GroupsEligibilityResponse{
+					Response: []models.GroupsEligibleTarget{
+						{DirectoryID: "dir-1", GroupID: "grp-1", GroupName: "Engineering"},
+					},
+					Total: 1,
+				},
+			},
+			groupSel: &mockGroupSelector{
+				group: &models.GroupsEligibleTarget{DirectoryID: "dir-1", GroupID: "grp-1", GroupName: "Engineering"},
+			},
+			args:        []string{"my-grp", "--type", "groups"},
+			wantContain: []string{"Added favorite", "my-grp", "groups/Engineering"},
+			wantErr:     false,
+		},
+		{
+			name: "non-interactive - persists to disk",
+			setupConfig: func(path string) {
+				cfg := config.DefaultConfig()
+				_ = config.Save(cfg, path)
+			},
+			args:        []string{"grp-fav", "--type", "groups", "--group", "DevOps"},
+			wantContain: []string{"Added favorite", "grp-fav", "groups/DevOps"},
+			wantErr:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			configPath := filepath.Join(tmpDir, "config.yaml")
+			t.Setenv("GRANT_CONFIG", configPath)
+
+			tt.setupConfig(configPath)
+
+			rootCmd := newTestRootCommand()
+			favCmd := NewFavoritesCommandWithAllDeps(nil, nil, tt.namePrompter, tt.groupsElig, tt.groupSel)
+			rootCmd.AddCommand(favCmd)
+
+			cmdArgs := append([]string{"favorites", "add"}, tt.args...)
+			output, err := executeCommand(rootCmd, cmdArgs...)
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("error = %v, wantErr %v, output:\n%s", err, tt.wantErr, output)
+			}
+
+			for _, want := range tt.wantContain {
+				if !strings.Contains(output, want) {
+					t.Errorf("output missing %q\ngot:\n%s", want, output)
+				}
+			}
+		})
+	}
+}
+
+func TestFavoritesAddGroupPersistence(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	t.Setenv("GRANT_CONFIG", configPath)
+
+	cfg := config.DefaultConfig()
+	_ = config.Save(cfg, configPath)
+
+	rootCmd := newTestRootCommand()
+	favCmd := NewFavoritesCommandWithAllDeps(nil, nil, nil, nil, nil)
+	rootCmd.AddCommand(favCmd)
+
+	_, err := executeCommand(rootCmd, "favorites", "add", "grp-fav", "--type", "groups", "--group", "DevOps")
+	if err != nil {
+		t.Fatalf("add group favorite failed: %v", err)
+	}
+
+	reloaded, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("reload config failed: %v", err)
+	}
+
+	fav, err := config.GetFavorite(reloaded, "grp-fav")
+	if err != nil {
+		t.Fatalf("favorite not found: %v", err)
+	}
+
+	if fav.ResolvedType() != config.FavoriteTypeGroups {
+		t.Errorf("ResolvedType() = %q, want %q", fav.ResolvedType(), config.FavoriteTypeGroups)
+	}
+	if fav.Group != "DevOps" {
+		t.Errorf("Group = %q, want %q", fav.Group, "DevOps")
+	}
+	if fav.Provider != "azure" {
+		t.Errorf("Provider = %q, want %q", fav.Provider, "azure")
+	}
+}
+
+func TestFavoritesListWithGroupFavorites(t *testing.T) {
+	tests := []struct {
+		name        string
+		setupConfig func(string)
+		wantContain []string
+	}{
+		{
+			name: "mixed cloud and group favorites",
+			setupConfig: func(path string) {
+				cfg := config.DefaultConfig()
+				_ = config.AddFavorite(cfg, "cloud-fav", config.Favorite{
+					Provider: "azure",
+					Target:   "sub-123",
+					Role:     "Contributor",
+				})
+				_ = config.AddFavorite(cfg, "grp-fav", config.Favorite{
+					Type:     config.FavoriteTypeGroups,
+					Provider: "azure",
+					Group:    "Engineering",
+				})
+				_ = config.Save(cfg, path)
+			},
+			wantContain: []string{
+				"cloud-fav: azure/sub-123/Contributor",
+				"grp-fav: groups/Engineering",
+			},
+		},
+		{
+			name: "only group favorites",
+			setupConfig: func(path string) {
+				cfg := config.DefaultConfig()
+				_ = config.AddFavorite(cfg, "eng", config.Favorite{
+					Type:     config.FavoriteTypeGroups,
+					Provider: "azure",
+					Group:    "Engineering",
+				})
+				_ = config.Save(cfg, path)
+			},
+			wantContain: []string{
+				"eng: groups/Engineering",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			configPath := filepath.Join(tmpDir, "config.yaml")
+			t.Setenv("GRANT_CONFIG", configPath)
+
+			tt.setupConfig(configPath)
+
+			rootCmd := newTestRootCommand()
+			favCmd := NewFavoritesCommand()
+			rootCmd.AddCommand(favCmd)
+
+			output, err := executeCommand(rootCmd, "favorites", "list")
+			if err != nil {
+				t.Fatalf("list failed: %v", err)
+			}
+
+			for _, want := range tt.wantContain {
+				if !strings.Contains(output, want) {
+					t.Errorf("output missing %q\ngot:\n%s", want, output)
+				}
+			}
+		})
+	}
+}
