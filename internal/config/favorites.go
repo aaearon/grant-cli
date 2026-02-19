@@ -45,6 +45,15 @@ func GetFavorite(cfg *Config, name string) (Favorite, error) {
 	return fav, nil
 }
 
+// ResolvedType returns the effective favorite type.
+// Empty Type defaults to "cloud" for backward compatibility.
+func (f Favorite) ResolvedType() string {
+	if f.Type == "" {
+		return FavoriteTypeCloud
+	}
+	return f.Type
+}
+
 // ListFavorites returns all favorites sorted alphabetically by name.
 func ListFavorites(cfg *Config) []FavoriteEntry {
 	entries := make([]FavoriteEntry, 0, len(cfg.Favorites))
