@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-02-19
+
 ### Added
 
 - `grant update` command for self-updating the binary via GitHub Releases using `rhysd/go-github-selfupdate`
