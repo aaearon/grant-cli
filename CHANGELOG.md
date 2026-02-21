@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- TTY detection with fail-fast: all interactive prompts now return a descriptive error instead of hanging when stdin is not a terminal (pipes, CI, LLM agents)
+- `--output json` / `-o json` global flag for machine-readable output on all commands (`grant`, `env`, `status`, `revoke`, `favorites list`)
+- `grant list` command to discover eligible cloud targets and Entra ID groups without triggering elevation; supports `--provider`, `--groups`, `--refresh`, and `--output json`
+
 ## [0.5.1] - 2026-02-21
 
 ### Fixed
