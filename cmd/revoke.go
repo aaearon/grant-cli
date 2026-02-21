@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/aaearon/grant-cli/internal/config"
@@ -100,10 +101,10 @@ func runRevoke(
 
 	// Validate mutual exclusivity
 	if allFlag && len(args) > 0 {
-		return fmt.Errorf("--all cannot be used with session ID arguments")
+		return errors.New("--all cannot be used with session ID arguments")
 	}
 	if len(args) > 0 && provider != "" {
-		return fmt.Errorf("--provider cannot be used with session ID arguments")
+		return errors.New("--provider cannot be used with session ID arguments")
 	}
 
 	// Validate provider
@@ -156,7 +157,7 @@ func runRevoke(
 					return fmt.Errorf("confirmation failed: %w", err)
 				}
 				if !confirmed {
-					fmt.Fprintln(cmd.OutOrStdout(), "Revocation cancelled.")
+					fmt.Fprintln(cmd.OutOrStdout(), "Revocation canceled.")
 					return nil
 				}
 			}
@@ -180,7 +181,7 @@ func runRevoke(
 					return fmt.Errorf("confirmation failed: %w", err)
 				}
 				if !confirmed {
-					fmt.Fprintln(cmd.OutOrStdout(), "Revocation cancelled.")
+					fmt.Fprintln(cmd.OutOrStdout(), "Revocation canceled.")
 					return nil
 				}
 			}

@@ -60,7 +60,7 @@ func TestListEligibility_Success(t *testing.T) {
 	}
 
 	svc := &SCAAccessService{httpClient: mock}
-	result, err := svc.ListEligibility(context.Background(), models.CSPAzure)
+	result, err := svc.ListEligibility(t.Context(), models.CSPAzure)
 
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
@@ -92,7 +92,7 @@ func TestListEligibility_Empty(t *testing.T) {
 	}
 
 	svc := &SCAAccessService{httpClient: mock}
-	result, err := svc.ListEligibility(context.Background(), models.CSPAzure)
+	result, err := svc.ListEligibility(t.Context(), models.CSPAzure)
 
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
@@ -136,7 +136,7 @@ func TestListEligibility_WithPagination(t *testing.T) {
 	}
 
 	svc := &SCAAccessService{httpClient: mock}
-	result, err := svc.ListEligibility(context.Background(), models.CSPAzure)
+	result, err := svc.ListEligibility(t.Context(), models.CSPAzure)
 
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
@@ -161,7 +161,7 @@ func TestListEligibility_HTTPError(t *testing.T) {
 	}
 
 	svc := &SCAAccessService{httpClient: mock}
-	_, err := svc.ListEligibility(context.Background(), models.CSPAzure)
+	_, err := svc.ListEligibility(t.Context(), models.CSPAzure)
 
 	if err == nil {
 		t.Fatal("expected error for 401 response")
@@ -208,7 +208,7 @@ func TestElevate_Success(t *testing.T) {
 	}
 
 	svc := &SCAAccessService{httpClient: mock}
-	result, err := svc.Elevate(context.Background(), req)
+	result, err := svc.Elevate(t.Context(), req)
 
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
@@ -270,7 +270,7 @@ func TestElevate_PartialSuccess(t *testing.T) {
 	}
 
 	svc := &SCAAccessService{httpClient: mock}
-	result, err := svc.Elevate(context.Background(), req)
+	result, err := svc.Elevate(t.Context(), req)
 
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
@@ -290,7 +290,7 @@ func TestElevate_NilRequest(t *testing.T) {
 	mock := &mockHTTPClient{}
 	svc := &SCAAccessService{httpClient: mock}
 
-	_, err := svc.Elevate(context.Background(), nil)
+	_, err := svc.Elevate(t.Context(), nil)
 	if err == nil {
 		t.Fatal("expected error for nil request")
 	}
@@ -309,7 +309,7 @@ func TestElevate_EmptyTargets(t *testing.T) {
 	mock := &mockHTTPClient{}
 	svc := &SCAAccessService{httpClient: mock}
 
-	_, err := svc.Elevate(context.Background(), req)
+	_, err := svc.Elevate(t.Context(), req)
 	if err == nil {
 		t.Fatal("expected error for empty targets")
 	}
@@ -337,7 +337,7 @@ func TestRevokeSessions_Success(t *testing.T) {
 	}
 
 	svc := &SCAAccessService{httpClient: mock}
-	result, err := svc.RevokeSessions(context.Background(), &models.RevokeRequest{
+	result, err := svc.RevokeSessions(t.Context(), &models.RevokeRequest{
 		SessionIDs: []string{"session-1"},
 	})
 
@@ -375,7 +375,7 @@ func TestRevokeSessions_Multiple(t *testing.T) {
 	}
 
 	svc := &SCAAccessService{httpClient: mock}
-	result, err := svc.RevokeSessions(context.Background(), &models.RevokeRequest{
+	result, err := svc.RevokeSessions(t.Context(), &models.RevokeRequest{
 		SessionIDs: []string{"session-1", "session-2"},
 	})
 
@@ -391,7 +391,7 @@ func TestRevokeSessions_NilRequest(t *testing.T) {
 	mock := &mockHTTPClient{}
 	svc := &SCAAccessService{httpClient: mock}
 
-	_, err := svc.RevokeSessions(context.Background(), nil)
+	_, err := svc.RevokeSessions(t.Context(), nil)
 	if err == nil {
 		t.Fatal("expected error for nil request")
 	}
@@ -404,7 +404,7 @@ func TestRevokeSessions_EmptySessionIDs(t *testing.T) {
 	mock := &mockHTTPClient{}
 	svc := &SCAAccessService{httpClient: mock}
 
-	_, err := svc.RevokeSessions(context.Background(), &models.RevokeRequest{
+	_, err := svc.RevokeSessions(t.Context(), &models.RevokeRequest{
 		SessionIDs: []string{},
 	})
 	if err == nil {
@@ -424,7 +424,7 @@ func TestRevokeSessions_HTTPError(t *testing.T) {
 	}
 
 	svc := &SCAAccessService{httpClient: mock}
-	_, err := svc.RevokeSessions(context.Background(), &models.RevokeRequest{
+	_, err := svc.RevokeSessions(t.Context(), &models.RevokeRequest{
 		SessionIDs: []string{"session-1"},
 	})
 
@@ -461,7 +461,7 @@ func TestListSessions_Success(t *testing.T) {
 	}
 
 	svc := &SCAAccessService{httpClient: mock}
-	result, err := svc.ListSessions(context.Background(), nil)
+	result, err := svc.ListSessions(t.Context(), nil)
 
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
@@ -493,7 +493,7 @@ func TestListSessions_Empty(t *testing.T) {
 	}
 
 	svc := &SCAAccessService{httpClient: mock}
-	result, err := svc.ListSessions(context.Background(), nil)
+	result, err := svc.ListSessions(t.Context(), nil)
 
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
@@ -532,7 +532,7 @@ func TestListSessions_WithCSPFilter(t *testing.T) {
 	}
 
 	svc := &SCAAccessService{httpClient: mock}
-	result, err := svc.ListSessions(context.Background(), &csp)
+	result, err := svc.ListSessions(t.Context(), &csp)
 
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
@@ -566,7 +566,7 @@ func TestListGroupsEligibility_Success(t *testing.T) {
 	}
 
 	svc := &SCAAccessService{httpClient: mock}
-	result, err := svc.ListGroupsEligibility(context.Background(), models.CSPAzure)
+	result, err := svc.ListGroupsEligibility(t.Context(), models.CSPAzure)
 
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
@@ -597,7 +597,7 @@ func TestListGroupsEligibility_Empty(t *testing.T) {
 	}
 
 	svc := &SCAAccessService{httpClient: mock}
-	result, err := svc.ListGroupsEligibility(context.Background(), models.CSPAzure)
+	result, err := svc.ListGroupsEligibility(t.Context(), models.CSPAzure)
 
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
@@ -616,7 +616,7 @@ func TestListGroupsEligibility_HTTPError(t *testing.T) {
 	}
 
 	svc := &SCAAccessService{httpClient: mock}
-	_, err := svc.ListGroupsEligibility(context.Background(), models.CSPAzure)
+	_, err := svc.ListGroupsEligibility(t.Context(), models.CSPAzure)
 
 	if err == nil {
 		t.Fatal("expected error for 401 response")
@@ -658,7 +658,7 @@ func TestElevateGroups_Success(t *testing.T) {
 	}
 
 	svc := &SCAAccessService{httpClient: mock}
-	result, err := svc.ElevateGroups(context.Background(), req)
+	result, err := svc.ElevateGroups(t.Context(), req)
 
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
@@ -710,7 +710,7 @@ func TestElevateGroups_WithError(t *testing.T) {
 	}
 
 	svc := &SCAAccessService{httpClient: mock}
-	result, err := svc.ElevateGroups(context.Background(), req)
+	result, err := svc.ElevateGroups(t.Context(), req)
 
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
@@ -724,7 +724,7 @@ func TestElevateGroups_NilRequest(t *testing.T) {
 	mock := &mockHTTPClient{}
 	svc := &SCAAccessService{httpClient: mock}
 
-	_, err := svc.ElevateGroups(context.Background(), nil)
+	_, err := svc.ElevateGroups(t.Context(), nil)
 	if err == nil {
 		t.Fatal("expected error for nil request")
 	}
@@ -743,7 +743,7 @@ func TestElevateGroups_EmptyTargets(t *testing.T) {
 	mock := &mockHTTPClient{}
 	svc := &SCAAccessService{httpClient: mock}
 
-	_, err := svc.ElevateGroups(context.Background(), req)
+	_, err := svc.ElevateGroups(t.Context(), req)
 	if err == nil {
 		t.Fatal("expected error for empty targets")
 	}

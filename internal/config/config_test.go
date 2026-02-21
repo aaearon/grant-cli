@@ -45,7 +45,7 @@ favorites:
     target: account-456
     role: ReadOnly
 `)
-	if err := os.WriteFile(path, content, 0644); err != nil {
+	if err := os.WriteFile(path, content, 0o644); err != nil {
 		t.Fatalf("failed to write test file: %v", err)
 	}
 
@@ -180,13 +180,13 @@ func TestLoadConfig_PermissionError(t *testing.T) {
 	path := filepath.Join(dir, "config.yaml")
 
 	// Create a file, then make it unreadable
-	if err := os.WriteFile(path, []byte("profile: test"), 0644); err != nil {
+	if err := os.WriteFile(path, []byte("profile: test"), 0o644); err != nil {
 		t.Fatalf("failed to write test file: %v", err)
 	}
-	if err := os.Chmod(path, 0000); err != nil {
+	if err := os.Chmod(path, 0o000); err != nil {
 		t.Fatalf("failed to chmod: %v", err)
 	}
-	t.Cleanup(func() { _ = os.Chmod(path, 0644) })
+	t.Cleanup(func() { _ = os.Chmod(path, 0o644) })
 
 	_, err := Load(path)
 	if err == nil {
@@ -325,7 +325,7 @@ favorites:
     target: sub-999
     role: Reader
 `)
-	if err := os.WriteFile(path, content, 0644); err != nil {
+	if err := os.WriteFile(path, content, 0o644); err != nil {
 		t.Fatalf("failed to write test file: %v", err)
 	}
 
@@ -377,7 +377,7 @@ favorites:
     target: sub-old
     role: Reader
 `)
-	if err := os.WriteFile(path, content, 0644); err != nil {
+	if err := os.WriteFile(path, content, 0o644); err != nil {
 		t.Fatalf("failed to write test file: %v", err)
 	}
 
@@ -429,7 +429,7 @@ func TestLoadConfig_WithCacheTTL(t *testing.T) {
 default_provider: azure
 cache_ttl: 2h
 `)
-	if err := os.WriteFile(path, content, 0644); err != nil {
+	if err := os.WriteFile(path, content, 0o644); err != nil {
 		t.Fatalf("failed to write test file: %v", err)
 	}
 
@@ -450,7 +450,7 @@ func TestLoadConfig_BackwardsCompat_NoCacheTTL(t *testing.T) {
 	content := []byte(`profile: old-profile
 default_provider: azure
 `)
-	if err := os.WriteFile(path, content, 0644); err != nil {
+	if err := os.WriteFile(path, content, 0o644); err != nil {
 		t.Fatalf("failed to write test file: %v", err)
 	}
 

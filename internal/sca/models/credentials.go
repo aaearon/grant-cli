@@ -2,6 +2,7 @@ package models
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 )
 
@@ -15,14 +16,14 @@ type AWSCredentials struct {
 // ParseAWSCredentials parses an accessCredentials JSON string into AWSCredentials.
 func ParseAWSCredentials(s string) (*AWSCredentials, error) {
 	if s == "" {
-		return nil, fmt.Errorf("empty credentials string")
+		return nil, errors.New("empty credentials string")
 	}
 	var creds AWSCredentials
 	if err := json.Unmarshal([]byte(s), &creds); err != nil {
 		return nil, fmt.Errorf("failed to parse AWS credentials: %w", err)
 	}
 	if creds.AccessKeyID == "" || creds.SecretAccessKey == "" || creds.SessionToken == "" {
-		return nil, fmt.Errorf("incomplete AWS credentials: missing required fields")
+		return nil, errors.New("incomplete AWS credentials: missing required fields")
 	}
 	return &creds, nil
 }

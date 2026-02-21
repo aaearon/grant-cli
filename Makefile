@@ -10,7 +10,7 @@ LDFLAGS := -s -w \
 .PHONY: build test test-race test-integration test-all test-coverage lint clean
 
 build:
-	go build -ldflags "$(LDFLAGS)" -o $(BINARY_NAME) .
+	go build -trimpath -ldflags "$(LDFLAGS)" -o $(BINARY_NAME) .
 
 test:
 	go test ./... -v

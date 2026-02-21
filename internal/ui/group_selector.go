@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -14,7 +15,7 @@ func FormatGroupOption(group models.GroupsEligibleTarget) string {
 	if group.DirectoryName != "" {
 		return fmt.Sprintf("Directory: %s / Group: %s", group.DirectoryName, group.GroupName)
 	}
-	return fmt.Sprintf("Group: %s", group.GroupName)
+	return "Group: " + group.GroupName
 }
 
 // BuildGroupOptions builds a sorted list of display options from groups eligible targets.
@@ -47,7 +48,7 @@ func FindGroupByDisplay(groups []models.GroupsEligibleTarget, display string) (*
 // ordered slice the user saw, avoiding wrong-group selection on display collisions.
 func SelectGroup(groups []models.GroupsEligibleTarget) (*models.GroupsEligibleTarget, error) {
 	if len(groups) == 0 {
-		return nil, fmt.Errorf("no eligible groups available")
+		return nil, errors.New("no eligible groups available")
 	}
 
 	sorted := make([]models.GroupsEligibleTarget, len(groups))

@@ -2,7 +2,7 @@ package cache
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"strings"
 
 	"github.com/aaearon/grant-cli/internal/sca/models"
@@ -93,7 +93,7 @@ func (c *CachedEligibilityLister) ListEligibility(ctx context.Context, csp model
 // ListGroupsEligibility checks the cache first, then falls through to the inner lister.
 func (c *CachedEligibilityLister) ListGroupsEligibility(ctx context.Context, csp models.CSP) (*models.GroupsEligibilityResponse, error) {
 	if c.groupsInner == nil {
-		return nil, fmt.Errorf("groups eligibility listing not available")
+		return nil, errors.New("groups eligibility listing not available")
 	}
 
 	key := groupsEligibilityCacheKey(csp)

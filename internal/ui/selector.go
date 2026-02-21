@@ -1,6 +1,8 @@
+// Package ui provides interactive selection prompts for the CLI.
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -64,7 +66,7 @@ func FindTargetByDisplay(targets []models.EligibleTarget, display string) (*mode
 // SelectTarget presents an interactive selector for choosing a target.
 func SelectTarget(targets []models.EligibleTarget) (*models.EligibleTarget, error) {
 	if len(targets) == 0 {
-		return nil, fmt.Errorf("no eligible targets available")
+		return nil, errors.New("no eligible targets available")
 	}
 
 	options := BuildOptions(targets)

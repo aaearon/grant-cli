@@ -1,0 +1,111 @@
+# golangci-lint v1 configuration for grant-cli
+# golangci-lint v1.64.8 | Go 1.25+
+# https://golangci-lint.run/usage/configuration/
+
+run:
+  timeout: 3m
+  tests: true
+
+linters:
+  disable-all: true
+  enable:
+    # --- Default linters ---
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    # --- Bug detection ---
+    - bodyclose     # unclosed HTTP response bodies
+    - errorlint     # error wrapping correctness (Go 1.13+)
+    - noctx         # HTTP requests without context.Context
+    # --- Security ---
+    - gosec         # security issue detection
+    # --- Style & naming ---
+    - errname       # sentinel error naming (ErrFoo)
+    - gocritic      # diagnostic/style/performance checks
+    - misspell      # common English typos
+    - revive        # configurable Go linter (golint replacement)
+    # --- Complexity ---
+    - gocognit      # cognitive complexity
+    # --- Performance ---
+    - perfsprint    # fmt.Sprintf replaceable with concatenation
+    - unconvert     # unnecessary type conversions
+    # --- Testing ---
+    - usetesting    # modern test helpers (t.Context, etc.)
+
+linters-settings:
+  gocognit:
+    min-complexity: 40
+
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+      - performance
+    disabled-checks:
+      - hugeParam      # small structs in a CLI are fine
+      - rangeValCopy   # same: small value copies are fine
+
+  gosec:
+    excludes:
+      # G101 "hardcoded credentials" false-positives on test JWT tokens
+      - G101
+
+  revive:
+    severity: warning
+    enable-all-rules: false
+    rules:
+      - name: blank-imports
+      - name: context-as-argument
+      - name: context-keys-type
+      - name: dot-imports
+      - name: empty-block
+      - name: error-naming
+      - name: error-return
+      - name: error-strings
+      - name: errorf
+      # exported: disabled because stuttering names (cache.CacheDir,
+      # config.ConfigDir, sca.SCAAccessService) are established API.
+      - name: exported
+        disabled: true
+      - name: increment-decrement
+      - name: indent-error-flow
+      - name: range
+      - name: receiver-naming
+      - name: redefines-builtin-id
+      - name: superfluous-else
+      - name: time-naming
+      - name: unexported-return
+      - name: unreachable-code
+      - name: var-declaration
+      - name: var-naming
+      # unused-parameter: disabled because Cobra RunE signatures require
+      # func(cmd *cobra.Command, args []string) and test mocks implement
+      # interfaces with necessarily unused parameters.
+      - name: unused-parameter
+        disabled: true
+
+  misspell:
+    locale: US
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+  exclude-rules:
+    # Test files: relax security checks (G306 WriteFile perms in temp dirs)
+    - path: _test\.go
+      linters:
+        - gosec
+
+    # Test files: relax complexity checks (table-driven tests are long)
+    - path: _test\.go
+      linters:
+        - gocognit
+
+    # Test files: bodyclose on mock HTTP responses
+    - path: _test\.go
+      linters:
+        - bodyclose

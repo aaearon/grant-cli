@@ -1,3 +1,4 @@
+// Package config manages grant application configuration.
 package config
 
 import (
@@ -71,7 +72,7 @@ func Load(path string) (*Config, error) {
 // Save writes a config to the given path, creating parent directories as needed.
 func Save(cfg *Config, path string) error {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
 
@@ -80,7 +81,7 @@ func Save(cfg *Config, path string) error {
 		return err
 	}
 
-	return os.WriteFile(path, data, 0600)
+	return os.WriteFile(path, data, 0o600)
 }
 
 // LoadDefaultWithPath resolves the config path via ConfigPath() and loads the config.
