@@ -222,6 +222,33 @@ func TestExecuteHintOutput(t *testing.T) {
 	}
 }
 
+func TestOutputFlagValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr bool
+	}{
+		{"text is valid", []string{"--output", "text", "noop"}, false},
+		{"json is valid", []string{"--output", "json", "noop"}, false},
+		{"xml is invalid", []string{"--output", "xml", "noop"}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := newTestRootCommand()
+			root.AddCommand(newNoOpCommand())
+
+			_, err := executeCommand(root, tt.args...)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr && err != nil && !strings.Contains(err.Error(), "invalid output format") {
+				t.Errorf("expected 'invalid output format' error, got: %v", err)
+			}
+		})
+	}
+}
+
 func TestUnifiedSelector_NonTTY(t *testing.T) {
 	original := ui.IsTerminalFunc
 	defer func() { ui.IsTerminalFunc = original }()

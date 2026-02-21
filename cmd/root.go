@@ -98,12 +98,19 @@ Examples:
 			} else {
 				sdkconfig.DisableVerboseLogging()
 			}
+			if outputFormat != "text" && outputFormat != "json" {
+				return fmt.Errorf("invalid output format %q: must be one of: text, json", outputFormat)
+			}
+			if isJSONOutput() {
+				ui.IsTerminalFunc = func(fd uintptr) bool { return false }
+			}
 			return nil
 		},
 		RunE: runFn,
 	}
 
 	cmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "enable verbose output")
+	cmd.PersistentFlags().StringVarP(&outputFormat, "output", "o", "text", "Output format: text, json")
 	cmd.Flags().StringP("provider", "p", "", "Cloud provider: azure, aws (omit to show all)")
 	cmd.Flags().StringP("target", "t", "", "Target name (subscription, resource group, etc.)")
 	cmd.Flags().StringP("role", "r", "", "Role name")
@@ -774,6 +781,10 @@ func runElevateWithDeps(
 		return err
 	}
 
+	if isJSONOutput() {
+		return writeElevationJSON(cmd, cloudRes, groupRes)
+	}
+
 	if groupRes != nil {
 		// Display group elevation result
 		dirContext := ""
@@ -807,6 +818,43 @@ func runElevateWithDeps(
 	}
 
 	return nil
+}
+
+// writeElevationJSON writes the elevation result as JSON.
+func writeElevationJSON(cmd *cobra.Command, cloudRes *elevationResult, groupRes *groupElevationResult) error {
+	if groupRes != nil {
+		out := groupElevationJSON{
+			Type:        "group",
+			SessionID:   groupRes.result.SessionID,
+			GroupName:   groupRes.group.GroupName,
+			GroupID:     groupRes.group.GroupID,
+			DirectoryID: groupRes.group.DirectoryID,
+			Directory:   groupRes.group.DirectoryName,
+		}
+		return writeJSON(cmd.OutOrStdout(), out)
+	}
+
+	out := cloudElevationOutput{
+		Type:      "cloud",
+		Provider:  strings.ToLower(string(cloudRes.target.CSP)),
+		SessionID: cloudRes.result.SessionID,
+		Target:    cloudRes.target.WorkspaceName,
+		Role:      cloudRes.target.RoleInfo.Name,
+	}
+
+	if cloudRes.result.AccessCredentials != nil {
+		awsCreds, err := models.ParseAWSCredentials(*cloudRes.result.AccessCredentials)
+		if err != nil {
+			return fmt.Errorf("failed to parse access credentials: %w", err)
+		}
+		out.Credentials = &awsCredentialOutput{
+			AccessKeyID:    awsCreds.AccessKeyID,
+			SecretAccessKey: awsCreds.SecretAccessKey,
+			SessionToken:   awsCreds.SessionToken,
+		}
+	}
+
+	return writeJSON(cmd.OutOrStdout(), out)
 }
 
 // findMatchingTarget finds a target by workspace name and role name (case-insensitive)

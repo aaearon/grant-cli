@@ -57,12 +57,12 @@ func runStatus(cmd *cobra.Command, authLoader authLoader, sessionLister sessionL
 	// Load authentication state
 	token, err := authLoader.LoadAuthentication(profile, true)
 	if err != nil {
+		if isJSONOutput() {
+			return writeJSON(cmd.OutOrStdout(), statusOutput{Authenticated: false, Sessions: []sessionOutput{}})
+		}
 		fmt.Fprintf(cmd.OutOrStdout(), "Not authenticated. Run 'grant login' first.\n")
 		return nil
 	}
-
-	// Display authenticated user
-	fmt.Fprintf(cmd.OutOrStdout(), "Authenticated as: %s\n", token.Username)
 
 	// Parse provider filter if specified
 	provider, _ := cmd.Flags().GetString("provider")
@@ -90,6 +90,13 @@ func runStatus(cmd *cobra.Command, authLoader authLoader, sessionLister sessionL
 			data.nameMap[k] = v
 		}
 	}
+
+	if isJSONOutput() {
+		return writeStatusJSON(cmd, token.Username, data)
+	}
+
+	// Display authenticated user
+	fmt.Fprintf(cmd.OutOrStdout(), "Authenticated as: %s\n", token.Username)
 
 	// Display sessions
 	if len(data.sessions.Response) == 0 {
@@ -129,6 +136,37 @@ func runStatus(cmd *cobra.Command, authLoader authLoader, sessionLister sessionL
 	}
 
 	return nil
+}
+
+// writeStatusJSON outputs the status as JSON.
+func writeStatusJSON(cmd *cobra.Command, username string, data *statusData) error {
+	out := statusOutput{
+		Authenticated: true,
+		Username:      username,
+		Sessions:      make([]sessionOutput, 0, len(data.sessions.Response)),
+	}
+
+	for _, s := range data.sessions.Response {
+		so := sessionOutput{
+			SessionID:   s.SessionID,
+			Provider:    strings.ToLower(string(s.CSP)),
+			WorkspaceID: s.WorkspaceID,
+			Duration:    s.SessionDuration,
+			RoleID:      s.RoleID,
+		}
+		if name, ok := data.nameMap[s.WorkspaceID]; ok {
+			so.WorkspaceName = name
+		}
+		if s.IsGroupSession() {
+			so.Type = "group"
+			so.GroupID = s.Target.ID
+		} else {
+			so.Type = "cloud"
+		}
+		out.Sessions = append(out.Sessions, so)
+	}
+
+	return writeJSON(cmd.OutOrStdout(), out)
 }
 
 // parseProvider converts a provider string to a CSP enum

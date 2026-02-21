@@ -4,6 +4,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -710,5 +711,50 @@ func TestRevokeCommandUsage(t *testing.T) {
 	providerFlag := cmd.Flags().Lookup("provider")
 	if providerFlag == nil {
 		t.Fatal("expected --provider flag")
+	}
+}
+
+func TestRevokeCommand_JSONOutput(t *testing.T) {
+	now := time.Now()
+	expiresIn := commonmodels.IdsecRFC3339Time(now.Add(1 * time.Hour))
+
+	auth := &mockAuthLoader{token: &authmodels.IdsecToken{Token: "jwt", Username: "user", ExpiresIn: expiresIn}}
+	sessions := &mockSessionLister{sessions: &scamodels.SessionsResponse{
+		Response: []scamodels.SessionInfo{
+			{SessionID: "s1", CSP: scamodels.CSPAzure, WorkspaceID: "sub-1", RoleID: "Contributor", SessionDuration: 3600},
+		},
+	}}
+	elig := &mockEligibilityLister{}
+	revoker := &mockSessionRevoker{response: &scamodels.RevokeResponse{
+		Response: []scamodels.RevocationResult{
+			{SessionID: "s1", RevocationStatus: "Revoked"},
+		},
+	}}
+	selector := &mockSessionSelector{sessions: []scamodels.SessionInfo{
+		{SessionID: "s1"},
+	}}
+	confirmer := &mockConfirmPrompter{confirmed: true}
+
+	cmd := NewRevokeCommandWithDeps(auth, sessions, elig, revoker, selector, confirmer)
+	root := newTestRootCommand()
+	root.AddCommand(cmd)
+
+	output, err := executeCommand(root, "revoke", "s1", "--yes", "--output", "json")
+	if err != nil {
+		t.Fatalf("unexpected error: %v\noutput: %s", err, output)
+	}
+
+	var parsed []revocationOutput
+	if err := json.Unmarshal([]byte(output), &parsed); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, output)
+	}
+	if len(parsed) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(parsed))
+	}
+	if parsed[0].SessionID != "s1" {
+		t.Errorf("sessionId = %q, want s1", parsed[0].SessionID)
+	}
+	if parsed[0].Status != "Revoked" {
+		t.Errorf("status = %q, want Revoked", parsed[0].Status)
 	}
 }

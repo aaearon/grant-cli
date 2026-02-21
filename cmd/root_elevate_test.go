@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -1723,4 +1724,150 @@ func TestRootElevate_SlowPromptTimeout(t *testing.T) {
 			t.Errorf("unexpected output:\n%s", output)
 		}
 	})
+}
+
+func TestRootElevate_JSONOutput(t *testing.T) {
+	now := time.Now()
+	expiresIn := commonmodels.IdsecRFC3339Time(now.Add(1 * time.Hour))
+
+	tests := []struct {
+		name       string
+		setupMocks func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *mockUnifiedSelector, *mockGroupsEligibilityLister, *mockGroupsElevator, *config.Config)
+		args       []string
+		validate   func(t *testing.T, output string)
+	}{
+		{
+			name: "Azure cloud elevation JSON",
+			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *mockUnifiedSelector, *mockGroupsEligibilityLister, *mockGroupsElevator, *config.Config) {
+				return &mockAuthLoader{token: &authmodels.IdsecToken{Token: "jwt", Username: "user", ExpiresIn: expiresIn}},
+					&mockEligibilityLister{response: &models.EligibilityResponse{
+						Response: []models.EligibleTarget{{
+							OrganizationID: "org-1", WorkspaceID: "sub-1", WorkspaceName: "Prod-EastUS",
+							WorkspaceType: models.WorkspaceTypeSubscription,
+							RoleInfo:      models.RoleInfo{ID: "role-1", Name: "Contributor"},
+						}}, Total: 1,
+					}},
+					&mockElevateService{response: &models.ElevateResponse{Response: models.ElevateAccessResult{
+						CSP: models.CSPAzure, OrganizationID: "org-1",
+						Results: []models.ElevateTargetResult{{WorkspaceID: "sub-1", RoleID: "role-1", SessionID: "sess-az"}},
+					}}},
+					&mockUnifiedSelector{item: &selectionItem{kind: selectionCloud, cloud: &models.EligibleTarget{
+						OrganizationID: "org-1", WorkspaceID: "sub-1", WorkspaceName: "Prod-EastUS",
+						WorkspaceType: models.WorkspaceTypeSubscription,
+						RoleInfo:      models.RoleInfo{ID: "role-1", Name: "Contributor"},
+					}}},
+					&mockGroupsEligibilityLister{listErr: errors.New("skip")},
+					nil, config.DefaultConfig()
+			},
+			args: []string{"--output", "json", "--provider", "azure"},
+			validate: func(t *testing.T, output string) {
+				var out cloudElevationOutput
+				if err := json.Unmarshal([]byte(output), &out); err != nil {
+					t.Fatalf("invalid JSON: %v\n%s", err, output)
+				}
+				if out.Type != "cloud" {
+					t.Errorf("type = %q, want cloud", out.Type)
+				}
+				if out.SessionID != "sess-az" {
+					t.Errorf("sessionId = %q, want sess-az", out.SessionID)
+				}
+				if out.Credentials != nil {
+					t.Error("expected no credentials for Azure")
+				}
+			},
+		},
+		{
+			name: "AWS cloud elevation JSON with credentials",
+			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *mockUnifiedSelector, *mockGroupsEligibilityLister, *mockGroupsElevator, *config.Config) {
+				credsJSON := `{"aws_access_key":"ASIAXXX","aws_secret_access_key":"secret","aws_session_token":"tok"}`
+				return &mockAuthLoader{token: &authmodels.IdsecToken{Token: "jwt", Username: "user", ExpiresIn: expiresIn}},
+					&mockEligibilityLister{response: &models.EligibilityResponse{
+						Response: []models.EligibleTarget{{
+							OrganizationID: "o-1", WorkspaceID: "acct-1", WorkspaceName: "AWS Mgmt",
+							WorkspaceType: models.WorkspaceTypeAccount,
+							RoleInfo:      models.RoleInfo{ID: "arn:role", Name: "Admin"},
+						}}, Total: 1,
+					}},
+					&mockElevateService{response: &models.ElevateResponse{Response: models.ElevateAccessResult{
+						CSP: models.CSPAWS, OrganizationID: "o-1",
+						Results: []models.ElevateTargetResult{{
+							WorkspaceID: "acct-1", RoleID: "Admin", SessionID: "sess-aws",
+							AccessCredentials: &credsJSON,
+						}},
+					}}},
+					&mockUnifiedSelector{item: &selectionItem{kind: selectionCloud, cloud: &models.EligibleTarget{
+						OrganizationID: "o-1", WorkspaceID: "acct-1", WorkspaceName: "AWS Mgmt",
+						WorkspaceType: models.WorkspaceTypeAccount,
+						RoleInfo:      models.RoleInfo{ID: "arn:role", Name: "Admin"},
+					}}},
+					&mockGroupsEligibilityLister{listErr: errors.New("skip")},
+					nil, config.DefaultConfig()
+			},
+			args: []string{"--output", "json", "--provider", "aws"},
+			validate: func(t *testing.T, output string) {
+				var out cloudElevationOutput
+				if err := json.Unmarshal([]byte(output), &out); err != nil {
+					t.Fatalf("invalid JSON: %v\n%s", err, output)
+				}
+				if out.Credentials == nil {
+					t.Fatal("expected credentials for AWS")
+				}
+				if out.Credentials.AccessKeyID != "ASIAXXX" {
+					t.Errorf("accessKeyId = %q, want ASIAXXX", out.Credentials.AccessKeyID)
+				}
+			},
+		},
+		{
+			name: "Group elevation JSON",
+			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *mockUnifiedSelector, *mockGroupsEligibilityLister, *mockGroupsElevator, *config.Config) {
+				return &mockAuthLoader{token: &authmodels.IdsecToken{Token: "jwt", Username: "user", ExpiresIn: expiresIn}},
+					&mockEligibilityLister{response: &models.EligibilityResponse{
+						Response: []models.EligibleTarget{{
+							OrganizationID: "org-1", WorkspaceID: "sub-1", WorkspaceName: "Prod",
+							WorkspaceType: models.WorkspaceTypeSubscription,
+							RoleInfo:      models.RoleInfo{ID: "r1", Name: "Reader"},
+						}}, Total: 1,
+					}},
+					nil,
+					nil,
+					&mockGroupsEligibilityLister{response: &models.GroupsEligibilityResponse{
+						Response: []models.GroupsEligibleTarget{{DirectoryID: "dir1", GroupID: "grp1", GroupName: "CloudAdmins", DirectoryName: "Contoso"}},
+						Total:    1,
+					}},
+					&mockGroupsElevator{response: &models.GroupsElevateResponse{
+						DirectoryID: "dir1", CSP: models.CSPAzure,
+						Results: []models.GroupsElevateTargetResult{{GroupID: "grp1", SessionID: "sess-grp"}},
+					}},
+					config.DefaultConfig()
+			},
+			args: []string{"--output", "json", "--group", "CloudAdmins"},
+			validate: func(t *testing.T, output string) {
+				var out groupElevationJSON
+				if err := json.Unmarshal([]byte(output), &out); err != nil {
+					t.Fatalf("invalid JSON: %v\n%s", err, output)
+				}
+				if out.Type != "group" {
+					t.Errorf("type = %q, want group", out.Type)
+				}
+				if out.GroupName != "CloudAdmins" {
+					t.Errorf("groupName = %q, want CloudAdmins", out.GroupName)
+				}
+				if out.Directory != "Contoso" {
+					t.Errorf("directory = %q, want Contoso", out.Directory)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			authLoader, eligLister, elevSvc, selector, groupsElig, groupsElev, cfg := tt.setupMocks()
+			cmd := NewRootCommandWithDeps(nil, authLoader, eligLister, elevSvc, selector, groupsElig, groupsElev, cfg)
+			output, err := executeCommand(cmd, tt.args...)
+			if err != nil {
+				t.Fatalf("unexpected error: %v\noutput: %s", err, output)
+			}
+			tt.validate(t, output)
+		})
+	}
 }

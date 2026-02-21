@@ -440,6 +440,22 @@ func runFavoritesList(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	if isJSONOutput() {
+		out := make([]favoriteOutput, len(favorites))
+		for i, entry := range favorites {
+			out[i] = favoriteOutput{
+				Name:        entry.Name,
+				Type:        entry.ResolvedType(),
+				Provider:    entry.Provider,
+				Target:      entry.Target,
+				Role:        entry.Role,
+				Group:       entry.Group,
+				DirectoryID: entry.DirectoryID,
+			}
+		}
+		return writeJSON(cmd.OutOrStdout(), out)
+	}
+
 	for _, entry := range favorites {
 		if entry.ResolvedType() == config.FavoriteTypeGroups {
 			fmt.Fprintf(cmd.OutOrStdout(), "%s: groups/%s\n", entry.Name, entry.Group)

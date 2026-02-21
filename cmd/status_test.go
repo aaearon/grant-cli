@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -755,5 +756,81 @@ func TestStatusCommandUsage(t *testing.T) {
 
 	if providerFlag.Shorthand != "p" {
 		t.Errorf("expected provider flag shorthand 'p', got %q", providerFlag.Shorthand)
+	}
+}
+
+func TestStatusCommand_JSONOutput(t *testing.T) {
+	now := time.Now()
+	expiresIn := commonmodels.IdsecRFC3339Time(now.Add(1 * time.Hour))
+
+	tests := []struct {
+		name     string
+		auth     *mockAuthLoader
+		sessions *mockSessionLister
+		elig     *mockEligibilityLister
+		validate func(t *testing.T, output string)
+	}{
+		{
+			name:     "not authenticated",
+			auth:     &mockAuthLoader{loadErr: errors.New("no token")},
+			sessions: &mockSessionLister{},
+			elig:     &mockEligibilityLister{},
+			validate: func(t *testing.T, output string) {
+				var out statusOutput
+				if err := json.Unmarshal([]byte(output), &out); err != nil {
+					t.Fatalf("invalid JSON: %v\n%s", err, output)
+				}
+				if out.Authenticated {
+					t.Error("expected authenticated=false")
+				}
+				if len(out.Sessions) != 0 {
+					t.Errorf("expected empty sessions, got %d", len(out.Sessions))
+				}
+			},
+		},
+		{
+			name: "with sessions",
+			auth: &mockAuthLoader{token: &authmodels.IdsecToken{Token: "jwt", Username: "user@test.com", ExpiresIn: expiresIn}},
+			sessions: &mockSessionLister{
+				sessions: &scamodels.SessionsResponse{Response: []scamodels.SessionInfo{
+					{SessionID: "s1", CSP: scamodels.CSPAzure, WorkspaceID: "sub-1", RoleID: "Contributor", SessionDuration: 3600},
+				}},
+			},
+			elig: &mockEligibilityLister{response: &scamodels.EligibilityResponse{
+				Response: []scamodels.EligibleTarget{{WorkspaceID: "sub-1", WorkspaceName: "Prod"}},
+			}},
+			validate: func(t *testing.T, output string) {
+				var out statusOutput
+				if err := json.Unmarshal([]byte(output), &out); err != nil {
+					t.Fatalf("invalid JSON: %v\n%s", err, output)
+				}
+				if !out.Authenticated {
+					t.Error("expected authenticated=true")
+				}
+				if out.Username != "user@test.com" {
+					t.Errorf("username = %q, want user@test.com", out.Username)
+				}
+				if len(out.Sessions) != 1 {
+					t.Fatalf("expected 1 session, got %d", len(out.Sessions))
+				}
+				if out.Sessions[0].SessionID != "s1" {
+					t.Errorf("sessionId = %q, want s1", out.Sessions[0].SessionID)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := NewStatusCommandWithDeps(tt.auth, tt.sessions, tt.elig)
+			root := newTestRootCommand()
+			root.AddCommand(cmd)
+
+			output, err := executeCommand(root, "status", "--output", "json")
+			if err != nil {
+				t.Fatalf("unexpected error: %v\noutput: %s", err, output)
+			}
+			tt.validate(t, output)
+		})
 	}
 }

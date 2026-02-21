@@ -21,12 +21,12 @@ const DefaultCacheTTL = 4 * time.Hour
 
 // Favorite represents a saved elevation target.
 type Favorite struct {
-	Type        string `yaml:"type,omitempty"`         // "cloud" or "groups"; empty → "cloud"
-	Provider    string `yaml:"provider"`
-	Target      string `yaml:"target"`
-	Role        string `yaml:"role"`
-	Group       string `yaml:"group,omitempty"`        // Group name (groups only)
-	DirectoryID string `yaml:"directory_id,omitempty"` // Directory ID (groups only)
+	Type        string `yaml:"type,omitempty"         json:"type,omitempty"`
+	Provider    string `yaml:"provider"               json:"provider"`
+	Target      string `yaml:"target"                 json:"target"`
+	Role        string `yaml:"role"                   json:"role"`
+	Group       string `yaml:"group,omitempty"        json:"group,omitempty"`
+	DirectoryID string `yaml:"directory_id,omitempty" json:"directoryId,omitempty"`
 }
 
 // Config holds the grant application configuration.
