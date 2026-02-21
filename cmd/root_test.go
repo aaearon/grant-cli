@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"fmt"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -145,7 +145,7 @@ func TestVerboseHintSuppressedForUnknownSubcommand(t *testing.T) {
 
 func TestVerboseHintShownForRuntimeErrors(t *testing.T) {
 	root := newRootCommand(func(cmd *cobra.Command, args []string) error {
-		return fmt.Errorf("runtime failure")
+		return errors.New("runtime failure")
 	})
 
 	root.SetArgs([]string{})
@@ -191,7 +191,7 @@ func TestExecuteHintOutput(t *testing.T) {
 			name: "runtime error shows hint",
 			setupCmd: func() *cobra.Command {
 				return newRootCommand(func(cmd *cobra.Command, args []string) error {
-					return fmt.Errorf("something went wrong")
+					return errors.New("something went wrong")
 				})
 			},
 			args:       []string{},

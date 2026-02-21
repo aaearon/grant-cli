@@ -686,7 +686,7 @@ func TestFavoritesAddInteractiveMode(t *testing.T) {
 			wantErr:     true,
 		},
 		{
-			name: "selector cancelled",
+			name: "selector canceled",
 			setupConfig: func(path string) {
 				cfg := config.DefaultConfig()
 				_ = config.Save(cfg, path)
@@ -700,7 +700,7 @@ func TestFavoritesAddInteractiveMode(t *testing.T) {
 				},
 			},
 			selector: &mockUnifiedSelector{
-				selectErr: errors.New("user cancelled"),
+				selectErr: errors.New("user canceled"),
 			},
 			args:        []string{"myfav"},
 			wantContain: []string{"selection failed"},
@@ -801,7 +801,7 @@ func TestFavoritesAddInteractiveMode(t *testing.T) {
 			selector: &mockUnifiedSelector{
 				item: &selectionItem{kind: selectionCloud, cloud: &twoTargets[0]},
 			},
-			namePrompter: &mockNamePrompter{promptErr: errors.New("user cancelled")},
+			namePrompter: &mockNamePrompter{promptErr: errors.New("user canceled")},
 			args:         []string{},
 			wantContain:  []string{"failed to read favorite name"},
 			wantErr:      true,

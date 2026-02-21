@@ -1,7 +1,6 @@
 package sca
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -63,7 +62,7 @@ func TestLoggingClient_Get(t *testing.T) {
 			inner := &mockHTTPClient{getResponse: tt.resp, getError: tt.err}
 			lc := newLoggingClient(inner, ml)
 
-			resp, err := lc.Get(context.Background(), tt.route, nil)
+			resp, err := lc.Get(t.Context(), tt.route, nil)
 
 			if tt.err != nil {
 				if err == nil {
@@ -125,7 +124,7 @@ func TestLoggingClient_Post(t *testing.T) {
 			inner := &mockHTTPClient{postResponse: tt.resp, postError: tt.err}
 			lc := newLoggingClient(inner, ml)
 
-			resp, err := lc.Post(context.Background(), tt.route, nil)
+			resp, err := lc.Post(t.Context(), tt.route, nil)
 
 			if tt.err != nil {
 				if err == nil {
@@ -161,7 +160,7 @@ func TestLoggingClient_LogsDuration(t *testing.T) {
 	}
 	lc := newLoggingClient(inner, ml)
 
-	_, _ = lc.Get(context.Background(), "/api/test", nil)
+	_, _ = lc.Get(t.Context(), "/api/test", nil)
 
 	found := false
 	for _, c := range ml.calls {
@@ -185,7 +184,7 @@ func TestLoggingClient_DebugLogsHeaders(t *testing.T) {
 	}
 	lc := newLoggingClient(inner, ml)
 
-	_, _ = lc.Get(context.Background(), "/api/test", nil)
+	_, _ = lc.Get(t.Context(), "/api/test", nil)
 
 	var debugCall *logCall
 	for i, c := range ml.calls {

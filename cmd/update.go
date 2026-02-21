@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -31,7 +32,7 @@ func NewUpdateCommandWithDeps(updater selfUpdater) *cobra.Command {
 func runUpdate(cmd *cobra.Command, updater selfUpdater) error {
 	v := version
 	if v == "" || v == "dev" {
-		return fmt.Errorf("cannot update a dev build; install a release build or download from GitHub Releases")
+		return errors.New("cannot update a dev build; install a release build or download from GitHub Releases")
 	}
 
 	log.Info("Current version: %s", v)
@@ -48,7 +49,7 @@ func runUpdate(cmd *cobra.Command, updater selfUpdater) error {
 		return fmt.Errorf("update failed: %w", err)
 	}
 	if rel == nil {
-		return fmt.Errorf("update check returned no release information")
+		return errors.New("update check returned no release information")
 	}
 
 	log.Info("Latest release: %s", rel.Version)

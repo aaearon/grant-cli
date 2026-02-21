@@ -35,7 +35,7 @@ func formatSelectionItem(item selectionItem) string {
 	case selectionCloud:
 		return ui.FormatTargetOption(*item.cloud)
 	case selectionGroup:
-		return fmt.Sprintf("%s (azure)", ui.FormatGroupOption(*item.group))
+		return ui.FormatGroupOption(*item.group) + " (azure)"
 	default:
 		return ""
 	}

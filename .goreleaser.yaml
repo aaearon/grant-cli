@@ -2,11 +2,14 @@ version: 2
 
 builds:
   - binary: grant
+    flags:
+      - -trimpath
+    mod_timestamp: "{{ .CommitTimestamp }}"
     ldflags:
       - -s -w
       - -X github.com/aaearon/grant-cli/cmd.version={{.Version}}
       - -X github.com/aaearon/grant-cli/cmd.commit={{.ShortCommit}}
-      - -X github.com/aaearon/grant-cli/cmd.buildDate={{.Date}}
+      - -X github.com/aaearon/grant-cli/cmd.buildDate={{.CommitDate}}
     goos:
       - linux
       - darwin

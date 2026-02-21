@@ -1,7 +1,9 @@
+// Package cmd implements the grant CLI commands.
 package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -265,7 +267,7 @@ func fetchEligibility(ctx context.Context, eligLister eligibilityLister, provide
 			}
 		}
 		if len(all) == 0 {
-			return nil, fmt.Errorf("no eligible targets found, check your SCA policies")
+			return nil, errors.New("no eligible targets found, check your SCA policies")
 		}
 		return all, nil
 	}
@@ -369,7 +371,7 @@ func resolveAndElevate(
 
 		// Validate direct mode flags
 		if (targetName != "" && roleName == "") || (targetName == "" && roleName != "") {
-			return nil, fmt.Errorf("both --target and --role must be provided")
+			return nil, errors.New("both --target and --role must be provided")
 		}
 
 		provider = flags.provider
@@ -421,7 +423,7 @@ func resolveAndElevate(
 
 	// Check for errors in response
 	if len(elevateResp.Response.Results) == 0 {
-		return nil, fmt.Errorf("elevation failed: no results returned")
+		return nil, errors.New("elevation failed: no results returned")
 	}
 
 	result := elevateResp.Response.Results[0]
@@ -442,7 +444,7 @@ func fetchGroupsEligibility(ctx context.Context, groupsEligLister groupsEligibil
 		return nil, fmt.Errorf("failed to fetch eligible groups: %w", err)
 	}
 	if len(eligResp.Response) == 0 {
-		return nil, fmt.Errorf("no eligible groups found, check your SCA policies")
+		return nil, errors.New("no eligible groups found, check your SCA policies")
 	}
 
 	// Resolve directory names from cloud eligibility (best-effort)
@@ -454,6 +456,52 @@ func fetchGroupsEligibility(ctx context.Context, groupsEligLister groupsEligibil
 	}
 
 	return eligResp.Response, nil
+}
+
+// resolvedFlags holds the resolved state after processing favorites and flag defaults.
+type resolvedFlags struct {
+	targetName      string
+	roleName        string
+	provider        string
+	favDirectoryID  string
+	isFavoriteMode  bool
+	isGroupFavorite bool
+}
+
+// resolveFavoriteFlags resolves favorite and direct flags into concrete values.
+func resolveFavoriteFlags(flags *elevateFlags, cfg *config.Config) (*resolvedFlags, error) {
+	rf := &resolvedFlags{}
+
+	if flags.favorite != "" {
+		rf.isFavoriteMode = true
+		fav, err := config.GetFavorite(cfg, flags.favorite)
+		if err != nil {
+			return nil, fmt.Errorf("favorite %q not found, run 'grant favorites list'", flags.favorite)
+		}
+
+		if fav.ResolvedType() == config.FavoriteTypeGroups {
+			rf.isGroupFavorite = true
+			flags.group = fav.Group
+			rf.favDirectoryID = fav.DirectoryID
+		} else {
+			if flags.provider != "" && !strings.EqualFold(flags.provider, fav.Provider) {
+				return nil, fmt.Errorf("provider %q does not match favorite provider %q", flags.provider, fav.Provider)
+			}
+			rf.provider = fav.Provider
+			rf.targetName = fav.Target
+			rf.roleName = fav.Role
+		}
+	} else {
+		rf.targetName = flags.target
+		rf.roleName = flags.role
+		rf.provider = flags.provider
+
+		if (rf.targetName != "" && rf.roleName == "") || (rf.targetName == "" && rf.roleName != "") {
+			return nil, errors.New("both --target and --role must be provided")
+		}
+	}
+
+	return rf, nil
 }
 
 // resolveAndElevateUnified handles all elevation modes: cloud, group, and unified.
@@ -479,114 +527,94 @@ func resolveAndElevateUnified(
 		return nil, nil, fmt.Errorf("not authenticated, run 'grant login' first: %w", err)
 	}
 
-	// Determine execution mode
-	var targetName, roleName string
-	var isFavoriteMode bool
-	var provider string
-	var favDirectoryID string
-	var isGroupFavorite bool
+	rf, err := resolveFavoriteFlags(flags, cfg)
+	if err != nil {
+		return nil, nil, err
+	}
 
-	if flags.favorite != "" {
-		isFavoriteMode = true
-		fav, err := config.GetFavorite(cfg, flags.favorite)
-		if err != nil {
-			return nil, nil, fmt.Errorf("favorite %q not found, run 'grant favorites list'", flags.favorite)
+	// Dispatch to the appropriate elevation path
+	if flags.group != "" {
+		return resolveAndElevateDirectGroup(ctx, flags.group, rf.favDirectoryID, groupsEligLister, eligibilityLister, groupsElevator)
+	}
+	if flags.groups {
+		return resolveAndElevateGroupsFilter(ctx, groupsEligLister, eligibilityLister, selector, groupsElevator)
+	}
+	if rf.provider != "" || rf.isFavoriteMode || (rf.targetName != "" && rf.roleName != "") {
+		return resolveAndElevateCloudOnly(ctx, rf, eligibilityLister, elevateService, selector)
+	}
+	return resolveAndElevateUnifiedPath(ctx, eligibilityLister, groupsEligLister, selector, elevateService, groupsElevator)
+}
+
+// resolveAndElevateDirectGroup handles the --group flag or group favorite path.
+func resolveAndElevateDirectGroup(ctx context.Context, groupName, favDirectoryID string, groupsEligLister groupsEligibilityLister, cloudEligLister eligibilityLister, groupsElevator groupsElevator) (*elevationResult, *groupElevationResult, error) {
+	groups, err := fetchGroupsEligibility(ctx, groupsEligLister, cloudEligLister)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	selectedGroup := findMatchingGroup(groups, groupName, favDirectoryID)
+	if selectedGroup == nil {
+		if favDirectoryID != "" {
+			return nil, nil, fmt.Errorf("group %q not found in directory %q, run 'grant' to see available options", groupName, favDirectoryID)
 		}
+		return nil, nil, fmt.Errorf("group %q not found, run 'grant' to see available options", groupName)
+	}
 
-		if fav.ResolvedType() == config.FavoriteTypeGroups {
-			// Group favorite — set flags to use group path
-			isGroupFavorite = true
-			flags.group = fav.Group
-			favDirectoryID = fav.DirectoryID
-		} else {
-			// Cloud favorite
-			if flags.provider != "" && !strings.EqualFold(flags.provider, fav.Provider) {
-				return nil, nil, fmt.Errorf("provider %q does not match favorite provider %q", flags.provider, fav.Provider)
-			}
-			provider = fav.Provider
-			targetName = fav.Target
-			roleName = fav.Role
+	return elevateGroup(ctx, selectedGroup, groupsElevator)
+}
+
+// resolveAndElevateGroupsFilter handles the --groups interactive filter path.
+func resolveAndElevateGroupsFilter(ctx context.Context, groupsEligLister groupsEligibilityLister, cloudEligLister eligibilityLister, selector unifiedSelector, groupsElevator groupsElevator) (*elevationResult, *groupElevationResult, error) {
+	groups, err := fetchGroupsEligibility(ctx, groupsEligLister, cloudEligLister)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var items []selectionItem
+	for i := range groups {
+		items = append(items, selectionItem{kind: selectionGroup, group: &groups[i]})
+	}
+
+	selected, err := selector.SelectItem(items)
+	if err != nil {
+		return nil, nil, fmt.Errorf("selection failed: %w", err)
+	}
+
+	return elevateGroup(ctx, selected.group, groupsElevator)
+}
+
+// resolveAndElevateCloudOnly handles the cloud-only path (--provider, direct, or favorite).
+func resolveAndElevateCloudOnly(ctx context.Context, rf *resolvedFlags, eligLister eligibilityLister, elevateService elevateService, selector unifiedSelector) (*elevationResult, *groupElevationResult, error) {
+	allTargets, err := fetchEligibility(ctx, eligLister, rf.provider)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var selectedTarget *models.EligibleTarget
+	if rf.isFavoriteMode && !rf.isGroupFavorite || (rf.targetName != "" && rf.roleName != "") {
+		selectedTarget = findMatchingTarget(allTargets, rf.targetName, rf.roleName)
+		if selectedTarget == nil {
+			return nil, nil, fmt.Errorf("target %q or role %q not found, run 'grant' to see available options", rf.targetName, rf.roleName)
 		}
 	} else {
-		targetName = flags.target
-		roleName = flags.role
-		provider = flags.provider
-
-		if (targetName != "" && roleName == "") || (targetName == "" && roleName != "") {
-			return nil, nil, fmt.Errorf("both --target and --role must be provided")
-		}
-	}
-
-	// Group-only path (--group flag or group favorite)
-	if flags.group != "" {
-		groups, err := fetchGroupsEligibility(ctx, groupsEligLister, eligibilityLister)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		selectedGroup := findMatchingGroup(groups, flags.group, favDirectoryID)
-		if selectedGroup == nil {
-			if favDirectoryID != "" {
-				return nil, nil, fmt.Errorf("group %q not found in directory %q, run 'grant' to see available options", flags.group, favDirectoryID)
-			}
-			return nil, nil, fmt.Errorf("group %q not found, run 'grant' to see available options", flags.group)
-		}
-
-		return elevateGroup(ctx, selectedGroup, groupsElevator)
-	}
-
-	// Groups-filter path (--groups flag, no --group)
-	if flags.groups {
-		groups, err := fetchGroupsEligibility(ctx, groupsEligLister, eligibilityLister)
-		if err != nil {
-			return nil, nil, err
-		}
-
 		var items []selectionItem
-		for i := range groups {
-			items = append(items, selectionItem{kind: selectionGroup, group: &groups[i]})
+		for i := range allTargets {
+			items = append(items, selectionItem{kind: selectionCloud, cloud: &allTargets[i]})
 		}
 
 		selected, err := selector.SelectItem(items)
 		if err != nil {
 			return nil, nil, fmt.Errorf("selection failed: %w", err)
 		}
-
-		return elevateGroup(ctx, selected.group, groupsElevator)
+		selectedTarget = selected.cloud
 	}
 
-	// Cloud-only path (--provider specified, or direct/favorite cloud mode)
-	if provider != "" || isFavoriteMode || (targetName != "" && roleName != "") {
-		allTargets, err := fetchEligibility(ctx, eligibilityLister, provider)
-		if err != nil {
-			return nil, nil, err
-		}
+	resolveTargetCSP(selectedTarget, allTargets, rf.provider)
+	return elevateCloud(ctx, selectedTarget, elevateService)
+}
 
-		var selectedTarget *models.EligibleTarget
-		if isFavoriteMode && !isGroupFavorite || (targetName != "" && roleName != "") {
-			selectedTarget = findMatchingTarget(allTargets, targetName, roleName)
-			if selectedTarget == nil {
-				return nil, nil, fmt.Errorf("target %q or role %q not found, run 'grant' to see available options", targetName, roleName)
-			}
-		} else {
-			// Interactive cloud-only
-			var items []selectionItem
-			for i := range allTargets {
-				items = append(items, selectionItem{kind: selectionCloud, cloud: &allTargets[i]})
-			}
-
-			selected, err := selector.SelectItem(items)
-			if err != nil {
-				return nil, nil, fmt.Errorf("selection failed: %w", err)
-			}
-			selectedTarget = selected.cloud
-		}
-
-		resolveTargetCSP(selectedTarget, allTargets, provider)
-		return elevateCloud(ctx, selectedTarget, elevateService)
-	}
-
-	// Unified path (no filter flags) — fetch both cloud and groups in parallel
+// resolveAndElevateUnifiedPath handles the unified path (no filter flags) with parallel fetch.
+func resolveAndElevateUnifiedPath(ctx context.Context, eligLister eligibilityLister, groupsEligLister groupsEligibilityLister, selector unifiedSelector, elevateService elevateService, groupsElevator groupsElevator) (*elevationResult, *groupElevationResult, error) {
 	type cloudResult struct {
 		targets []models.EligibleTarget
 		err     error
@@ -600,12 +628,12 @@ func resolveAndElevateUnified(
 	groupsCh := make(chan groupsResult, 1)
 
 	go func() {
-		targets, err := fetchEligibility(ctx, eligibilityLister, "")
+		targets, err := fetchEligibility(ctx, eligLister, "")
 		cloudCh <- cloudResult{targets: targets, err: err}
 	}()
 
 	go func() {
-		groups, err := fetchGroupsEligibility(ctx, groupsEligLister, eligibilityLister)
+		groups, err := fetchGroupsEligibility(ctx, groupsEligLister, eligLister)
 		groupsCh <- groupsResult{groups: groups, err: err}
 	}()
 
@@ -625,7 +653,7 @@ func resolveAndElevateUnified(
 	}
 
 	if len(items) == 0 {
-		return nil, nil, fmt.Errorf("no eligible targets or groups found, check your SCA policies")
+		return nil, nil, errors.New("no eligible targets or groups found, check your SCA policies")
 	}
 
 	selected, err := selector.SelectItem(items)
@@ -640,7 +668,7 @@ func resolveAndElevateUnified(
 	case selectionGroup:
 		return elevateGroup(ctx, selected.group, groupsElevator)
 	default:
-		return nil, nil, fmt.Errorf("unexpected selection kind")
+		return nil, nil, errors.New("unexpected selection kind")
 	}
 }
 
@@ -663,7 +691,7 @@ func elevateCloud(ctx context.Context, target *models.EligibleTarget, elevateSer
 	}
 
 	if len(elevateResp.Response.Results) == 0 {
-		return nil, nil, fmt.Errorf("elevation failed: no results returned")
+		return nil, nil, errors.New("elevation failed: no results returned")
 	}
 
 	result := elevateResp.Response.Results[0]
@@ -693,7 +721,7 @@ func elevateGroup(ctx context.Context, group *models.GroupsEligibleTarget, eleva
 	}
 
 	if len(elevateResp.Results) == 0 {
-		return nil, nil, fmt.Errorf("elevation failed: no results returned")
+		return nil, nil, errors.New("elevation failed: no results returned")
 	}
 
 	result := elevateResp.Results[0]
@@ -731,7 +759,7 @@ func runElevateWithDeps(
 		// Display group elevation result
 		dirContext := ""
 		if groupRes.group.DirectoryName != "" {
-			dirContext = fmt.Sprintf(" in %s", groupRes.group.DirectoryName)
+			dirContext = " in " + groupRes.group.DirectoryName
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "Elevated to group %s%s\n", groupRes.group.GroupName, dirContext)
 		fmt.Fprintf(cmd.OutOrStdout(), "  Session ID: %s\n", groupRes.result.SessionID)
@@ -784,7 +812,7 @@ type uiUnifiedSelector struct{}
 
 func (s *uiUnifiedSelector) SelectItem(items []selectionItem) (*selectionItem, error) {
 	if len(items) == 0 {
-		return nil, fmt.Errorf("no eligible targets or groups available")
+		return nil, errors.New("no eligible targets or groups available")
 	}
 
 	options, sorted := buildUnifiedOptions(items)

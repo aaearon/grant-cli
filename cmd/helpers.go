@@ -189,7 +189,7 @@ func buildWorkspaceNameMap(ctx context.Context, eligLister eligibilityLister, se
 
 // findMatchingGroup finds a group by name (case-insensitive).
 // If directoryID is non-empty, only matches groups in that directory.
-func findMatchingGroup(groups []scamodels.GroupsEligibleTarget, name string, directoryID string) *scamodels.GroupsEligibleTarget {
+func findMatchingGroup(groups []scamodels.GroupsEligibleTarget, name, directoryID string) *scamodels.GroupsEligibleTarget {
 	for i := range groups {
 		if strings.EqualFold(groups[i].GroupName, name) {
 			if directoryID != "" && groups[i].DirectoryID != directoryID {

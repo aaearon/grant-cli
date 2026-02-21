@@ -65,7 +65,7 @@ func TestGet_CorruptJSON(t *testing.T) {
 
 	// Write garbage to the cache file
 	path := filepath.Join(dir, "corrupt.json")
-	if err := os.WriteFile(path, []byte("{not valid json"), 0600); err != nil {
+	if err := os.WriteFile(path, []byte("{not valid json"), 0o600); err != nil {
 		t.Fatalf("failed to write corrupt file: %v", err)
 	}
 
@@ -104,7 +104,7 @@ func TestSet_FilePermissions(t *testing.T) {
 		t.Fatalf("Stat() error = %v", err)
 	}
 	perm := info.Mode().Perm()
-	if perm != 0600 {
+	if perm != 0o600 {
 		t.Errorf("file permissions = %o, want 0600", perm)
 	}
 }

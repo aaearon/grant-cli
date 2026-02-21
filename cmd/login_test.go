@@ -55,16 +55,16 @@ func TestLoginCommand(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "authentication failure - user cancelled",
+			name: "authentication failure - user canceled",
 			setupAuth: func() authenticator {
 				return &mockAuthenticator{
 					token:   nil,
-					authErr: errors.New("user cancelled"),
+					authErr: errors.New("user canceled"),
 				}
 			},
 			wantContain: []string{
 				"authentication failed",
-				"user cancelled",
+				"user canceled",
 			},
 			wantErr: true,
 		},

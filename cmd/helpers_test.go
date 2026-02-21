@@ -194,7 +194,7 @@ func TestFetchStatusData(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := t.Context()
 			if tt.name == "context cancellation - no hang" {
 				var cancel context.CancelFunc
 				ctx, cancel = context.WithCancel(ctx)
@@ -238,7 +238,7 @@ func TestFetchStatusData_VerboseWarning(t *testing.T) {
 	log = spy
 	defer func() { log = oldLog }()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	sessionLister := &mockSessionLister{
 		sessions: &scamodels.SessionsResponse{
 			Response: []scamodels.SessionInfo{
@@ -409,7 +409,7 @@ func TestBuildWorkspaceNameMap(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := t.Context()
 			if tt.name == "context cancellation - no hang" {
 				var cancel context.CancelFunc
 				ctx, cancel = context.WithCancel(ctx)
@@ -444,7 +444,7 @@ func TestBuildWorkspaceNameMap_VerboseWarning(t *testing.T) {
 	log = spy
 	defer func() { log = oldLog }()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	eligLister := &mockEligibilityLister{
 		listErr: errors.New("eligibility API unavailable"),
 	}

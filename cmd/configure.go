@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -83,7 +84,7 @@ func runConfigure(cmd *cobra.Command, saver profileSaver, tenantURL, username st
 	}
 
 	if strings.TrimSpace(username) == "" {
-		return fmt.Errorf("username is required")
+		return errors.New("username is required")
 	}
 
 	// Create SDK profile
@@ -144,7 +145,7 @@ func runConfigure(cmd *cobra.Command, saver profileSaver, tenantURL, username st
 // validateTenantURL validates that the tenant URL is a valid HTTPS URL
 func validateTenantURL(tenantURL string) error {
 	if strings.TrimSpace(tenantURL) == "" {
-		return fmt.Errorf("invalid tenant URL: cannot be empty")
+		return errors.New("invalid tenant URL: cannot be empty")
 	}
 
 	u, err := url.Parse(tenantURL)
@@ -153,11 +154,11 @@ func validateTenantURL(tenantURL string) error {
 	}
 
 	if u.Scheme != "https" {
-		return fmt.Errorf("invalid tenant URL: must use HTTPS scheme")
+		return errors.New("invalid tenant URL: must use HTTPS scheme")
 	}
 
 	if u.Host == "" {
-		return fmt.Errorf("invalid tenant URL: must have a host")
+		return errors.New("invalid tenant URL: must have a host")
 	}
 
 	return nil

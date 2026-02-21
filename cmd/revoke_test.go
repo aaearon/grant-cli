@@ -229,7 +229,7 @@ func TestRevokeCommand(t *testing.T) {
 			wantErr:       false,
 		},
 		{
-			name: "all mode - confirmation cancelled",
+			name: "all mode - confirmation canceled",
 			args: []string{"--all"},
 			setupAuth: func() *mockAuthLoader {
 				return &mockAuthLoader{
@@ -243,7 +243,7 @@ func TestRevokeCommand(t *testing.T) {
 			setupRevoker:  func() *mockSessionRevoker { return &mockSessionRevoker{} },
 			setupSelector: func() *mockSessionSelector { return &mockSessionSelector{} },
 			setupConfirm:  func() *mockConfirmPrompter { return &mockConfirmPrompter{confirmed: false} },
-			wantContain:   []string{"Revocation cancelled"},
+			wantContain:   []string{"Revocation canceled"},
 			wantErr:       false,
 		},
 		{

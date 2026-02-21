@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -64,7 +65,7 @@ func runLogin(cmd *cobra.Command, auth authenticator) error {
 		}
 
 		if profile == nil {
-			return fmt.Errorf("profile not found after configuration")
+			return errors.New("profile not found after configuration")
 		}
 	}
 

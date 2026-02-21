@@ -1079,7 +1079,7 @@ func TestFetchEligibility_SingleProviderOmitsCSPTag(t *testing.T) {
 		},
 	}
 
-	targets, err := fetchEligibility(context.Background(), lister, "azure")
+	targets, err := fetchEligibility(t.Context(), lister, "azure")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1117,7 +1117,7 @@ func TestFetchEligibility_ConcurrentExecution(t *testing.T) {
 	}
 
 	start := time.Now()
-	targets, err := fetchEligibility(context.Background(), lister, "")
+	targets, err := fetchEligibility(t.Context(), lister, "")
 	elapsed := time.Since(start)
 
 	if err != nil {

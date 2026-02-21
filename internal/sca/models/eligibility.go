@@ -1,3 +1,4 @@
+// Package models defines SCA API request and response types.
 package models
 
 import "encoding/json"

@@ -1,3 +1,4 @@
+// Package cache provides file-based caching with TTL expiry.
 package cache
 
 import (
@@ -49,7 +50,7 @@ func Get[T any](s *Store, key string, dst *T) bool {
 
 // Set writes a value to the cache under key. Creates the directory if needed.
 func Set[T any](s *Store, key string, value T) error {
-	if err := os.MkdirAll(s.dir, 0700); err != nil {
+	if err := os.MkdirAll(s.dir, 0o700); err != nil {
 		return err
 	}
 
@@ -63,7 +64,7 @@ func Set[T any](s *Store, key string, value T) error {
 		return err
 	}
 
-	return os.WriteFile(filepath.Join(s.dir, key+".json"), data, 0600)
+	return os.WriteFile(filepath.Join(s.dir, key+".json"), data, 0o600)
 }
 
 // Invalidate removes a cached entry by key.

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/aaearon/grant-cli/internal/config"
@@ -92,7 +93,7 @@ func runEnvWithDeps(
 	}
 
 	if res.result.AccessCredentials == nil {
-		return fmt.Errorf("no credentials returned; grant env is only supported for AWS elevations")
+		return errors.New("no credentials returned; grant env is only supported for AWS elevations")
 	}
 
 	awsCreds, err := models.ParseAWSCredentials(*res.result.AccessCredentials)

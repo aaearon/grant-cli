@@ -94,15 +94,25 @@ Custom `SCAAccessService` follows SDK conventions:
 - Skill definition: `.claude/skills/grant-login/SKILL.md`
 - Requires `.env` at project root with `GRANT_PASSWORD` and `TOTP_SECRET`
 
+## Lint
+- Config: `.golangci.yml` (golangci-lint v1 format)
+- 19 linters enabled: defaults (errcheck, gosimple, govet, ineffassign, staticcheck, unused) + bodyclose, errorlint, noctx, gosec (G101 excluded), errname, gocritic, misspell, revive, gocognit (threshold 40), perfsprint, unconvert, usetesting
+- Test files excluded from gosec, gocognit, bodyclose
+- `revive/unused-parameter` and `revive/exported` disabled (Cobra signatures, established API names)
+- Use `errors.New` for static error strings (perfsprint enforced); `fmt.Errorf` only with `%` verbs
+- Use `t.Context()` instead of `context.Background()` in tests (usetesting enforced)
+
 ## Build
 ```bash
-make build              # Build binary with ldflags
+make build              # Build binary with -trimpath and ldflags
 make test               # Run unit tests
 make test-integration   # Run integration tests (builds binary)
 make test-all           # Run all tests
-make lint               # Run linter
+make lint               # Run linter (golangci-lint)
 make clean              # Clean build artifacts
 ```
+- `-trimpath` used in both `Makefile` and `.goreleaser.yaml` for reproducible builds
+- `.goreleaser.yaml` uses `CommitDate` (not build date) and `mod_timestamp` for reproducibility
 
 ## Git
 - Feature branches, conventional commits

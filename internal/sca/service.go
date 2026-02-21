@@ -1,8 +1,10 @@
+// Package sca provides the CyberArk SCA Access API client.
 package sca
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -49,7 +51,7 @@ func NewSCAAccessService(authenticators ...auth.IdsecAuth) (*SCAAccessService, e
 
 	ispAuth, ok := ispAuthIface.(*auth.IdsecISPAuth)
 	if !ok {
-		return nil, fmt.Errorf("authenticator is not *auth.IdsecISPAuth")
+		return nil, errors.New("authenticator is not *auth.IdsecISPAuth")
 	}
 	svc.ispAuth = ispAuth
 
@@ -126,10 +128,10 @@ func (s *SCAAccessService) ListEligibility(ctx context.Context, csp models.CSP) 
 // POST /api/access/elevate
 func (s *SCAAccessService) Elevate(ctx context.Context, req *models.ElevateRequest) (*models.ElevateResponse, error) {
 	if req == nil {
-		return nil, fmt.Errorf("elevate request cannot be nil")
+		return nil, errors.New("elevate request cannot be nil")
 	}
 	if len(req.Targets) == 0 {
-		return nil, fmt.Errorf("elevate request must contain at least one target")
+		return nil, errors.New("elevate request must contain at least one target")
 	}
 
 	resp, err := s.httpClient.Post(ctx, "/api/access/elevate", req)
@@ -154,10 +156,10 @@ func (s *SCAAccessService) Elevate(ctx context.Context, req *models.ElevateReque
 // POST /api/access/sessions/revoke
 func (s *SCAAccessService) RevokeSessions(ctx context.Context, req *models.RevokeRequest) (*models.RevokeResponse, error) {
 	if req == nil {
-		return nil, fmt.Errorf("revoke request cannot be nil")
+		return nil, errors.New("revoke request cannot be nil")
 	}
 	if len(req.SessionIDs) == 0 {
-		return nil, fmt.Errorf("revoke request must contain at least one session ID")
+		return nil, errors.New("revoke request must contain at least one session ID")
 	}
 
 	resp, err := s.httpClient.Post(ctx, "/api/access/sessions/revoke", req)
@@ -233,10 +235,10 @@ func (s *SCAAccessService) ListGroupsEligibility(ctx context.Context, csp models
 // POST /api/access/elevate/groups
 func (s *SCAAccessService) ElevateGroups(ctx context.Context, req *models.GroupsElevateRequest) (*models.GroupsElevateResponse, error) {
 	if req == nil {
-		return nil, fmt.Errorf("groups elevate request cannot be nil")
+		return nil, errors.New("groups elevate request cannot be nil")
 	}
 	if len(req.Targets) == 0 {
-		return nil, fmt.Errorf("groups elevate request must contain at least one target")
+		return nil, errors.New("groups elevate request must contain at least one target")
 	}
 
 	resp, err := s.httpClient.Post(ctx, "/api/access/elevate/groups", req)

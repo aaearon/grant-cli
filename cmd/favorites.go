@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -111,7 +112,7 @@ func runFavoritesAddProduction(cmd *cobra.Command, args []string) error {
 
 	// Validate: target and role must both be provided or both omitted
 	if (target != "" && role == "") || (target == "" && role != "") {
-		return fmt.Errorf("both --target and --role must be provided")
+		return errors.New("both --target and --role must be provided")
 	}
 
 	favType, _ := cmd.Flags().GetString("type")
@@ -150,34 +151,115 @@ func runFavoritesAddProduction(cmd *cobra.Command, args []string) error {
 	return runFavoritesAddWithDeps(cmd, args, cachedLister, &uiUnifiedSelector{}, &surveyNamePrompter{}, cfg, cachedLister)
 }
 
+// favoritesAddFlags holds the parsed flags for the favorites add command.
+type favoritesAddFlags struct {
+	provider string
+	target   string
+	role     string
+	favType  string
+	group    string
+}
+
+// parseFavoritesAddFlags reads and validates the flags for favorites add.
+func parseFavoritesAddFlags(cmd *cobra.Command) (*favoritesAddFlags, error) {
+	f := &favoritesAddFlags{}
+	f.provider, _ = cmd.Flags().GetString("provider")
+	f.target, _ = cmd.Flags().GetString("target")
+	f.role, _ = cmd.Flags().GetString("role")
+	f.favType, _ = cmd.Flags().GetString("type")
+	f.group, _ = cmd.Flags().GetString("group")
+
+	if f.favType != "" && f.favType != config.FavoriteTypeCloud && f.favType != config.FavoriteTypeGroups {
+		return nil, fmt.Errorf("invalid --type %q: must be one of: cloud, groups", f.favType)
+	}
+
+	if f.favType == config.FavoriteTypeGroups {
+		if f.target != "" || f.role != "" {
+			return nil, errors.New("--target and --role cannot be used with --type groups")
+		}
+	} else {
+		if f.group != "" {
+			return nil, errors.New("--group requires --type groups")
+		}
+		if (f.target != "" && f.role == "") || (f.target == "" && f.role != "") {
+			return nil, errors.New("both --target and --role must be provided")
+		}
+	}
+
+	return f, nil
+}
+
+// selectFavoriteInteractive presents a unified selector and returns the chosen favorite and name.
+func selectFavoriteInteractive(provider string, eligLister eligibilityLister, groupsElig groupsEligibilityLister, sel unifiedSelector, prompter namePrompter, name string, cfg *config.Config) (config.Favorite, string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
+	defer cancel()
+
+	allTargets, err := fetchEligibility(ctx, eligLister, provider)
+	if err != nil {
+		return config.Favorite{}, "", err
+	}
+
+	var items []selectionItem
+	for i := range allTargets {
+		items = append(items, selectionItem{kind: selectionCloud, cloud: &allTargets[i]})
+	}
+
+	if groupsElig != nil {
+		groups, gErr := fetchGroupsEligibility(ctx, groupsElig, eligLister)
+		if gErr == nil {
+			for i := range groups {
+				items = append(items, selectionItem{kind: selectionGroup, group: &groups[i]})
+			}
+		}
+	}
+
+	if len(items) == 0 {
+		return config.Favorite{}, "", errors.New("no eligible targets or groups found")
+	}
+
+	selected, err := sel.SelectItem(items)
+	if err != nil {
+		return config.Favorite{}, "", fmt.Errorf("selection failed: %w", err)
+	}
+
+	var fav config.Favorite
+	switch selected.kind {
+	case selectionCloud:
+		resolveTargetCSP(selected.cloud, allTargets, provider)
+		if provider != "" {
+			fav.Provider = provider
+		} else {
+			fav.Provider = strings.ToLower(string(selected.cloud.CSP))
+		}
+		fav.Target = selected.cloud.WorkspaceName
+		fav.Role = selected.cloud.RoleInfo.Name
+	case selectionGroup:
+		fav.Type = config.FavoriteTypeGroups
+		fav.Provider = "azure"
+		fav.Group = selected.group.GroupName
+		fav.DirectoryID = selected.group.DirectoryID
+	}
+
+	if name == "" {
+		name, err = prompter.PromptName()
+		if err != nil {
+			return config.Favorite{}, "", fmt.Errorf("failed to read favorite name: %w", err)
+		}
+		if _, err := config.GetFavorite(cfg, name); err == nil {
+			return config.Favorite{}, "", fmt.Errorf("favorite %q already exists", name)
+		}
+	}
+
+	return fav, name, nil
+}
+
 // runFavoritesAddWithDeps contains the core logic for favorites add.
 // When eligLister and sel are nil, it uses the non-interactive flag path.
 // If preloadedCfg is non-nil, it is used instead of loading from disk.
 func runFavoritesAddWithDeps(cmd *cobra.Command, args []string, eligLister eligibilityLister, sel unifiedSelector, prompter namePrompter, preloadedCfg *config.Config, groupsElig groupsEligibilityLister) error {
-	// Read flags
-	provider, _ := cmd.Flags().GetString("provider")
-	target, _ := cmd.Flags().GetString("target")
-	role, _ := cmd.Flags().GetString("role")
-	favType, _ := cmd.Flags().GetString("type")
-	group, _ := cmd.Flags().GetString("group")
-
-	// Validate type flag
-	if favType != "" && favType != config.FavoriteTypeCloud && favType != config.FavoriteTypeGroups {
-		return fmt.Errorf("invalid --type %q: must be one of: cloud, groups", favType)
-	}
-
-	// Validate flag combinations
-	if favType == config.FavoriteTypeGroups {
-		if target != "" || role != "" {
-			return fmt.Errorf("--target and --role cannot be used with --type groups")
-		}
-	} else {
-		if group != "" {
-			return fmt.Errorf("--group requires --type groups")
-		}
-		if (target != "" && role == "") || (target == "" && role != "") {
-			return fmt.Errorf("both --target and --role must be provided")
-		}
+	f, err := parseFavoritesAddFlags(cmd)
+	if err != nil {
+		return err
 	}
 
 	// Determine name from arg
@@ -187,15 +269,15 @@ func runFavoritesAddWithDeps(cmd *cobra.Command, args []string, eligLister eligi
 	}
 
 	// Non-interactive mode requires name upfront
-	isNonInteractive := (target != "" && role != "") || (favType == config.FavoriteTypeGroups && group != "")
+	isNonInteractive := (f.target != "" && f.role != "") || (f.favType == config.FavoriteTypeGroups && f.group != "")
 	if isNonInteractive {
-		log.Info("Non-interactive mode: target=%q role=%q provider=%q group=%q", target, role, provider, group)
+		log.Info("Non-interactive mode: target=%q role=%q provider=%q group=%q", f.target, f.role, f.provider, f.group)
 	}
 	if isNonInteractive && name == "" {
-		if favType == config.FavoriteTypeGroups {
-			return fmt.Errorf("name is required when using --group flag\n\nUsage:\n  grant favorites add <name> --type groups --group <group>")
+		if f.favType == config.FavoriteTypeGroups {
+			return errors.New("name is required when using --group flag\n\nUsage:\n  grant favorites add <name> --type groups --group <group>")
 		}
-		return fmt.Errorf("name is required when using --target and --role flags\n\nUsage:\n  grant favorites add <name> --target <target> --role <role>")
+		return errors.New("name is required when using --target and --role flags\n\nUsage:\n  grant favorites add <name> --target <target> --role <role>")
 	}
 
 	// Load config (skip if pre-loaded)
@@ -205,7 +287,6 @@ func runFavoritesAddWithDeps(cmd *cobra.Command, args []string, eligLister eligi
 		cfg = preloadedCfg
 		cfgPath, _ = config.ConfigPath()
 	} else {
-		var err error
 		cfg, cfgPath, err = config.LoadDefaultWithPath()
 		if err != nil {
 			return err
@@ -220,79 +301,23 @@ func runFavoritesAddWithDeps(cmd *cobra.Command, args []string, eligLister eligi
 	}
 
 	// Groups flow
-	if favType == config.FavoriteTypeGroups {
-		return addGroupFavorite(cmd, name, group, cfg, cfgPath, groupsElig, eligLister, sel, prompter)
+	if f.favType == config.FavoriteTypeGroups {
+		return addGroupFavorite(cmd, name, f.group, cfg, cfgPath, groupsElig, eligLister, sel, prompter)
 	}
 
 	// Cloud flow
 	var fav config.Favorite
-	if target != "" && role != "" {
-		// Non-interactive: target and role specified via flags
-		fav.Target = target
-		fav.Role = role
-		fav.Provider = provider
+	if f.target != "" && f.role != "" {
+		fav.Target = f.target
+		fav.Role = f.role
+		fav.Provider = f.provider
 		if fav.Provider == "" {
 			fav.Provider = cfg.DefaultProvider
 		}
 	} else {
-		// Interactive: unified selector showing cloud targets and groups
-		ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
-		defer cancel()
-
-		allTargets, err := fetchEligibility(ctx, eligLister, provider)
+		fav, name, err = selectFavoriteInteractive(f.provider, eligLister, groupsElig, sel, prompter, name, cfg)
 		if err != nil {
 			return err
-		}
-
-		var items []selectionItem
-		for i := range allTargets {
-			items = append(items, selectionItem{kind: selectionCloud, cloud: &allTargets[i]})
-		}
-
-		// Fetch groups eligibility (best-effort, enriched with directory names)
-		if groupsElig != nil {
-			groups, gErr := fetchGroupsEligibility(ctx, groupsElig, eligLister)
-			if gErr == nil {
-				for i := range groups {
-					items = append(items, selectionItem{kind: selectionGroup, group: &groups[i]})
-				}
-			}
-		}
-
-		if len(items) == 0 {
-			return fmt.Errorf("no eligible targets or groups found")
-		}
-
-		selected, err := sel.SelectItem(items)
-		if err != nil {
-			return fmt.Errorf("selection failed: %w", err)
-		}
-
-		switch selected.kind {
-		case selectionCloud:
-			resolveTargetCSP(selected.cloud, allTargets, provider)
-			if provider != "" {
-				fav.Provider = provider
-			} else {
-				fav.Provider = strings.ToLower(string(selected.cloud.CSP))
-			}
-			fav.Target = selected.cloud.WorkspaceName
-			fav.Role = selected.cloud.RoleInfo.Name
-		case selectionGroup:
-			fav.Type = config.FavoriteTypeGroups
-			fav.Provider = "azure"
-			fav.Group = selected.group.GroupName
-			fav.DirectoryID = selected.group.DirectoryID
-		}
-
-		if name == "" {
-			name, err = prompter.PromptName()
-			if err != nil {
-				return fmt.Errorf("failed to read favorite name: %w", err)
-			}
-			if _, err := config.GetFavorite(cfg, name); err == nil {
-				return fmt.Errorf("favorite %q already exists", name)
-			}
 		}
 	}
 
@@ -384,7 +409,7 @@ func newFavoritesRemoveCommand() *cobra.Command {
 		Example: "  grant favorites remove prod-admin",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
-				return fmt.Errorf("requires a favorite name\n\nUsage:\n  grant favorites remove <name>\n\nSee available favorites with 'grant favorites list'")
+				return errors.New("requires a favorite name\n\nUsage:\n  grant favorites remove <name>\n\nSee available favorites with 'grant favorites list'")
 			}
 			if len(args) > 1 {
 				return fmt.Errorf("expected 1 favorite name, got %d", len(args))

@@ -215,10 +215,8 @@ func TestSessionInfo_WithTarget(t *testing.T) {
 				if session.Target.ID != tt.wantTargetID {
 					t.Errorf("Target.ID = %q, want %q", session.Target.ID, tt.wantTargetID)
 				}
-			} else {
-				if session.Target != nil {
-					t.Errorf("expected nil Target, got %+v", session.Target)
-				}
+			} else if session.Target != nil {
+				t.Errorf("expected nil Target, got %+v", session.Target)
 			}
 
 			if got := session.IsGroupSession(); got != tt.wantIsGroup {

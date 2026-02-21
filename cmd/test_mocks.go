@@ -135,7 +135,7 @@ type mockAuthenticator struct {
 	authErr          error
 }
 
-func (m *mockAuthenticator) Authenticate(profile *sdkmodels.IdsecProfile, authProfile *authmodels.IdsecAuthProfile, secret *authmodels.IdsecSecret, force bool, refreshAuth bool) (*authmodels.IdsecToken, error) {
+func (m *mockAuthenticator) Authenticate(profile *sdkmodels.IdsecProfile, authProfile *authmodels.IdsecAuthProfile, secret *authmodels.IdsecSecret, force, refreshAuth bool) (*authmodels.IdsecToken, error) {
 	if m.authenticateFunc != nil {
 		return m.authenticateFunc(profile, authProfile, secret, force, refreshAuth)
 	}

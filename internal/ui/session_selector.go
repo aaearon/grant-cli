@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -62,7 +63,7 @@ func FindSessionByDisplay(sessions []models.SessionInfo, nameMap map[string]stri
 // SelectSessions presents a multi-select prompt for choosing sessions to revoke.
 func SelectSessions(sessions []models.SessionInfo, nameMap map[string]string) ([]models.SessionInfo, error) {
 	if len(sessions) == 0 {
-		return nil, fmt.Errorf("no sessions available")
+		return nil, errors.New("no sessions available")
 	}
 
 	options := BuildSessionOptions(sessions, nameMap)
@@ -78,7 +79,7 @@ func SelectSessions(sessions []models.SessionInfo, nameMap map[string]string) ([
 	}
 
 	if len(selected) == 0 {
-		return nil, fmt.Errorf("no sessions selected")
+		return nil, errors.New("no sessions selected")
 	}
 
 	var result []models.SessionInfo

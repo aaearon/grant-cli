@@ -50,7 +50,7 @@ func TestCachedEligibilityLister_CacheHit(t *testing.T) {
 	}
 
 	cached := NewCachedEligibilityLister(inner, nil, store, false, nil)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// First call — miss, calls inner
 	resp1, err := cached.ListEligibility(ctx, models.CSPAzure)
@@ -94,7 +94,7 @@ func TestCachedEligibilityLister_CacheMiss_Expired(t *testing.T) {
 	// Write cache entry in the past
 	pastStore := &Store{dir: dir, ttl: ttl, now: func() time.Time { return time.Now().Add(-2 * time.Hour) }}
 	cached := NewCachedEligibilityLister(inner, nil, pastStore, false, nil)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	_, _ = cached.ListEligibility(ctx, models.CSPAzure)
 	if inner.calls != 1 {
@@ -128,7 +128,7 @@ func TestCachedEligibilityLister_RefreshBypass(t *testing.T) {
 
 	// Pre-populate cache
 	cached := NewCachedEligibilityLister(inner, nil, store, false, nil)
-	ctx := context.Background()
+	ctx := t.Context()
 	_, _ = cached.ListEligibility(ctx, models.CSPAzure)
 	if inner.calls != 1 {
 		t.Fatalf("expected 1 call, got %d", inner.calls)
@@ -153,7 +153,7 @@ func TestCachedEligibilityLister_APIError_NoCache(t *testing.T) {
 	inner := &mockEligibilityLister{err: apiErr}
 
 	cached := NewCachedEligibilityLister(inner, nil, store, false, nil)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	_, err := cached.ListEligibility(ctx, models.CSPAzure)
 	if !errors.Is(err, apiErr) {
@@ -180,7 +180,7 @@ func TestCachedEligibilityLister_CorruptCache_Fallthrough(t *testing.T) {
 	}
 
 	cached := NewCachedEligibilityLister(inner, nil, store, false, nil)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	resp, err := cached.ListEligibility(ctx, models.CSPAzure)
 	if err != nil {
@@ -208,7 +208,7 @@ func TestCachedGroupsEligibilityLister_CacheHit(t *testing.T) {
 	}
 
 	cached := NewCachedEligibilityLister(nil, inner, store, false, nil)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// First call — miss
 	resp1, err := cached.ListGroupsEligibility(ctx, models.CSPAzure)
@@ -250,7 +250,7 @@ func TestCachedGroupsEligibilityLister_RefreshBypass(t *testing.T) {
 
 	// Pre-populate cache
 	cached := NewCachedEligibilityLister(nil, inner, store, false, nil)
-	ctx := context.Background()
+	ctx := t.Context()
 	_, _ = cached.ListGroupsEligibility(ctx, models.CSPAzure)
 
 	// With refresh=true, should bypass cache
@@ -269,7 +269,7 @@ func TestCachedGroupsEligibilityLister_NilInner(t *testing.T) {
 	store := NewStore(t.TempDir(), 4*time.Hour)
 
 	cached := NewCachedEligibilityLister(nil, nil, store, false, nil)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	_, err := cached.ListGroupsEligibility(ctx, models.CSPAzure)
 	if err == nil {
@@ -289,7 +289,7 @@ func TestCachedEligibilityLister_DifferentCSPs_SeparateKeys(t *testing.T) {
 	}
 
 	cached := NewCachedEligibilityLister(inner, nil, store, false, nil)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	_, _ = cached.ListEligibility(ctx, models.CSPAzure)
 	_, _ = cached.ListEligibility(ctx, models.CSPAWS)
@@ -329,7 +329,7 @@ func TestCachedEligibilityLister_LogsHitAndMiss(t *testing.T) {
 	}
 
 	cached := NewCachedEligibilityLister(inner, nil, store, false, log)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// First call — miss
 	_, _ = cached.ListEligibility(ctx, models.CSPAzure)
@@ -373,7 +373,7 @@ func TestCachedEligibilityLister_LogsRefreshBypass(t *testing.T) {
 	}
 
 	cached := NewCachedEligibilityLister(inner, nil, store, true, log)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	_, _ = cached.ListEligibility(ctx, models.CSPAzure)
 	found := false
@@ -389,5 +389,5 @@ func TestCachedEligibilityLister_LogsRefreshBypass(t *testing.T) {
 
 // writeCorruptCacheFile writes invalid JSON to a cache file.
 func writeCorruptCacheFile(dir, key string) error {
-	return os.WriteFile(dir+"/"+key+".json", []byte("{invalid json"), 0600)
+	return os.WriteFile(dir+"/"+key+".json", []byte("{invalid json"), 0o600)
 }
