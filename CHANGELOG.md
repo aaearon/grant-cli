@@ -4,9 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-02-21
+
 ### Fixed
 
 - Elevation requests no longer fail with `context deadline exceeded` when the interactive target selector takes longer than 30 seconds
+
+### Added
+
+- golangci-lint configuration (`.golangci.yml`) with 19 linters enabled and Go best practices applied
 
 ## [0.5.0] - 2026-02-19
 
