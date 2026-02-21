@@ -17,7 +17,10 @@ A CLI tool for elevating cloud permissions (Azure, AWS) via CyberArk Secure Clou
 - Entra ID group membership elevation via `grant --group` or `grant --groups`
 - Session revocation via `grant revoke`
 - Session status monitoring
+- Eligible target discovery via `grant list`
 - Local eligibility cache with configurable TTL
+- Machine-readable JSON output (`--output json`)
+- TTY detection with fail-fast for non-interactive environments
 - Secure token storage in system keyring
 
 ## Usage
@@ -46,13 +49,20 @@ grant --favorite prod-contrib
 grant --groups
 grant --group "Cloud Admins"
 
+# List eligible targets (no elevation)
+grant list
+grant list --provider azure
+grant list --groups
+grant list --output json
+
 # Check active sessions
 grant status
 
 # Revoke sessions
-grant revoke              # interactive multi-select
-grant revoke <session-id> # direct by ID
-grant revoke --all        # revoke all
+grant revoke                        # interactive multi-select
+grant revoke <session-id>           # direct by ID
+grant revoke --all                  # revoke all
+grant revoke --all --provider azure # revoke all for a specific provider
 ```
 
 ## Installation
@@ -104,6 +114,7 @@ Running `grant` with no subcommand elevates cloud permissions (the core behavior
 |---------|-------------|
 | `configure` | Configure or reconfigure Identity URL and username (optional — `login` auto-configures on first run) |
 | `env` | Perform elevation and output AWS credential export statements (for `eval $(grant env)`) |
+| `list` | List eligible cloud targets and Entra ID groups without triggering elevation |
 | `login` | Authenticate to CyberArk Identity (auto-configures on first run, MFA handled interactively) |
 | `logout` | Clear cached tokens from keyring |
 | `status` | Show authentication state and active SCA sessions |
@@ -115,6 +126,7 @@ Running `grant` with no subcommand elevates cloud permissions (the core behavior
 ### Global Flags
 
 - `--verbose, -v` — Enable verbose output, including request/response details and timing
+- `--output, -o` — Output format: `text` (default) or `json` for machine-readable output
 
 ### configure
 
@@ -141,7 +153,24 @@ This command:
 - Outputs only shell `export` statements (no human-readable messages)
 - Designed for AWS elevations — returns an error for Azure (which doesn't return credentials)
 
-Supports the same flags as the root command: `--provider`, `--target`, `--role`, `--favorite`.
+Supports the same flags as the root command: `--provider`, `--target`, `--role`, `--favorite`, `--refresh`.
+
+### list
+
+List eligible cloud targets and Entra ID groups without triggering elevation. Useful for discovering what you can elevate to, and for programmatic consumption via JSON output.
+
+```bash
+grant list                       # all targets and groups
+grant list --provider azure      # cloud targets for a specific provider
+grant list --groups              # Entra ID groups only
+grant list --output json         # machine-readable JSON
+grant list --refresh             # bypass eligibility cache
+```
+
+**Flags:**
+- `--provider, -p` — Filter by cloud provider: `azure`, `aws`
+- `--groups` — Show only Entra ID groups (mutually exclusive with `--provider`)
+- `--refresh` — Bypass eligibility cache and fetch fresh data
 
 ### login
 
@@ -174,6 +203,7 @@ Running `grant` with no subcommand requests JIT (just-in-time) permission elevat
 - `--favorite, -f` — Use a saved favorite alias (combines provider, target, and role)
 - `--groups` — Show only Entra ID groups in the interactive selector
 - `--group, -g` — Group name for direct group membership elevation
+- `--refresh` — Bypass eligibility cache and fetch fresh data
 
 **Target matching:**
 - Matches by workspace name (case-insensitive, partial match)
@@ -236,6 +266,7 @@ Application settings including default provider and favorites.
 ```yaml
 profile: grant              # SDK profile name
 default_provider: azure     # Default cloud provider
+cache_ttl: 4h               # Eligibility cache TTL (Go duration syntax)
 
 favorites:
   prod-contrib:
@@ -251,6 +282,7 @@ favorites:
 **Fields:**
 - `profile` — Name of the SDK profile in `~/.idsec_profiles/` (default: `grant`)
 - `default_provider` — Default cloud provider for elevation (used when `--provider` is omitted)
+- `cache_ttl` — Eligibility cache TTL as a Go duration string (default: `4h`; e.g., `2h`, `30m`)
 - `favorites` — Map of favorite names to provider/target/role combinations
 
 ### Environment Variables
