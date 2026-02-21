@@ -131,6 +131,13 @@ make clean              # Clean build artifacts
 - `-trimpath` used in both `Makefile` and `.goreleaser.yaml` for reproducible builds
 - `.goreleaser.yaml` uses `CommitDate` (not build date) and `mod_timestamp` for reproducibility
 
+## Release Process
+1. Move `[Unreleased]` entries in `CHANGELOG.md` to a new `[X.Y.Z] - YYYY-MM-DD` section (leave `[Unreleased]` header empty)
+2. Commit: `docs: prepare CHANGELOG for vX.Y.Z release`
+3. Tag: `git tag vX.Y.Z`
+4. Push commit and tag: `git push origin main && git push origin vX.Y.Z`
+5. The `release.yml` GitHub Actions workflow triggers on `v*` tags and runs GoReleaser to build binaries and create the GitHub Release
+
 ## Git
 - Feature branches, conventional commits
 - Branch naming: `feat/`, `fix/`, `docs/`
