@@ -5,14 +5,17 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	scamodels "github.com/aaearon/grant-cli/internal/sca/models"
 )
 
 // statusData holds the results of concurrent sessions + eligibility fetches.
 type statusData struct {
-	sessions *scamodels.SessionsResponse
-	nameMap  map[string]string
+	sessions     *scamodels.SessionsResponse
+	nameMap      map[string]string
+	groupNameMap map[string]string         // groupID -> groupName
+	remainingMap map[string]time.Duration  // sessionID -> remaining time
 }
 
 // fetchStatusData fires sessions and all-CSP eligibility calls concurrently,
@@ -184,6 +187,26 @@ func buildWorkspaceNameMap(ctx context.Context, eligLister eligibilityLister, se
 		}
 	}
 
+	return nameMap
+}
+
+// buildGroupNameMap fetches groups eligibility and builds a groupID -> groupName map.
+// Errors are logged and an empty map is returned (graceful degradation).
+func buildGroupNameMap(ctx context.Context, gl groupsEligibilityLister) map[string]string {
+	nameMap := make(map[string]string)
+	if gl == nil {
+		return nameMap
+	}
+
+	resp, err := gl.ListGroupsEligibility(ctx, scamodels.CSPAzure)
+	if err != nil {
+		log.Info("failed to fetch group names: %v", err)
+		return nameMap
+	}
+
+	for _, g := range resp.Response {
+		nameMap[g.GroupID] = g.GroupName
+	}
 	return nameMap
 }
 

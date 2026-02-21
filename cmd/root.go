@@ -781,6 +781,13 @@ func runElevateWithDeps(
 		return err
 	}
 
+	// Record session timestamp for remaining-time tracking (best-effort)
+	if groupRes != nil {
+		recordSessionTimestamp(groupRes.result.SessionID)
+	} else if cloudRes != nil {
+		recordSessionTimestamp(cloudRes.result.SessionID)
+	}
+
 	if isJSONOutput() {
 		return writeElevationJSON(cmd, cloudRes, groupRes)
 	}

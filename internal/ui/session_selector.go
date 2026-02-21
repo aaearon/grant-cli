@@ -5,20 +5,22 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"time"
 
 	"github.com/Iilun/survey/v2"
 	"github.com/aaearon/grant-cli/internal/sca/models"
 )
 
 // FormatSessionOption formats a session for display in the multi-select UI.
-func FormatSessionOption(session models.SessionInfo, nameMap map[string]string) string {
-	durationMin := session.SessionDuration / 60
-	var durationStr string
-	if durationMin >= 60 {
-		durationStr = fmt.Sprintf("%dh %dm", durationMin/60, durationMin%60)
-	} else {
-		durationStr = fmt.Sprintf("%dm", durationMin)
-	}
+// groupNameMap and remainingMap are nil-safe; when nil, behavior is identical
+// to the original (backwards compatible).
+func FormatSessionOption(
+	session models.SessionInfo,
+	nameMap map[string]string,
+	groupNameMap map[string]string,
+	remainingMap map[string]time.Duration,
+) string {
+	timeStr := formatTimeString(session, remainingMap)
 
 	if session.IsGroupSession() {
 		directory := session.WorkspaceID
@@ -27,7 +29,13 @@ func FormatSessionOption(session models.SessionInfo, nameMap map[string]string) 
 				directory = name
 			}
 		}
-		return fmt.Sprintf("Group: %s in %s - duration: %s (session: %s)", session.Target.ID, directory, durationStr, session.SessionID)
+		groupDisplay := session.Target.ID
+		if groupNameMap != nil {
+			if name, ok := groupNameMap[session.Target.ID]; ok {
+				groupDisplay = name
+			}
+		}
+		return fmt.Sprintf("Group: %s in %s - %s (session: %s)", groupDisplay, directory, timeStr, session.SessionID)
 	}
 
 	workspace := session.WorkspaceID
@@ -37,23 +45,58 @@ func FormatSessionOption(session models.SessionInfo, nameMap map[string]string) 
 		}
 	}
 
-	return fmt.Sprintf("%s on %s - duration: %s (session: %s)", session.RoleID, workspace, durationStr, session.SessionID)
+	return fmt.Sprintf("%s on %s - %s (session: %s)", session.RoleID, workspace, timeStr, session.SessionID)
+}
+
+// formatTimeString returns the time display string for a session.
+// If the session has a remaining time in remainingMap, it shows "remaining: Xm" or "expired".
+// Otherwise it falls back to "duration: Xh Ym".
+func formatTimeString(session models.SessionInfo, remainingMap map[string]time.Duration) string {
+	if remainingMap != nil {
+		if remaining, ok := remainingMap[session.SessionID]; ok {
+			if remaining <= 0 {
+				return "expired"
+			}
+			totalMin := int(remaining.Minutes())
+			if totalMin >= 60 {
+				return fmt.Sprintf("remaining: %dh %dm", totalMin/60, totalMin%60)
+			}
+			return fmt.Sprintf("remaining: %dm", totalMin)
+		}
+	}
+
+	durationMin := session.SessionDuration / 60
+	if durationMin >= 60 {
+		return fmt.Sprintf("duration: %dh %dm", durationMin/60, durationMin%60)
+	}
+	return fmt.Sprintf("duration: %dm", durationMin)
 }
 
 // BuildSessionOptions builds a sorted list of display options from sessions.
-func BuildSessionOptions(sessions []models.SessionInfo, nameMap map[string]string) []string {
+func BuildSessionOptions(
+	sessions []models.SessionInfo,
+	nameMap map[string]string,
+	groupNameMap map[string]string,
+	remainingMap map[string]time.Duration,
+) []string {
 	options := make([]string, len(sessions))
 	for i, s := range sessions {
-		options[i] = FormatSessionOption(s, nameMap)
+		options[i] = FormatSessionOption(s, nameMap, groupNameMap, remainingMap)
 	}
 	sort.Strings(options)
 	return options
 }
 
 // FindSessionByDisplay finds a session by its formatted display string.
-func FindSessionByDisplay(sessions []models.SessionInfo, nameMap map[string]string, display string) (*models.SessionInfo, error) {
+func FindSessionByDisplay(
+	sessions []models.SessionInfo,
+	nameMap map[string]string,
+	groupNameMap map[string]string,
+	remainingMap map[string]time.Duration,
+	display string,
+) (*models.SessionInfo, error) {
 	for i := range sessions {
-		if FormatSessionOption(sessions[i], nameMap) == display {
+		if FormatSessionOption(sessions[i], nameMap, groupNameMap, remainingMap) == display {
 			return &sessions[i], nil
 		}
 	}
@@ -70,7 +113,7 @@ func SelectSessions(sessions []models.SessionInfo, nameMap map[string]string) ([
 		return nil, errors.New("no sessions available")
 	}
 
-	options := BuildSessionOptions(sessions, nameMap)
+	options := BuildSessionOptions(sessions, nameMap, nil, nil)
 
 	var selected []string
 	prompt := &survey.MultiSelect{
@@ -88,7 +131,7 @@ func SelectSessions(sessions []models.SessionInfo, nameMap map[string]string) ([
 
 	var result []models.SessionInfo
 	for _, display := range selected {
-		s, err := FindSessionByDisplay(sessions, nameMap, display)
+		s, err := FindSessionByDisplay(sessions, nameMap, nil, nil, display)
 		if err != nil {
 			return nil, err
 		}

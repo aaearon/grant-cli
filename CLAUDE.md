@@ -85,9 +85,11 @@ Custom `SCAAccessService` follows SDK conventions:
 - `--refresh` flag on `grant` and `grant env` bypasses cache reads but still writes fresh data
 - `internal/cache/cache.go` — generic `Store` with `Get[T]`/`Set[T]`, injectable clock for testing
 - `internal/cache/cached_eligibility.go` — `CachedEligibilityLister` decorator implementing `eligibilityLister` + `groupsEligibilityLister`
+- `internal/cache/session_tracker.go` — `RecordSession`, `SessionTimestamps`, `CleanupSessions` for tracking elevation timestamps in `session_timestamps.json` (25h TTL, auto-cleanup of inactive sessions)
 - `buildCachedLister()` in `cmd/root.go` — shared factory used by all commands (root, env, status, revoke, favorites add)
 - Commands without `--refresh` (status, revoke, favorites add) always pass `refresh: false` — they use eligibility for display only
 - Cache failures (read/write) silently fall through to the live API
+- `cmd/session_tracking.go` — `recordSessionTimestamp` var (injectable for tests), called after elevation in root and env commands
 
 ## Verbose / Logging
 - `--verbose` / `-v` global flag wired via `PersistentPreRunE` in `cmd/root.go`
