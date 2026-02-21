@@ -64,6 +64,12 @@ Custom `SCAAccessService` follows SDK conventions:
 - `--refresh` bypasses eligibility cache on `grant` and `grant env`
 - `fetchEligibility()` and `resolveTargetCSP()` in `cmd/root.go` — shared by root, env, and favorites
 
+## TTY Detection
+- `internal/ui/tty.go` — `IsTerminalFunc` (overridable), `IsInteractive()`, `ErrNotInteractive`
+- All interactive prompts (`SelectTarget`, `SelectSessions`, `ConfirmRevocation`, `SelectGroup`, `uiUnifiedSelector.SelectItem`, `surveyNamePrompter.PromptName`) fail fast with `ErrNotInteractive` when stdin is not a TTY
+- Error messages suggest the appropriate non-interactive flag (e.g., `--target/--role`, `--all`, `--yes`, `--group`, `--favorite`)
+- `go-isatty` v0.0.20 is a direct dependency (promoted from indirect via survey)
+
 ## Cache
 - Eligibility responses cached in `~/.grant/cache/` as JSON files (e.g., `eligibility_azure.json`, `groups_eligibility_azure.json`)
 - Default TTL: 4 hours, configurable via `cache_ttl` in `~/.grant/config.yaml` (Go duration syntax: `2h`, `30m`)

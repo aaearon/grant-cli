@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/aaearon/grant-cli/internal/sca/models"
@@ -194,5 +196,27 @@ func TestFindGroupByDisplay(t *testing.T) {
 				t.Errorf("FindGroupByDisplay().GroupID = %q, want %q", got.GroupID, tt.wantID)
 			}
 		})
+	}
+}
+
+func TestSelectGroup_NonTTY(t *testing.T) {
+	t.Parallel()
+	original := IsTerminalFunc
+	defer func() { IsTerminalFunc = original }()
+	IsTerminalFunc = func(fd uintptr) bool { return false }
+
+	groups := []models.GroupsEligibleTarget{
+		{DirectoryID: "dir1", GroupID: "grp1", GroupName: "Engineering"},
+	}
+
+	_, err := SelectGroup(groups)
+	if err == nil {
+		t.Fatal("expected error for non-TTY")
+	}
+	if !errors.Is(err, ErrNotInteractive) {
+		t.Errorf("expected ErrNotInteractive, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "--group") {
+		t.Errorf("error should mention --group, got: %v", err)
 	}
 }

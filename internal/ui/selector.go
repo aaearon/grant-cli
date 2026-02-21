@@ -65,6 +65,10 @@ func FindTargetByDisplay(targets []models.EligibleTarget, display string) (*mode
 
 // SelectTarget presents an interactive selector for choosing a target.
 func SelectTarget(targets []models.EligibleTarget) (*models.EligibleTarget, error) {
+	if !IsInteractive() {
+		return nil, fmt.Errorf("%w; use --target and --role flags for non-interactive mode", ErrNotInteractive)
+	}
+
 	if len(targets) == 0 {
 		return nil, errors.New("no eligible targets available")
 	}

@@ -62,6 +62,10 @@ func FindSessionByDisplay(sessions []models.SessionInfo, nameMap map[string]stri
 
 // SelectSessions presents a multi-select prompt for choosing sessions to revoke.
 func SelectSessions(sessions []models.SessionInfo, nameMap map[string]string) ([]models.SessionInfo, error) {
+	if !IsInteractive() {
+		return nil, fmt.Errorf("%w; use --all or provide session IDs as arguments", ErrNotInteractive)
+	}
+
 	if len(sessions) == 0 {
 		return nil, errors.New("no sessions available")
 	}
@@ -96,6 +100,10 @@ func SelectSessions(sessions []models.SessionInfo, nameMap map[string]string) ([
 
 // ConfirmRevocation prompts the user to confirm session revocation.
 func ConfirmRevocation(count int) (bool, error) {
+	if !IsInteractive() {
+		return false, fmt.Errorf("%w; use --yes to skip confirmation", ErrNotInteractive)
+	}
+
 	var confirmed bool
 	prompt := &survey.Confirm{
 		Message: fmt.Sprintf("Revoke %d session(s)?", count),

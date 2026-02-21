@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aaearon/grant-cli/internal/sca/models"
+	"github.com/aaearon/grant-cli/internal/ui"
 	"github.com/cyberark/idsec-sdk-golang/pkg/config"
 	"github.com/spf13/cobra"
 )
@@ -217,5 +219,32 @@ func TestExecuteHintOutput(t *testing.T) {
 				t.Errorf("expected no verbose hint in output, got:\n%s", errOutput)
 			}
 		})
+	}
+}
+
+func TestUnifiedSelector_NonTTY(t *testing.T) {
+	original := ui.IsTerminalFunc
+	defer func() { ui.IsTerminalFunc = original }()
+	ui.IsTerminalFunc = func(fd uintptr) bool { return false }
+
+	selector := &uiUnifiedSelector{}
+	items := []selectionItem{
+		{kind: selectionCloud, cloud: &models.EligibleTarget{
+			WorkspaceName: "Sub A",
+			WorkspaceType: models.WorkspaceTypeSubscription,
+			RoleInfo:      models.RoleInfo{Name: "Owner"},
+		}},
+	}
+
+	_, err := selector.SelectItem(items)
+	if err == nil {
+		t.Fatal("expected error for non-TTY")
+	}
+	if !errors.Is(err, ui.ErrNotInteractive) {
+		t.Errorf("expected ErrNotInteractive, got: %v", err)
+	}
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "--target") || !strings.Contains(errMsg, "--group") || !strings.Contains(errMsg, "--favorite") {
+		t.Errorf("error should mention --target/--role, --group, and --favorite, got: %v", err)
 	}
 }

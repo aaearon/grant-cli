@@ -830,6 +830,10 @@ func (s *uiSelector) SelectTarget(targets []models.EligibleTarget) (*models.Elig
 type uiUnifiedSelector struct{}
 
 func (s *uiUnifiedSelector) SelectItem(items []selectionItem) (*selectionItem, error) {
+	if !ui.IsInteractive() {
+		return nil, fmt.Errorf("%w; use --target/--role, --group, or --favorite flags for non-interactive mode", ui.ErrNotInteractive)
+	}
+
 	if len(items) == 0 {
 		return nil, errors.New("no eligible targets or groups available")
 	}
