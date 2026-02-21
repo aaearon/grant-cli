@@ -11,6 +11,7 @@ import (
 	"github.com/aaearon/grant-cli/internal/cache"
 	"github.com/aaearon/grant-cli/internal/config"
 	"github.com/aaearon/grant-cli/internal/sca/models"
+	"github.com/aaearon/grant-cli/internal/ui"
 )
 
 func TestFavoritesListCommand(t *testing.T) {
@@ -1181,5 +1182,23 @@ func TestFavoritesListWithGroupFavorites(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestSurveyNamePrompter_NonTTY(t *testing.T) {
+	original := ui.IsTerminalFunc
+	defer func() { ui.IsTerminalFunc = original }()
+	ui.IsTerminalFunc = func(fd uintptr) bool { return false }
+
+	prompter := &surveyNamePrompter{}
+	_, err := prompter.PromptName()
+	if err == nil {
+		t.Fatal("expected error for non-TTY")
+	}
+	if !errors.Is(err, ui.ErrNotInteractive) {
+		t.Errorf("expected ErrNotInteractive, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "argument") {
+		t.Errorf("error should suggest providing name as argument, got: %v", err)
 	}
 }

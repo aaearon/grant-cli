@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/aaearon/grant-cli/internal/sca/models"
@@ -182,6 +184,28 @@ func TestBuildOptions(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestSelectTarget_NonTTY(t *testing.T) {
+	t.Parallel()
+	original := IsTerminalFunc
+	defer func() { IsTerminalFunc = original }()
+	IsTerminalFunc = func(fd uintptr) bool { return false }
+
+	targets := []models.EligibleTarget{
+		{WorkspaceName: "Sub A", WorkspaceType: models.WorkspaceTypeSubscription, RoleInfo: models.RoleInfo{Name: "Owner"}},
+	}
+
+	_, err := SelectTarget(targets)
+	if err == nil {
+		t.Fatal("expected error for non-TTY")
+	}
+	if !errors.Is(err, ErrNotInteractive) {
+		t.Errorf("expected ErrNotInteractive, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "--target") {
+		t.Errorf("error should mention --target, got: %v", err)
 	}
 }
 

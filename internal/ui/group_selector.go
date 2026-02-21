@@ -47,6 +47,10 @@ func FindGroupByDisplay(groups []models.GroupsEligibleTarget, display string) (*
 // It sorts a copy of the groups so that FindGroupByDisplay searches the same
 // ordered slice the user saw, avoiding wrong-group selection on display collisions.
 func SelectGroup(groups []models.GroupsEligibleTarget) (*models.GroupsEligibleTarget, error) {
+	if !IsInteractive() {
+		return nil, fmt.Errorf("%w; use --group flag for non-interactive mode", ErrNotInteractive)
+	}
+
 	if len(groups) == 0 {
 		return nil, errors.New("no eligible groups available")
 	}

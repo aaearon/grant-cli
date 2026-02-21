@@ -8,6 +8,7 @@ import (
 
 	survey "github.com/Iilun/survey/v2"
 	"github.com/aaearon/grant-cli/internal/config"
+	"github.com/aaearon/grant-cli/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -95,6 +96,10 @@ func newFavoritesAddCommand() *cobra.Command {
 type surveyNamePrompter struct{}
 
 func (s *surveyNamePrompter) PromptName() (string, error) {
+	if !ui.IsInteractive() {
+		return "", fmt.Errorf("%w; provide the name as an argument", ui.ErrNotInteractive)
+	}
+
 	var name string
 	if err := survey.AskOne(&survey.Input{
 		Message: "Favorite name:",
