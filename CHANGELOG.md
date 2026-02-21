@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-02-21
+
 ### Added
 
 - TTY detection with fail-fast: all interactive prompts now return a descriptive error instead of hanging when stdin is not a terminal (pipes, CI, LLM agents)
