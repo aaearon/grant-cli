@@ -1593,3 +1593,134 @@ func TestRootElevate_UnifiedInteractiveShowsBoth(t *testing.T) {
 		t.Errorf("output missing expected text, got:\n%s", output)
 	}
 }
+
+// TestRootElevate_SlowPromptTimeout verifies that elevation succeeds even when
+// the interactive prompt takes longer than apiTimeout. The context for the
+// elevation API call must be independent of the prompt duration.
+func TestRootElevate_SlowPromptTimeout(t *testing.T) {
+	origTimeout := apiTimeout
+	apiTimeout = 50 * time.Millisecond
+	defer func() { apiTimeout = origTimeout }()
+
+	now := time.Now()
+	expiresIn := commonmodels.IdsecRFC3339Time(now.Add(1 * time.Hour))
+
+	authLoader := &mockAuthLoader{
+		token: &authmodels.IdsecToken{Token: "jwt", Username: "user@example.com", ExpiresIn: expiresIn},
+	}
+
+	cloudElig := &mockEligibilityLister{
+		response: &models.EligibilityResponse{
+			Response: []models.EligibleTarget{
+				{
+					OrganizationID: "org-1",
+					WorkspaceID:    "sub-1",
+					WorkspaceName:  "Prod-EastUS",
+					WorkspaceType:  models.WorkspaceTypeSubscription,
+					RoleInfo:       models.RoleInfo{ID: "role-1", Name: "Contributor"},
+				},
+			},
+			Total: 1,
+		},
+	}
+
+	groupsElig := &mockGroupsEligibilityLister{
+		response: &models.GroupsEligibilityResponse{
+			Response: []models.GroupsEligibleTarget{
+				{DirectoryID: "dir1", GroupID: "grp1", GroupName: "Engineering"},
+			},
+			Total: 1,
+		},
+	}
+
+	// Slow selector simulates a user taking longer than apiTimeout to choose
+	slowSelector := &mockUnifiedSelector{
+		selectFunc: func(items []selectionItem) (*selectionItem, error) {
+			time.Sleep(100 * time.Millisecond) // 2x apiTimeout
+			return &items[0], nil
+		},
+	}
+
+	// contextAwareElevator returns context deadline exceeded if ctx is expired,
+	// matching real HTTP client behavior.
+	contextAwareGroupsElev := &mockGroupsElevator{
+		elevateFunc: func(ctx context.Context, req *models.GroupsElevateRequest) (*models.GroupsElevateResponse, error) {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			return &models.GroupsElevateResponse{
+				DirectoryID: "dir1",
+				CSP:         models.CSPAzure,
+				Results: []models.GroupsElevateTargetResult{
+					{GroupID: "grp1", SessionID: "sess-grp"},
+				},
+			}, nil
+		},
+	}
+
+	contextAwareCloudElev := &mockElevateService{
+		elevateFunc: func(ctx context.Context, req *models.ElevateRequest) (*models.ElevateResponse, error) {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			return &models.ElevateResponse{
+				Response: models.ElevateAccessResult{
+					CSP:            models.CSPAzure,
+					OrganizationID: "org-1",
+					Results: []models.ElevateTargetResult{
+						{WorkspaceID: "sub-1", RoleID: "role-1", SessionID: "sess-cloud"},
+					},
+				},
+			}, nil
+		},
+	}
+
+	t.Run("unified path - group elevation after slow prompt", func(t *testing.T) {
+		// Selector returns the group item
+		sel := &mockUnifiedSelector{
+			selectFunc: func(items []selectionItem) (*selectionItem, error) {
+				time.Sleep(100 * time.Millisecond)
+				for i := range items {
+					if items[i].kind == selectionGroup {
+						return &items[i], nil
+					}
+				}
+				return &items[0], nil
+			},
+		}
+
+		cmd := NewRootCommandWithDeps(nil, authLoader, cloudElig, nil, sel, groupsElig, contextAwareGroupsElev, config.DefaultConfig())
+		output, err := executeCommand(cmd)
+
+		if err != nil {
+			t.Fatalf("elevation should succeed after slow prompt, got: %v", err)
+		}
+		if !strings.Contains(output, "Elevated to group Engineering") {
+			t.Errorf("unexpected output:\n%s", output)
+		}
+	})
+
+	t.Run("cloud-only path - elevation after slow prompt", func(t *testing.T) {
+		cmd := NewRootCommandWithDeps(nil, authLoader, cloudElig, contextAwareCloudElev, slowSelector, groupsElig, nil, config.DefaultConfig())
+		output, err := executeCommand(cmd, "--provider", "azure")
+
+		if err != nil {
+			t.Fatalf("elevation should succeed after slow prompt, got: %v", err)
+		}
+		if !strings.Contains(output, "Elevated to Contributor on Prod-EastUS") {
+			t.Errorf("unexpected output:\n%s", output)
+		}
+	})
+
+	t.Run("groups filter path - elevation after slow prompt", func(t *testing.T) {
+		cmd := NewRootCommandWithDeps(nil, authLoader, cloudElig, nil, slowSelector, groupsElig, contextAwareGroupsElev, config.DefaultConfig())
+		output, err := executeCommand(cmd, "--groups")
+
+		if err != nil {
+			t.Fatalf("elevation should succeed after slow prompt, got: %v", err)
+		}
+		if !strings.Contains(output, "Elevated to group Engineering") {
+			t.Errorf("unexpected output:\n%s", output)
+		}
+	})
+}

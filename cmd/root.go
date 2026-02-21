@@ -27,7 +27,7 @@ import (
 )
 
 // apiTimeout is the default timeout for SCA API requests.
-const apiTimeout = 30 * time.Second
+var apiTimeout = 30 * time.Second
 
 // verbose and passedArgValidation are package-level by design: the CLI binary
 // runs a single command per process, so there is no concurrent access.
@@ -415,8 +415,13 @@ func resolveAndElevate(
 		},
 	}
 
+	// Fresh context for elevation — the original ctx may have expired during
+	// an interactive prompt (the user can take arbitrarily long to select).
+	elevCtx, elevCancel := context.WithTimeout(context.Background(), apiTimeout)
+	defer elevCancel()
+
 	// Execute elevation
-	elevateResp, err := elevateService.Elevate(ctx, req)
+	elevateResp, err := elevateService.Elevate(elevCtx, req)
 	if err != nil {
 		return nil, fmt.Errorf("elevation request failed: %w", err)
 	}
@@ -580,7 +585,11 @@ func resolveAndElevateGroupsFilter(ctx context.Context, groupsEligLister groupsE
 		return nil, nil, fmt.Errorf("selection failed: %w", err)
 	}
 
-	return elevateGroup(ctx, selected.group, groupsElevator)
+	// Fresh context for elevation — the original ctx may have expired during
+	// the interactive prompt.
+	elevCtx, elevCancel := context.WithTimeout(context.Background(), apiTimeout)
+	defer elevCancel()
+	return elevateGroup(elevCtx, selected.group, groupsElevator)
 }
 
 // resolveAndElevateCloudOnly handles the cloud-only path (--provider, direct, or favorite).
@@ -610,7 +619,12 @@ func resolveAndElevateCloudOnly(ctx context.Context, rf *resolvedFlags, eligList
 	}
 
 	resolveTargetCSP(selectedTarget, allTargets, rf.provider)
-	return elevateCloud(ctx, selectedTarget, elevateService)
+
+	// Fresh context for elevation — the original ctx may have expired during
+	// the interactive prompt.
+	elevCtx, elevCancel := context.WithTimeout(context.Background(), apiTimeout)
+	defer elevCancel()
+	return elevateCloud(elevCtx, selectedTarget, elevateService)
 }
 
 // resolveAndElevateUnifiedPath handles the unified path (no filter flags) with parallel fetch.
@@ -661,12 +675,17 @@ func resolveAndElevateUnifiedPath(ctx context.Context, eligLister eligibilityLis
 		return nil, nil, fmt.Errorf("selection failed: %w", err)
 	}
 
+	// Fresh context for elevation — the original ctx may have expired during
+	// the interactive prompt.
+	elevCtx, elevCancel := context.WithTimeout(context.Background(), apiTimeout)
+	defer elevCancel()
+
 	switch selected.kind {
 	case selectionCloud:
 		resolveTargetCSP(selected.cloud, cr.targets, "")
-		return elevateCloud(ctx, selected.cloud, elevateService)
+		return elevateCloud(elevCtx, selected.cloud, elevateService)
 	case selectionGroup:
-		return elevateGroup(ctx, selected.group, groupsElevator)
+		return elevateGroup(elevCtx, selected.group, groupsElevator)
 	default:
 		return nil, nil, errors.New("unexpected selection kind")
 	}

@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Elevation requests no longer fail with `context deadline exceeded` when the interactive target selector takes longer than 30 seconds
+
 ## [0.5.0] - 2026-02-19
 
 ### Added
