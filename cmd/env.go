@@ -92,6 +92,9 @@ func runEnvWithDeps(
 		return err
 	}
 
+	// Record session timestamp for remaining-time tracking (best-effort)
+	recordSessionTimestamp(res.result.SessionID)
+
 	if res.result.AccessCredentials == nil {
 		return errors.New("no credentials returned; grant env is only supported for AWS elevations")
 	}

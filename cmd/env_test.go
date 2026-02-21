@@ -155,6 +155,54 @@ func TestEnvCommand_NotAuthenticated(t *testing.T) {
 	}
 }
 
+func TestEnvCommand_RecordsSessionTimestamp(t *testing.T) {
+	originalRecorder := recordSessionTimestamp
+	defer func() { recordSessionTimestamp = originalRecorder }()
+
+	var recorded string
+	recordSessionTimestamp = func(sessionID string) { recorded = sessionID }
+
+	credsJSON := `{"aws_access_key":"ASIAXXX","aws_secret_access_key":"secret","aws_session_token":"tok"}`
+
+	authLoader := &mockAuthLoader{
+		token: &authmodels.IdsecToken{Token: "test-jwt"},
+	}
+	eligLister := &mockEligibilityLister{
+		response: &models.EligibilityResponse{
+			Response: []models.EligibleTarget{{
+				OrganizationID: "o-1", WorkspaceID: "acct-1", WorkspaceName: "AWS Mgmt",
+				WorkspaceType: models.WorkspaceTypeAccount,
+				RoleInfo:      models.RoleInfo{ID: "role-1", Name: "Admin"},
+			}}, Total: 1,
+		},
+	}
+	elevSvc := &mockElevateService{
+		response: &models.ElevateResponse{Response: models.ElevateAccessResult{
+			CSP: models.CSPAWS, OrganizationID: "o-1",
+			Results: []models.ElevateTargetResult{{
+				WorkspaceID: "acct-1", RoleID: "Admin", SessionID: "env-sess-1",
+				AccessCredentials: &credsJSON,
+			}},
+		}},
+	}
+	selector := &mockTargetSelector{
+		target: &models.EligibleTarget{
+			OrganizationID: "o-1", WorkspaceID: "acct-1", WorkspaceName: "AWS Mgmt",
+			WorkspaceType: models.WorkspaceTypeAccount,
+			RoleInfo:      models.RoleInfo{ID: "role-1", Name: "Admin"},
+		},
+	}
+
+	cmd := NewEnvCommandWithDeps(nil, authLoader, eligLister, elevSvc, selector, config.DefaultConfig())
+	_, err := executeCommand(cmd, "--provider", "aws")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if recorded != "env-sess-1" {
+		t.Errorf("recorded session = %q, want env-sess-1", recorded)
+	}
+}
+
 func TestNewEnvCommand_RefreshFlagRegistered(t *testing.T) {
 	cmd := newEnvCommand(nil)
 	if cmd.Flags().Lookup("refresh") == nil {

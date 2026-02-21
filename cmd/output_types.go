@@ -29,14 +29,16 @@ type groupElevationJSON struct {
 
 // sessionOutput is the JSON representation of an active session.
 type sessionOutput struct {
-	SessionID     string `json:"sessionId"`
-	Provider      string `json:"provider"`
-	WorkspaceID   string `json:"workspaceId"`
-	WorkspaceName string `json:"workspaceName,omitempty"`
-	RoleID        string `json:"roleId,omitempty"`
-	Duration      int    `json:"duration"`
-	Type          string `json:"type"`
-	GroupID       string `json:"groupId,omitempty"`
+	SessionID        string `json:"sessionId"`
+	Provider         string `json:"provider"`
+	WorkspaceID      string `json:"workspaceId"`
+	WorkspaceName    string `json:"workspaceName,omitempty"`
+	RoleID           string `json:"roleId,omitempty"`
+	Duration         int    `json:"duration"`
+	RemainingSeconds *int   `json:"remainingSeconds,omitempty"`
+	Type             string `json:"type"`
+	GroupID          string `json:"groupId,omitempty"`
+	GroupName        string `json:"groupName,omitempty"`
 }
 
 // statusOutput is the JSON representation of grant status.

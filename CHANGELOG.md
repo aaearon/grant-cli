@@ -9,6 +9,10 @@ All notable changes to this project will be documented in this file.
 - TTY detection with fail-fast: all interactive prompts now return a descriptive error instead of hanging when stdin is not a terminal (pipes, CI, LLM agents)
 - `--output json` / `-o json` global flag for machine-readable output on all commands (`grant`, `env`, `status`, `revoke`, `favorites list`)
 - `grant list` command to discover eligible cloud targets and Entra ID groups without triggering elevation; supports `--provider`, `--groups`, `--refresh`, and `--output json`
+- `grant status` now shows remaining session time instead of total duration for sessions elevated via `grant` or `grant env`; sessions elevated outside the CLI continue to show total duration
+- `grant status` now resolves group names from the groups eligibility API — group sessions display `Group: CloudAdmins in Contoso` instead of `Group: d554b344-uuid in 29cb7961-uuid`
+- JSON output for `grant status` includes new additive fields: `remainingSeconds` (omitted when unknown) and `groupName` (omitted when unresolved)
+- Session elevation timestamps tracked locally in `~/.grant/cache/session_timestamps.json` with automatic cleanup of stale entries
 
 ## [0.5.1] - 2026-02-21
 

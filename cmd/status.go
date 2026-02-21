@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
+	"github.com/aaearon/grant-cli/internal/cache"
 	"github.com/aaearon/grant-cli/internal/config"
 	scamodels "github.com/aaearon/grant-cli/internal/sca/models"
 	"github.com/aaearon/grant-cli/internal/ui"
@@ -40,20 +42,40 @@ func NewStatusCommand() *cobra.Command {
 			return err
 		}
 
-		cachedLister := buildCachedLister(cfg, false, svc, nil)
+		cachedLister := buildCachedLister(cfg, false, svc, svc)
 
-		return runStatus(cmd, ispAuth, svc, cachedLister, profile)
+		// Build session timestamp tracker (best-effort)
+		var tracker *cache.Store
+		if cacheDir, err := cache.CacheDir(); err == nil {
+			tracker = cache.NewStore(cacheDir, 25*time.Hour)
+		}
+
+		return runStatus(cmd, ispAuth, svc, cachedLister, cachedLister, tracker, profile)
 	})
 }
 
 // NewStatusCommandWithDeps creates a status command with injected dependencies for testing.
-func NewStatusCommandWithDeps(authLoader authLoader, sessionLister sessionLister, eligLister eligibilityLister) *cobra.Command {
+func NewStatusCommandWithDeps(
+	authLoader authLoader,
+	sessionLister sessionLister,
+	eligLister eligibilityLister,
+	groupsEligLister groupsEligibilityLister,
+	tracker *cache.Store,
+) *cobra.Command {
 	return newStatusCommand(func(cmd *cobra.Command, args []string) error {
-		return runStatus(cmd, authLoader, sessionLister, eligLister, nil)
+		return runStatus(cmd, authLoader, sessionLister, eligLister, groupsEligLister, tracker, nil)
 	})
 }
 
-func runStatus(cmd *cobra.Command, authLoader authLoader, sessionLister sessionLister, eligLister eligibilityLister, profile *models.IdsecProfile) error {
+func runStatus(
+	cmd *cobra.Command,
+	authLoader authLoader,
+	sessionLister sessionLister,
+	eligLister eligibilityLister,
+	groupsEligLister groupsEligibilityLister,
+	tracker *cache.Store,
+	profile *models.IdsecProfile,
+) error {
 	// Load authentication state
 	token, err := authLoader.LoadAuthentication(profile, true)
 	if err != nil {
@@ -91,6 +113,22 @@ func runStatus(cmd *cobra.Command, authLoader authLoader, sessionLister sessionL
 		}
 	}
 
+	// Build group name map (best-effort)
+	data.groupNameMap = buildGroupNameMap(ctx, groupsEligLister)
+
+	// Compute remaining time from local session timestamps (best-effort)
+	if tracker != nil {
+		timestamps := cache.SessionTimestamps(tracker)
+		data.remainingMap = computeRemainingTime(data.sessions.Response, timestamps)
+
+		// Lazy cleanup of stale session timestamps
+		activeIDs := make([]string, len(data.sessions.Response))
+		for i, s := range data.sessions.Response {
+			activeIDs[i] = s.SessionID
+		}
+		_ = cache.CleanupSessions(tracker, activeIDs)
+	}
+
 	if isJSONOutput() {
 		return writeStatusJSON(cmd, token.Username, data)
 	}
@@ -122,7 +160,7 @@ func runStatus(cmd *cobra.Command, authLoader authLoader, sessionLister sessionL
 		for _, p := range sortedProviders(sessionsByProvider) {
 			fmt.Fprintf(cmd.OutOrStdout(), "%s sessions:\n", formatProviderName(p))
 			for _, session := range sessionsByProvider[p] {
-				fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", ui.FormatSessionOption(session, data.nameMap))
+				fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", ui.FormatSessionOption(session, data.nameMap, data.groupNameMap, data.remainingMap))
 			}
 		}
 	}
@@ -131,11 +169,33 @@ func runStatus(cmd *cobra.Command, authLoader authLoader, sessionLister sessionL
 	if len(groupSessions) > 0 {
 		fmt.Fprintf(cmd.OutOrStdout(), "Groups sessions:\n")
 		for _, session := range groupSessions {
-			fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", ui.FormatSessionOption(session, data.nameMap))
+			fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", ui.FormatSessionOption(session, data.nameMap, data.groupNameMap, data.remainingMap))
 		}
 	}
 
 	return nil
+}
+
+// computeRemainingTime builds a sessionID -> remaining duration map from local timestamps.
+func computeRemainingTime(sessions []scamodels.SessionInfo, timestamps map[string]time.Time) map[string]time.Duration {
+	if len(timestamps) == 0 {
+		return nil
+	}
+
+	now := time.Now()
+	remaining := make(map[string]time.Duration)
+	for _, s := range sessions {
+		if elevatedAt, ok := timestamps[s.SessionID]; ok {
+			elapsed := now.Sub(elevatedAt)
+			totalDuration := time.Duration(s.SessionDuration) * time.Second
+			remaining[s.SessionID] = totalDuration - elapsed
+		}
+	}
+
+	if len(remaining) == 0 {
+		return nil
+	}
+	return remaining
 }
 
 // writeStatusJSON outputs the status as JSON.
@@ -160,8 +220,19 @@ func writeStatusJSON(cmd *cobra.Command, username string, data *statusData) erro
 		if s.IsGroupSession() {
 			so.Type = "group"
 			so.GroupID = s.Target.ID
+			if data.groupNameMap != nil {
+				if name, ok := data.groupNameMap[s.Target.ID]; ok {
+					so.GroupName = name
+				}
+			}
 		} else {
 			so.Type = "cloud"
+		}
+		if data.remainingMap != nil {
+			if rem, ok := data.remainingMap[s.SessionID]; ok {
+				secs := int(rem.Seconds())
+				so.RemainingSeconds = &secs
+			}
 		}
 		out.Sessions = append(out.Sessions, so)
 	}
@@ -212,4 +283,3 @@ func formatProviderName(provider string) string {
 		return provider
 	}
 }
-

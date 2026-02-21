@@ -590,7 +590,7 @@ func TestStatusCommand(t *testing.T) {
 			authLoader := tt.setupAuth()
 			sessionLister := tt.setupSvc()
 			eligibilityLister := tt.setupEligibility()
-			cmd := NewStatusCommandWithDeps(authLoader, sessionLister, eligibilityLister)
+			cmd := NewStatusCommandWithDeps(authLoader, sessionLister, eligibilityLister, nil, nil)
 
 			// Set provider flag if specified
 			if tt.provider != "" {
@@ -709,7 +709,7 @@ func TestStatusCommand_CachedEligibility(t *testing.T) {
 		},
 	}
 
-	cmd := NewStatusCommandWithDeps(auth, sessions, cachedLister)
+	cmd := NewStatusCommandWithDeps(auth, sessions, cachedLister, nil, nil)
 	output, err := executeCommand(cmd)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -822,7 +822,7 @@ func TestStatusCommand_JSONOutput(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cmd := NewStatusCommandWithDeps(tt.auth, tt.sessions, tt.elig)
+			cmd := NewStatusCommandWithDeps(tt.auth, tt.sessions, tt.elig, nil, nil)
 			root := newTestRootCommand()
 			root.AddCommand(cmd)
 
@@ -831,6 +831,282 @@ func TestStatusCommand_JSONOutput(t *testing.T) {
 				t.Fatalf("unexpected error: %v\noutput: %s", err, output)
 			}
 			tt.validate(t, output)
+		})
+	}
+}
+
+func TestStatusCommand_GroupNameResolution(t *testing.T) {
+	now := time.Now()
+	expiresIn := commonmodels.IdsecRFC3339Time(now.Add(1 * time.Hour))
+
+	auth := &mockAuthLoader{
+		token: &authmodels.IdsecToken{Token: "jwt", Username: "user@test.com", ExpiresIn: expiresIn},
+	}
+	sessions := &mockSessionLister{
+		sessions: &scamodels.SessionsResponse{
+			Response: []scamodels.SessionInfo{
+				{
+					SessionID:       "group-session-1",
+					CSP:             scamodels.CSPAzure,
+					WorkspaceID:     "dir-uuid-1",
+					SessionDuration: 3600,
+					Target:          &scamodels.SessionTarget{ID: "grp-uuid-1", Type: scamodels.TargetTypeGroups},
+				},
+			},
+			Total: 1,
+		},
+	}
+	elig := &mockEligibilityLister{
+		response: &scamodels.EligibilityResponse{
+			Response: []scamodels.EligibleTarget{
+				{
+					WorkspaceID:   "dir-uuid-1",
+					WorkspaceName: "Contoso Directory",
+					WorkspaceType: scamodels.WorkspaceTypeDirectory,
+				},
+			},
+		},
+	}
+	groupsElig := &mockGroupsEligibilityLister{
+		response: &scamodels.GroupsEligibilityResponse{
+			Response: []scamodels.GroupsEligibleTarget{
+				{GroupID: "grp-uuid-1", GroupName: "CloudAdmins", DirectoryID: "dir-uuid-1"},
+			},
+			Total: 1,
+		},
+	}
+
+	t.Run("text output shows group name", func(t *testing.T) {
+		old := outputFormat
+		defer func() { outputFormat = old }()
+		outputFormat = "text"
+
+		cmd := NewStatusCommandWithDeps(auth, sessions, elig, groupsElig, nil)
+		output, err := executeCommand(cmd)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.Contains(output, "Group: CloudAdmins in Contoso Directory") {
+			t.Errorf("output missing group name, got:\n%s", output)
+		}
+	})
+
+	t.Run("JSON output includes groupName", func(t *testing.T) {
+		cmd := NewStatusCommandWithDeps(auth, sessions, elig, groupsElig, nil)
+		root := newTestRootCommand()
+		root.AddCommand(cmd)
+
+		output, err := executeCommand(root, "status", "--output", "json")
+		if err != nil {
+			t.Fatalf("unexpected error: %v\noutput: %s", err, output)
+		}
+
+		var out statusOutput
+		if err := json.Unmarshal([]byte(output), &out); err != nil {
+			t.Fatalf("invalid JSON: %v\n%s", err, output)
+		}
+		if len(out.Sessions) != 1 {
+			t.Fatalf("expected 1 session, got %d", len(out.Sessions))
+		}
+		if out.Sessions[0].GroupName != "CloudAdmins" {
+			t.Errorf("groupName = %q, want CloudAdmins", out.Sessions[0].GroupName)
+		}
+		if out.Sessions[0].GroupID != "grp-uuid-1" {
+			t.Errorf("groupId = %q, want grp-uuid-1", out.Sessions[0].GroupID)
+		}
+	})
+
+	t.Run("group session without group name falls back to UUID", func(t *testing.T) {
+		old := outputFormat
+		defer func() { outputFormat = old }()
+		outputFormat = "text"
+
+		emptyGroupsElig := &mockGroupsEligibilityLister{
+			response: &scamodels.GroupsEligibilityResponse{
+				Response: []scamodels.GroupsEligibleTarget{},
+				Total:    0,
+			},
+		}
+		cmd := NewStatusCommandWithDeps(auth, sessions, elig, emptyGroupsElig, nil)
+		output, err := executeCommand(cmd)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.Contains(output, "Group: grp-uuid-1 in Contoso Directory") {
+			t.Errorf("output should fall back to UUID, got:\n%s", output)
+		}
+	})
+}
+
+func TestStatusCommand_RemainingTime(t *testing.T) {
+	now := time.Now()
+	expiresIn := commonmodels.IdsecRFC3339Time(now.Add(1 * time.Hour))
+
+	auth := &mockAuthLoader{
+		token: &authmodels.IdsecToken{Token: "jwt", Username: "user@test.com", ExpiresIn: expiresIn},
+	}
+	sessions := &mockSessionLister{
+		sessions: &scamodels.SessionsResponse{
+			Response: []scamodels.SessionInfo{
+				{
+					SessionID:       "tracked-session",
+					CSP:             scamodels.CSPAzure,
+					WorkspaceID:     "/subscriptions/sub-1",
+					RoleID:          "Contributor",
+					SessionDuration: 3600, // 1 hour
+				},
+				{
+					SessionID:       "untracked-session",
+					CSP:             scamodels.CSPAzure,
+					WorkspaceID:     "/subscriptions/sub-2",
+					RoleID:          "Reader",
+					SessionDuration: 1800,
+				},
+			},
+			Total: 2,
+		},
+	}
+	elig := &mockEligibilityLister{
+		response: &scamodels.EligibilityResponse{
+			Response: []scamodels.EligibleTarget{},
+		},
+	}
+
+	// Create a tracker with a recorded session timestamp
+	tracker := cache.NewStore(t.TempDir(), 25*time.Hour)
+	elevatedAt := now.Add(-15 * time.Minute) // elevated 15 minutes ago
+	if err := cache.RecordSession(tracker, "tracked-session", elevatedAt); err != nil {
+		t.Fatalf("RecordSession() error = %v", err)
+	}
+
+	t.Run("text output shows remaining time", func(t *testing.T) {
+		old := outputFormat
+		defer func() { outputFormat = old }()
+		outputFormat = "text"
+
+		cmd := NewStatusCommandWithDeps(auth, sessions, elig, nil, tracker)
+		output, err := executeCommand(cmd)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.Contains(output, "remaining: 4") {
+			t.Errorf("output should show remaining time, got:\n%s", output)
+		}
+		// Untracked session should show duration
+		if !strings.Contains(output, "duration: 30m") {
+			t.Errorf("untracked session should show duration, got:\n%s", output)
+		}
+	})
+
+	t.Run("JSON output includes remainingSeconds for tracked session", func(t *testing.T) {
+		cmd := NewStatusCommandWithDeps(auth, sessions, elig, nil, tracker)
+		root := newTestRootCommand()
+		root.AddCommand(cmd)
+
+		output, err := executeCommand(root, "status", "--output", "json")
+		if err != nil {
+			t.Fatalf("unexpected error: %v\noutput: %s", err, output)
+		}
+
+		var out statusOutput
+		if err := json.Unmarshal([]byte(output), &out); err != nil {
+			t.Fatalf("invalid JSON: %v\n%s", err, output)
+		}
+		if len(out.Sessions) != 2 {
+			t.Fatalf("expected 2 sessions, got %d", len(out.Sessions))
+		}
+
+		// Find tracked and untracked sessions
+		var tracked, untracked *sessionOutput
+		for i := range out.Sessions {
+			if out.Sessions[i].SessionID == "tracked-session" {
+				tracked = &out.Sessions[i]
+			}
+			if out.Sessions[i].SessionID == "untracked-session" {
+				untracked = &out.Sessions[i]
+			}
+		}
+
+		if tracked == nil {
+			t.Fatal("tracked session not found in output")
+		}
+		if tracked.RemainingSeconds == nil {
+			t.Error("tracked session should have remainingSeconds")
+		} else if *tracked.RemainingSeconds < 2500 || *tracked.RemainingSeconds > 2800 {
+			t.Errorf("remainingSeconds = %d, expected ~2700 (45 min)", *tracked.RemainingSeconds)
+		}
+
+		if untracked == nil {
+			t.Fatal("untracked session not found in output")
+		}
+		if untracked.RemainingSeconds != nil {
+			t.Errorf("untracked session should not have remainingSeconds, got %d", *untracked.RemainingSeconds)
+		}
+	})
+
+	t.Run("nil tracker shows duration for all sessions", func(t *testing.T) {
+		old := outputFormat
+		defer func() { outputFormat = old }()
+		outputFormat = "text"
+
+		cmd := NewStatusCommandWithDeps(auth, sessions, elig, nil, nil)
+		output, err := executeCommand(cmd)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if strings.Contains(output, "remaining:") {
+			t.Errorf("output should not contain remaining without tracker, got:\n%s", output)
+		}
+		if !strings.Contains(output, "duration: 1h 0m") {
+			t.Errorf("output should show duration for tracked session, got:\n%s", output)
+		}
+	})
+}
+
+func TestComputeRemainingTime(t *testing.T) {
+	tests := []struct {
+		name       string
+		sessions   []scamodels.SessionInfo
+		timestamps map[string]time.Time
+		wantNil    bool
+		wantKeys   []string
+	}{
+		{
+			name:       "empty timestamps returns nil",
+			sessions:   []scamodels.SessionInfo{{SessionID: "s1"}},
+			timestamps: map[string]time.Time{},
+			wantNil:    true,
+		},
+		{
+			name:       "no matching sessions returns nil",
+			sessions:   []scamodels.SessionInfo{{SessionID: "s1"}},
+			timestamps: map[string]time.Time{"other": time.Now()},
+			wantNil:    true,
+		},
+		{
+			name: "matching session computes remaining",
+			sessions: []scamodels.SessionInfo{
+				{SessionID: "s1", SessionDuration: 3600},
+			},
+			timestamps: map[string]time.Time{"s1": time.Now().Add(-15 * time.Minute)},
+			wantKeys:   []string{"s1"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := computeRemainingTime(tt.sessions, tt.timestamps)
+			if tt.wantNil {
+				if result != nil {
+					t.Errorf("expected nil, got %v", result)
+				}
+				return
+			}
+			for _, key := range tt.wantKeys {
+				if _, ok := result[key]; !ok {
+					t.Errorf("expected key %q in result", key)
+				}
+			}
 		})
 	}
 }

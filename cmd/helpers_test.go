@@ -438,6 +438,51 @@ func TestBuildWorkspaceNameMap(t *testing.T) {
 	}
 }
 
+func TestBuildGroupNameMap_Success(t *testing.T) {
+	ctx := t.Context()
+	gl := &mockGroupsEligibilityLister{
+		response: &scamodels.GroupsEligibilityResponse{
+			Response: []scamodels.GroupsEligibleTarget{
+				{GroupID: "grp-1", GroupName: "CloudAdmins", DirectoryID: "dir-1"},
+				{GroupID: "grp-2", GroupName: "DevOps", DirectoryID: "dir-1"},
+			},
+			Total: 2,
+		},
+	}
+
+	m := buildGroupNameMap(ctx, gl)
+	if len(m) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(m))
+	}
+	if m["grp-1"] != "CloudAdmins" {
+		t.Errorf("grp-1 = %q, want CloudAdmins", m["grp-1"])
+	}
+	if m["grp-2"] != "DevOps" {
+		t.Errorf("grp-2 = %q, want DevOps", m["grp-2"])
+	}
+}
+
+func TestBuildGroupNameMap_Error(t *testing.T) {
+	ctx := t.Context()
+	gl := &mockGroupsEligibilityLister{
+		listErr: errors.New("groups API unavailable"),
+	}
+
+	m := buildGroupNameMap(ctx, gl)
+	if len(m) != 0 {
+		t.Errorf("expected empty map on error, got %v", m)
+	}
+}
+
+func TestBuildGroupNameMap_NilLister(t *testing.T) {
+	ctx := t.Context()
+
+	m := buildGroupNameMap(ctx, nil)
+	if len(m) != 0 {
+		t.Errorf("expected empty map for nil lister, got %v", m)
+	}
+}
+
 func TestBuildWorkspaceNameMap_VerboseWarning(t *testing.T) {
 	spy := &spyLogger{}
 	oldLog := log
