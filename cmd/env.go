@@ -101,6 +101,14 @@ func runEnvWithDeps(
 		return fmt.Errorf("failed to parse access credentials: %w", err)
 	}
 
+	if isJSONOutput() {
+		return writeJSON(cmd.OutOrStdout(), awsCredentialOutput{
+			AccessKeyID:    awsCreds.AccessKeyID,
+			SecretAccessKey: awsCreds.SecretAccessKey,
+			SessionToken:   awsCreds.SessionToken,
+		})
+	}
+
 	fmt.Fprintf(cmd.OutOrStdout(), "export AWS_ACCESS_KEY_ID='%s'\n", awsCreds.AccessKeyID)
 	fmt.Fprintf(cmd.OutOrStdout(), "export AWS_SECRET_ACCESS_KEY='%s'\n", awsCreds.SecretAccessKey)
 	fmt.Fprintf(cmd.OutOrStdout(), "export AWS_SESSION_TOKEN='%s'\n", awsCreds.SessionToken)

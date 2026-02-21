@@ -70,6 +70,14 @@ Custom `SCAAccessService` follows SDK conventions:
 - Error messages suggest the appropriate non-interactive flag (e.g., `--target/--role`, `--all`, `--yes`, `--group`, `--favorite`)
 - `go-isatty` v0.0.20 is a direct dependency (promoted from indirect via survey)
 
+## JSON Output
+- `--output` / `-o` persistent flag on root command: `text` (default) or `json`
+- Validated in `PersistentPreRunE`; JSON mode forces `IsTerminalFunc` to return false (non-interactive)
+- `cmd/output.go` — `outputFormat` var, `isJSONOutput()`, `writeJSON(w, data)`
+- `cmd/output_types.go` — JSON structs: `cloudElevationOutput`, `groupElevationJSON`, `sessionOutput`, `statusOutput`, `revocationOutput`, `favoriteOutput`, `awsCredentialOutput`
+- All commands support JSON: root elevation, `env`, `status`, `revoke`, `favorites list`
+- `config.Favorite` has both `yaml:"..."` and `json:"..."` struct tags
+
 ## Cache
 - Eligibility responses cached in `~/.grant/cache/` as JSON files (e.g., `eligibility_azure.json`, `groups_eligibility_azure.json`)
 - Default TTL: 4 hours, configurable via `cache_ttl` in `~/.grant/config.yaml` (Go duration syntax: `2h`, `30m`)

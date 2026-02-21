@@ -200,6 +200,14 @@ func runRevoke(
 	}
 
 	// Display results
+	if isJSONOutput() {
+		out := make([]revocationOutput, len(result.Response))
+		for i, r := range result.Response {
+			out[i] = revocationOutput{SessionID: r.SessionID, Status: r.RevocationStatus}
+		}
+		return writeJSON(cmd.OutOrStdout(), out)
+	}
+
 	for _, r := range result.Response {
 		fmt.Fprintf(cmd.OutOrStdout(), "  %s: %s\n", r.SessionID, r.RevocationStatus)
 	}

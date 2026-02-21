@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -1182,6 +1183,55 @@ func TestFavoritesListWithGroupFavorites(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestFavoritesList_JSONOutput(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	t.Setenv("GRANT_CONFIG", configPath)
+
+	cfg := config.DefaultConfig()
+	_ = config.AddFavorite(cfg, "dev", config.Favorite{Provider: "azure", Target: "sub-1", Role: "Contributor"})
+	_ = config.AddFavorite(cfg, "grp", config.Favorite{Type: config.FavoriteTypeGroups, Provider: "azure", Group: "Admins", DirectoryID: "dir-1"})
+	_ = config.Save(cfg, configPath)
+
+	rootCmd := newTestRootCommand()
+	rootCmd.AddCommand(NewFavoritesCommand())
+
+	output, err := executeCommand(rootCmd, "favorites", "list", "--output", "json")
+	if err != nil {
+		t.Fatalf("unexpected error: %v\noutput: %s", err, output)
+	}
+
+	var parsed []favoriteOutput
+	if err := json.Unmarshal([]byte(output), &parsed); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, output)
+	}
+	if len(parsed) != 2 {
+		t.Fatalf("expected 2 favorites, got %d", len(parsed))
+	}
+
+	// Find by name
+	for _, f := range parsed {
+		switch f.Name {
+		case "dev":
+			if f.Type != "cloud" {
+				t.Errorf("dev type = %q, want cloud", f.Type)
+			}
+			if f.Target != "sub-1" {
+				t.Errorf("dev target = %q, want sub-1", f.Target)
+			}
+		case "grp":
+			if f.Type != "groups" {
+				t.Errorf("grp type = %q, want groups", f.Type)
+			}
+			if f.Group != "Admins" {
+				t.Errorf("grp group = %q, want Admins", f.Group)
+			}
+		default:
+			t.Errorf("unexpected favorite name: %q", f.Name)
+		}
 	}
 }
 

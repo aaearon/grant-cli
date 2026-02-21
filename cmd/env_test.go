@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -158,5 +159,57 @@ func TestNewEnvCommand_RefreshFlagRegistered(t *testing.T) {
 	cmd := newEnvCommand(nil)
 	if cmd.Flags().Lookup("refresh") == nil {
 		t.Error("expected --refresh flag to be registered")
+	}
+}
+
+func TestEnvCommand_JSONOutput(t *testing.T) {
+	credsJSON := `{"aws_access_key":"ASIAXXX","aws_secret_access_key":"secret","aws_session_token":"tok"}`
+
+	authLoader := &mockAuthLoader{
+		token: &authmodels.IdsecToken{Token: "test-jwt"},
+	}
+	eligLister := &mockEligibilityLister{
+		response: &models.EligibilityResponse{
+			Response: []models.EligibleTarget{{
+				OrganizationID: "o-1", WorkspaceID: "acct-1", WorkspaceName: "AWS Mgmt",
+				WorkspaceType: models.WorkspaceTypeAccount,
+				RoleInfo:      models.RoleInfo{ID: "role-1", Name: "Admin"},
+			}},
+			Total: 1,
+		},
+	}
+	elevSvc := &mockElevateService{
+		response: &models.ElevateResponse{Response: models.ElevateAccessResult{
+			CSP: models.CSPAWS, OrganizationID: "o-1",
+			Results: []models.ElevateTargetResult{{
+				WorkspaceID: "acct-1", RoleID: "Admin", SessionID: "sess-1",
+				AccessCredentials: &credsJSON,
+			}},
+		}},
+	}
+	selector := &mockTargetSelector{
+		target: &models.EligibleTarget{
+			OrganizationID: "o-1", WorkspaceID: "acct-1", WorkspaceName: "AWS Mgmt",
+			WorkspaceType: models.WorkspaceTypeAccount,
+			RoleInfo:      models.RoleInfo{ID: "role-1", Name: "Admin"},
+		},
+	}
+
+	cmd := NewEnvCommandWithDeps(nil, authLoader, eligLister, elevSvc, selector, config.DefaultConfig())
+	// Attach to root so --output flag is available
+	root := newTestRootCommand()
+	root.AddCommand(cmd)
+
+	output, err := executeCommand(root, "env", "--provider", "aws", "--target", "AWS Mgmt", "--role", "Admin", "--output", "json")
+	if err != nil {
+		t.Fatalf("unexpected error: %v\noutput: %s", err, output)
+	}
+
+	var parsed awsCredentialOutput
+	if err := json.Unmarshal([]byte(output), &parsed); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, output)
+	}
+	if parsed.AccessKeyID != "ASIAXXX" {
+		t.Errorf("accessKeyId = %q, want ASIAXXX", parsed.AccessKeyID)
 	}
 }
