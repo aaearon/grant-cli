@@ -11,5 +11,6 @@ func init() {
 		NewEnvCommand(),
 		NewRevokeCommand(),
 		NewUpdateCommand(),
+		NewListCommand(),
 	)
 }

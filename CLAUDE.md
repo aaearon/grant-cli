@@ -55,6 +55,7 @@ Custom `SCAAccessService` follows SDK conventions:
 - `spf13/cobra` for CLI framework
 - `Iilun/survey/v2` for interactive prompts
 - `grant env` — performs elevation, outputs only `export` statements (no human text); usage: `eval $(grant env --provider aws)`; supports `--refresh`
+- `grant list` — list eligible targets and groups without triggering elevation; supports `--provider`, `--groups`, `--refresh`, `--output json`; used by LLMs to discover available targets programmatically
 - `grant revoke` — revoke sessions: direct (`grant revoke <id>`), `--all`, or interactive multi-select; `--yes` skips confirmation
 - `grant update` — self-update binary via GitHub Releases (`rhysd/go-github-selfupdate`); guards against dev builds
 - `--groups` flag on root command shows only Entra ID groups in the interactive selector
