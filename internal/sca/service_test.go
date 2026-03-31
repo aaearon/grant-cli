@@ -17,9 +17,14 @@ type mockHTTPClient struct {
 	getError     error
 	postResponse *http.Response
 	postError    error
+	// getFunc, when set, overrides getResponse/getError for dynamic responses.
+	getFunc func(ctx context.Context, route string, params interface{}) (*http.Response, error)
 }
 
 func (m *mockHTTPClient) Get(ctx context.Context, route string, params interface{}) (*http.Response, error) {
+	if m.getFunc != nil {
+		return m.getFunc(ctx, route, params)
+	}
 	if m.getError != nil {
 		return nil, m.getError
 	}
@@ -31,6 +36,14 @@ func (m *mockHTTPClient) Post(ctx context.Context, route string, body interface{
 		return nil, m.postError
 	}
 	return m.postResponse, nil
+}
+
+func jsonResponse(v interface{}) *http.Response {
+	body, _ := json.Marshal(v)
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader(string(body))),
+	}
 }
 
 func TestListEligibility_Success(t *testing.T) {
@@ -109,29 +122,33 @@ func TestListEligibility_Empty(t *testing.T) {
 }
 
 func TestListEligibility_WithPagination(t *testing.T) {
-	nextToken := "token123"
-	resp := models.EligibilityResponse{
-		Response: []models.EligibleTarget{
-			{
-				OrganizationID: "org1",
-				WorkspaceID:    "sub1",
-				WorkspaceName:  "Subscription 1",
-				WorkspaceType:  models.WorkspaceTypeSubscription,
-				RoleInfo: models.RoleInfo{
-					ID:   "role1",
-					Name: "Owner",
-				},
-			},
-		},
-		NextToken: &nextToken,
-		Total:     10,
-	}
+	// Tests that nextToken triggers a second request and that the token
+	// is forwarded as a query parameter. The second page is empty,
+	// verifying the "empty final page" edge case.
+	token := "token123"
+	callCount := 0
 
-	body, _ := json.Marshal(resp)
 	mock := &mockHTTPClient{
-		getResponse: &http.Response{
-			StatusCode: http.StatusOK,
-			Body:       io.NopCloser(strings.NewReader(string(body))),
+		getFunc: func(ctx context.Context, route string, params interface{}) (*http.Response, error) {
+			callCount++
+			if callCount == 1 {
+				return jsonResponse(models.EligibilityResponse{
+					Response: []models.EligibleTarget{
+						{OrganizationID: "org1", WorkspaceID: "sub1", WorkspaceName: "Subscription 1", WorkspaceType: models.WorkspaceTypeSubscription, RoleInfo: models.RoleInfo{ID: "role1", Name: "Owner"}},
+					},
+					NextToken: &token,
+					Total:     10,
+				}), nil
+			}
+			p, ok := params.(map[string]string)
+			if !ok || p["nextToken"] != token {
+				t.Errorf("expected nextToken=%q on second call, got %v", token, params)
+			}
+			return jsonResponse(models.EligibilityResponse{
+				Response:  []models.EligibleTarget{},
+				NextToken: nil,
+				Total:     10,
+			}), nil
 		},
 	}
 
@@ -141,11 +158,8 @@ func TestListEligibility_WithPagination(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-	if result.NextToken == nil {
-		t.Fatal("expected non-nil NextToken")
-	}
-	if *result.NextToken != nextToken {
-		t.Errorf("expected NextToken %s, got %s", nextToken, *result.NextToken)
+	if callCount != 2 {
+		t.Errorf("expected 2 calls (page + follow-up), got %d", callCount)
 	}
 	if result.Total != 10 {
 		t.Errorf("expected total 10, got %d", result.Total)
@@ -749,5 +763,135 @@ func TestElevateGroups_EmptyTargets(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "target") {
 		t.Errorf("expected error about targets, got: %v", err)
+	}
+}
+
+func TestListEligibility_Pagination(t *testing.T) {
+	token := "page2token"
+	callCount := 0
+
+	mock := &mockHTTPClient{
+		getFunc: func(ctx context.Context, route string, params interface{}) (*http.Response, error) {
+			callCount++
+			if callCount == 1 {
+				if params != nil {
+					t.Errorf("expected nil params on first call, got %v", params)
+				}
+				return jsonResponse(models.EligibilityResponse{
+					Response: []models.EligibleTarget{
+						{OrganizationID: "org1", WorkspaceID: "sub1", WorkspaceName: "Sub 1", RoleInfo: models.RoleInfo{ID: "r1", Name: "Reader"}},
+					},
+					NextToken: &token,
+					Total:     2,
+				}), nil
+			}
+			p, ok := params.(map[string]string)
+			if !ok || p["nextToken"] != token {
+				t.Errorf("expected nextToken=%q on call %d, got %v", token, callCount, params)
+			}
+			return jsonResponse(models.EligibilityResponse{
+				Response: []models.EligibleTarget{
+					{OrganizationID: "org1", WorkspaceID: "sub2", WorkspaceName: "Sub 2", RoleInfo: models.RoleInfo{ID: "r2", Name: "Owner"}},
+				},
+				NextToken: nil,
+				Total:     2,
+			}), nil
+		},
+	}
+
+	svc := &SCAAccessService{httpClient: mock}
+	result, err := svc.ListEligibility(t.Context(), models.CSPAzure)
+
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(result.Response) != 2 {
+		t.Errorf("expected 2 targets across pages, got %d", len(result.Response))
+	}
+	if callCount != 2 {
+		t.Errorf("expected 2 API calls for pagination, got %d", callCount)
+	}
+}
+
+func TestListSessions_Pagination(t *testing.T) {
+	token := "sesspage2"
+	callCount := 0
+
+	mock := &mockHTTPClient{
+		getFunc: func(ctx context.Context, route string, params interface{}) (*http.Response, error) {
+			callCount++
+			if callCount == 1 {
+				return jsonResponse(models.SessionsResponse{
+					Response:  []models.SessionInfo{{SessionID: "s1", CSP: models.CSPAzure}},
+					NextToken: &token,
+					Total:     2,
+				}), nil
+			}
+			p, ok := params.(map[string]string)
+			if !ok || p["nextToken"] != token {
+				t.Errorf("expected nextToken=%q on call %d, got %v", token, callCount, params)
+			}
+			return jsonResponse(models.SessionsResponse{
+				Response:  []models.SessionInfo{{SessionID: "s2", CSP: models.CSPAzure}},
+				NextToken: nil,
+				Total:     2,
+			}), nil
+		},
+	}
+
+	svc := &SCAAccessService{httpClient: mock}
+	result, err := svc.ListSessions(t.Context(), nil)
+
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(result.Response) != 2 {
+		t.Errorf("expected 2 sessions across pages, got %d", len(result.Response))
+	}
+	if callCount != 2 {
+		t.Errorf("expected 2 API calls for pagination, got %d", callCount)
+	}
+}
+
+func TestListGroupsEligibility_Pagination(t *testing.T) {
+	token := "grppage2"
+	callCount := 0
+
+	mock := &mockHTTPClient{
+		getFunc: func(ctx context.Context, route string, params interface{}) (*http.Response, error) {
+			callCount++
+			if callCount == 1 {
+				if params != nil {
+					t.Errorf("expected nil params on first call, got %v", params)
+				}
+				return jsonResponse(models.GroupsEligibilityResponse{
+					Response:  []models.GroupsEligibleTarget{{DirectoryID: "d1", GroupID: "g1", GroupName: "Group 1"}},
+					NextToken: &token,
+					Total:     2,
+				}), nil
+			}
+			p, ok := params.(map[string]string)
+			if !ok || p["nextToken"] != token {
+				t.Errorf("expected nextToken=%q on call %d, got %v", token, callCount, params)
+			}
+			return jsonResponse(models.GroupsEligibilityResponse{
+				Response:  []models.GroupsEligibleTarget{{DirectoryID: "d1", GroupID: "g2", GroupName: "Group 2"}},
+				NextToken: nil,
+				Total:     2,
+			}), nil
+		},
+	}
+
+	svc := &SCAAccessService{httpClient: mock}
+	result, err := svc.ListGroupsEligibility(t.Context(), models.CSPAzure)
+
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(result.Response) != 2 {
+		t.Errorf("expected 2 groups across pages, got %d", len(result.Response))
+	}
+	if callCount != 2 {
+		t.Errorf("expected 2 API calls for pagination, got %d", callCount)
 	}
 }

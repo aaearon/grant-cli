@@ -101,27 +101,53 @@ func checkResponse(resp *http.Response, operation string) error {
 	return fmt.Errorf("%s failed with status %d: %s", operation, resp.StatusCode, string(body))
 }
 
-// ListEligibility retrieves eligible targets for the specified CSP.
+// maxPages is the upper bound on pagination requests to guard against infinite loops.
+const maxPages = 100
+
+// ListEligibility retrieves all eligible targets for the specified CSP,
+// automatically paginating through all pages via nextToken.
 // GET /api/access/{CSP}/eligibility
 func (s *SCAAccessService) ListEligibility(ctx context.Context, csp models.CSP) (*models.EligibilityResponse, error) {
 	route := fmt.Sprintf("/api/access/%s/eligibility", csp)
 
-	resp, err := s.httpClient.Get(ctx, route, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get eligibility: %w", err)
-	}
-	defer resp.Body.Close()
+	var all []models.EligibleTarget
+	var nextToken *string
 
-	if err := checkResponse(resp, "eligibility request"); err != nil {
-		return nil, err
+	for range maxPages {
+		var params interface{}
+		if nextToken != nil {
+			params = map[string]string{"nextToken": *nextToken}
+		}
+
+		resp, err := s.httpClient.Get(ctx, route, params)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get eligibility: %w", err)
+		}
+
+		if err := checkResponse(resp, "eligibility request"); err != nil {
+			resp.Body.Close()
+			return nil, err
+		}
+
+		var page models.EligibilityResponse
+		err = json.NewDecoder(resp.Body).Decode(&page)
+		resp.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode eligibility response: %w", err)
+		}
+
+		all = append(all, page.Response...)
+		nextToken = page.NextToken
+
+		if nextToken == nil {
+			return &models.EligibilityResponse{
+				Response: all,
+				Total:    page.Total,
+			}, nil
+		}
 	}
 
-	var result models.EligibilityResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode eligibility response: %w", err)
-	}
-
-	return &result, nil
+	return nil, errors.New("eligibility pagination exceeded maximum page limit")
 }
 
 // Elevate requests JIT elevation for the specified targets.
@@ -180,55 +206,104 @@ func (s *SCAAccessService) RevokeSessions(ctx context.Context, req *models.Revok
 	return &result, nil
 }
 
-// ListSessions retrieves active elevated sessions, optionally filtered by CSP.
+// ListSessions retrieves all active elevated sessions, optionally filtered by CSP,
+// automatically paginating through all pages via nextToken.
 // GET /api/access/sessions
 func (s *SCAAccessService) ListSessions(ctx context.Context, csp *models.CSP) (*models.SessionsResponse, error) {
 	route := "/api/access/sessions"
 
-	var params interface{}
-	if csp != nil {
-		params = map[string]string{"csp": string(*csp)}
+	var all []models.SessionInfo
+	var nextToken *string
+
+	for range maxPages {
+		params := map[string]string{}
+		if csp != nil {
+			params["csp"] = string(*csp)
+		}
+		if nextToken != nil {
+			params["nextToken"] = *nextToken
+		}
+
+		var p interface{}
+		if len(params) > 0 {
+			p = params
+		}
+
+		resp, err := s.httpClient.Get(ctx, route, p)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get sessions: %w", err)
+		}
+
+		if err := checkResponse(resp, "sessions request"); err != nil {
+			resp.Body.Close()
+			return nil, err
+		}
+
+		var page models.SessionsResponse
+		err = json.NewDecoder(resp.Body).Decode(&page)
+		resp.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode sessions response: %w", err)
+		}
+
+		all = append(all, page.Response...)
+		nextToken = page.NextToken
+
+		if nextToken == nil {
+			return &models.SessionsResponse{
+				Response: all,
+				Total:    page.Total,
+			}, nil
+		}
 	}
 
-	resp, err := s.httpClient.Get(ctx, route, params)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get sessions: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if err := checkResponse(resp, "sessions request"); err != nil {
-		return nil, err
-	}
-
-	var result models.SessionsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode sessions response: %w", err)
-	}
-
-	return &result, nil
+	return nil, errors.New("sessions pagination exceeded maximum page limit")
 }
 
-// ListGroupsEligibility retrieves eligible Entra ID groups for the specified CSP.
+// ListGroupsEligibility retrieves all eligible Entra ID groups for the specified CSP,
+// automatically paginating through all pages via nextToken.
 // GET /api/access/{CSP}/eligibility/groups
 func (s *SCAAccessService) ListGroupsEligibility(ctx context.Context, csp models.CSP) (*models.GroupsEligibilityResponse, error) {
 	route := fmt.Sprintf("/api/access/%s/eligibility/groups", csp)
 
-	resp, err := s.httpClient.Get(ctx, route, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get groups eligibility: %w", err)
-	}
-	defer resp.Body.Close()
+	var all []models.GroupsEligibleTarget
+	var nextToken *string
 
-	if err := checkResponse(resp, "groups eligibility request"); err != nil {
-		return nil, err
+	for range maxPages {
+		var params interface{}
+		if nextToken != nil {
+			params = map[string]string{"nextToken": *nextToken}
+		}
+
+		resp, err := s.httpClient.Get(ctx, route, params)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get groups eligibility: %w", err)
+		}
+
+		if err := checkResponse(resp, "groups eligibility request"); err != nil {
+			resp.Body.Close()
+			return nil, err
+		}
+
+		var page models.GroupsEligibilityResponse
+		err = json.NewDecoder(resp.Body).Decode(&page)
+		resp.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode groups eligibility response: %w", err)
+		}
+
+		all = append(all, page.Response...)
+		nextToken = page.NextToken
+
+		if nextToken == nil {
+			return &models.GroupsEligibilityResponse{
+				Response: all,
+				Total:    page.Total,
+			}, nil
+		}
 	}
 
-	var result models.GroupsEligibilityResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode groups eligibility response: %w", err)
-	}
-
-	return &result, nil
+	return nil, errors.New("groups eligibility pagination exceeded maximum page limit")
 }
 
 // ElevateGroups requests JIT elevation for the specified Entra ID groups.
