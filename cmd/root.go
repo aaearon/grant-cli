@@ -825,7 +825,7 @@ func runElevateWithDeps(
 		} else {
 			fmt.Fprintf(cmd.OutOrStdout(), "\n  Run: eval $(grant env --provider aws) to get credentials.\n")
 		}
-	default:
+	case models.CSPAzure:
 		fmt.Fprintf(cmd.OutOrStdout(), "\n  Your az CLI session now has the elevated permissions.\n")
 	}
 
