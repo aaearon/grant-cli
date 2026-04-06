@@ -101,27 +101,89 @@ func checkResponse(resp *http.Response, operation string) error {
 	return fmt.Errorf("%s failed with status %d: %s", operation, resp.StatusCode, string(body))
 }
 
-// ListEligibility retrieves eligible targets for the specified CSP.
+// maxPages is the upper bound on pagination requests to guard against infinite loops.
+const maxPages = 100
+
+// paginate fetches all pages of a paginated GET endpoint using nextToken cursor.
+// buildParams returns the query parameters for each request (nextToken is added automatically).
+// decode extracts the items, nextToken pointer, and total from each page response.
+// The total is captured from the first page only.
+func paginate[T any](
+	ctx context.Context,
+	s *SCAAccessService,
+	route string,
+	buildParams func() map[string]string,
+	decode func(io.Reader) ([]T, *string, int, error),
+	errPrefix string,
+) (allItems []T, total int, _ error) {
+	var nextToken *string
+
+	for page := range maxPages {
+		params := buildParams()
+		if nextToken != nil {
+			if params == nil {
+				params = make(map[string]string)
+			}
+			params["nextToken"] = *nextToken
+		}
+
+		var p interface{}
+		if len(params) > 0 {
+			p = params
+		}
+
+		resp, err := s.httpClient.Get(ctx, route, p)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to get %s: %w", errPrefix, err)
+		}
+
+		if err := checkResponse(resp, errPrefix+" request"); err != nil {
+			resp.Body.Close()
+			return nil, 0, err
+		}
+
+		pageItems, nt, pageTotal, decErr := decode(resp.Body)
+		resp.Body.Close()
+		if decErr != nil {
+			return nil, 0, fmt.Errorf("failed to decode %s response: %w", errPrefix, decErr)
+		}
+
+		allItems = append(allItems, pageItems...)
+		if page == 0 {
+			total = pageTotal
+		}
+		nextToken = nt
+
+		if nextToken == nil {
+			return allItems, total, nil
+		}
+	}
+
+	return nil, 0, fmt.Errorf("%s pagination exceeded maximum page limit", errPrefix)
+}
+
+// ListEligibility retrieves all eligible targets for the specified CSP,
+// automatically paginating through all pages via nextToken.
 // GET /api/access/{CSP}/eligibility
 func (s *SCAAccessService) ListEligibility(ctx context.Context, csp models.CSP) (*models.EligibilityResponse, error) {
 	route := fmt.Sprintf("/api/access/%s/eligibility", csp)
 
-	resp, err := s.httpClient.Get(ctx, route, nil)
+	items, total, err := paginate(ctx, s, route,
+		func() map[string]string { return nil },
+		func(r io.Reader) ([]models.EligibleTarget, *string, int, error) {
+			var page models.EligibilityResponse
+			if err := json.NewDecoder(r).Decode(&page); err != nil {
+				return nil, nil, 0, err
+			}
+			return page.Response, page.NextToken, page.Total, nil
+		},
+		"eligibility",
+	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get eligibility: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if err := checkResponse(resp, "eligibility request"); err != nil {
 		return nil, err
 	}
 
-	var result models.EligibilityResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode eligibility response: %w", err)
-	}
-
-	return &result, nil
+	return &models.EligibilityResponse{Response: items, Total: total}, nil
 }
 
 // Elevate requests JIT elevation for the specified targets.
@@ -180,55 +242,55 @@ func (s *SCAAccessService) RevokeSessions(ctx context.Context, req *models.Revok
 	return &result, nil
 }
 
-// ListSessions retrieves active elevated sessions, optionally filtered by CSP.
+// ListSessions retrieves all active elevated sessions, optionally filtered by CSP,
+// automatically paginating through all pages via nextToken.
 // GET /api/access/sessions
 func (s *SCAAccessService) ListSessions(ctx context.Context, csp *models.CSP) (*models.SessionsResponse, error) {
-	route := "/api/access/sessions"
-
-	var params interface{}
-	if csp != nil {
-		params = map[string]string{"csp": string(*csp)}
-	}
-
-	resp, err := s.httpClient.Get(ctx, route, params)
+	items, total, err := paginate(ctx, s, "/api/access/sessions",
+		func() map[string]string {
+			if csp != nil {
+				return map[string]string{"csp": string(*csp)}
+			}
+			return nil
+		},
+		func(r io.Reader) ([]models.SessionInfo, *string, int, error) {
+			var page models.SessionsResponse
+			if err := json.NewDecoder(r).Decode(&page); err != nil {
+				return nil, nil, 0, err
+			}
+			return page.Response, page.NextToken, page.Total, nil
+		},
+		"sessions",
+	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get sessions: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if err := checkResponse(resp, "sessions request"); err != nil {
 		return nil, err
 	}
 
-	var result models.SessionsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode sessions response: %w", err)
-	}
-
-	return &result, nil
+	return &models.SessionsResponse{Response: items, Total: total}, nil
 }
 
-// ListGroupsEligibility retrieves eligible Entra ID groups for the specified CSP.
+// ListGroupsEligibility retrieves all eligible Entra ID groups for the specified CSP,
+// automatically paginating through all pages via nextToken.
 // GET /api/access/{CSP}/eligibility/groups
 func (s *SCAAccessService) ListGroupsEligibility(ctx context.Context, csp models.CSP) (*models.GroupsEligibilityResponse, error) {
 	route := fmt.Sprintf("/api/access/%s/eligibility/groups", csp)
 
-	resp, err := s.httpClient.Get(ctx, route, nil)
+	items, total, err := paginate(ctx, s, route,
+		func() map[string]string { return nil },
+		func(r io.Reader) ([]models.GroupsEligibleTarget, *string, int, error) {
+			var page models.GroupsEligibilityResponse
+			if err := json.NewDecoder(r).Decode(&page); err != nil {
+				return nil, nil, 0, err
+			}
+			return page.Response, page.NextToken, page.Total, nil
+		},
+		"groups eligibility",
+	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get groups eligibility: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if err := checkResponse(resp, "groups eligibility request"); err != nil {
 		return nil, err
 	}
 
-	var result models.GroupsEligibilityResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to decode groups eligibility response: %w", err)
-	}
-
-	return &result, nil
+	return &models.GroupsEligibilityResponse{Response: items, Total: total}, nil
 }
 
 // ElevateGroups requests JIT elevation for the specified Entra ID groups.
