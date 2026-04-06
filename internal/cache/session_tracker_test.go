@@ -10,7 +10,7 @@ import (
 func TestRecordSession_AndLookup(t *testing.T) {
 	t.Parallel()
 	s := NewStore(t.TempDir(), 25*time.Hour)
-	now := time.Date(2026, 2, 21, 12, 0, 0, 0, time.UTC)
+	now := time.Now().UTC().Truncate(time.Second)
 
 	if err := RecordSession(s, "sess-1", now); err != nil {
 		t.Fatalf("RecordSession() error = %v", err)

@@ -811,16 +811,21 @@ func runElevateWithDeps(
 	fmt.Fprintf(cmd.OutOrStdout(), "  Session ID: %s\n", res.result.SessionID)
 
 	// CSP-aware post-elevation guidance
-	if res.result.AccessCredentials != nil {
-		awsCreds, err := models.ParseAWSCredentials(*res.result.AccessCredentials)
-		if err != nil {
-			return fmt.Errorf("failed to parse access credentials: %w", err)
+	switch res.target.CSP {
+	case models.CSPAWS:
+		if res.result.AccessCredentials != nil {
+			awsCreds, err := models.ParseAWSCredentials(*res.result.AccessCredentials)
+			if err != nil {
+				return fmt.Errorf("failed to parse access credentials: %w", err)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "\n  export AWS_ACCESS_KEY_ID='%s'\n", awsCreds.AccessKeyID)
+			fmt.Fprintf(cmd.OutOrStdout(), "  export AWS_SECRET_ACCESS_KEY='%s'\n", awsCreds.SecretAccessKey)
+			fmt.Fprintf(cmd.OutOrStdout(), "  export AWS_SESSION_TOKEN='%s'\n", awsCreds.SessionToken)
+			fmt.Fprintf(cmd.OutOrStdout(), "\n  Or run: eval $(grant env --provider aws)\n")
+		} else {
+			fmt.Fprintf(cmd.OutOrStdout(), "\n  Run: eval $(grant env --provider aws) to get credentials.\n")
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "\n  export AWS_ACCESS_KEY_ID='%s'\n", awsCreds.AccessKeyID)
-		fmt.Fprintf(cmd.OutOrStdout(), "  export AWS_SECRET_ACCESS_KEY='%s'\n", awsCreds.SecretAccessKey)
-		fmt.Fprintf(cmd.OutOrStdout(), "  export AWS_SESSION_TOKEN='%s'\n", awsCreds.SessionToken)
-		fmt.Fprintf(cmd.OutOrStdout(), "\n  Or run: eval $(grant env --provider aws)\n")
-	} else {
+	case models.CSPAzure:
 		fmt.Fprintf(cmd.OutOrStdout(), "\n  Your az CLI session now has the elevated permissions.\n")
 	}
 

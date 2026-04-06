@@ -17,11 +17,12 @@ import (
 
 func TestRootElevate_InteractiveMode(t *testing.T) {
 	tests := []struct {
-		name        string
-		setupMocks  func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *mockUnifiedSelector, *config.Config)
-		args        []string
-		wantContain []string
-		wantErr     bool
+		name           string
+		setupMocks     func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *mockUnifiedSelector, *config.Config)
+		args           []string
+		wantContain    []string
+		wantNotContain []string
+		wantErr        bool
 	}{
 		{
 			name: "interactive mode success",
@@ -315,6 +316,69 @@ func TestRootElevate_InteractiveMode(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "AWS elevation without credentials should not show Azure message",
+			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *mockUnifiedSelector, *config.Config) {
+				authLoader := &mockAuthLoader{
+					token: &authmodels.IdsecToken{
+						Token:     "test-jwt",
+						Username:  "test@example.com",
+						ExpiresIn: commonmodels.IdsecRFC3339Time(time.Now().Add(1 * time.Hour)),
+					},
+				}
+
+				awsTarget := models.EligibleTarget{
+					CSP:            models.CSPAWS,
+					OrganizationID: "o-abc123",
+					WorkspaceID:    "123456789012",
+					WorkspaceName:  "test-aws-account-7x9k",
+					WorkspaceType:  models.WorkspaceTypeAccount,
+					RoleInfo: models.RoleInfo{
+						ID:   "arn:aws:iam::123456789012:role/Edit",
+						Name: "Edit",
+					},
+				}
+
+				eligibilityLister := &mockEligibilityLister{
+					listFunc: func(ctx context.Context, csp models.CSP) (*models.EligibilityResponse, error) {
+						if csp == models.CSPAWS {
+							return &models.EligibilityResponse{Response: []models.EligibleTarget{awsTarget}, Total: 1}, nil
+						}
+						return &models.EligibilityResponse{}, nil
+					},
+				}
+
+				// AWS elevation succeeds but API returns nil AccessCredentials
+				elevateService := &mockElevateService{
+					response: &models.ElevateResponse{
+						Response: models.ElevateAccessResult{
+							CSP:            models.CSPAWS,
+							OrganizationID: "o-abc123",
+							Results: []models.ElevateTargetResult{
+								{
+									WorkspaceID:       "123456789012",
+									RoleID:            "Edit",
+									SessionID:         "session-aws-nocreds",
+									AccessCredentials: nil,
+								},
+							},
+						},
+					},
+				}
+
+				selector := &mockUnifiedSelector{
+					item: &selectionItem{kind: selectionCloud, cloud: &awsTarget},
+				}
+
+				cfg := config.DefaultConfig()
+
+				return authLoader, eligibilityLister, elevateService, selector, cfg
+			},
+			args:           []string{},
+			wantContain:    []string{"Elevated to Edit on test-aws-account-7x9k"},
+			wantNotContain: []string{"az CLI session"},
+			wantErr:        false,
+		},
+		{
 			name: "no eligible targets found across all providers",
 			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *mockUnifiedSelector, *config.Config) {
 				authLoader := &mockAuthLoader{
@@ -358,6 +422,11 @@ func TestRootElevate_InteractiveMode(t *testing.T) {
 			for _, want := range tt.wantContain {
 				if !strings.Contains(output, want) {
 					t.Errorf("output missing %q\ngot:\n%s", want, output)
+				}
+			}
+			for _, notWant := range tt.wantNotContain {
+				if strings.Contains(output, notWant) {
+					t.Errorf("output should not contain %q\ngot:\n%s", notWant, output)
 				}
 			}
 		})
