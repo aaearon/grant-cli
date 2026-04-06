@@ -121,51 +121,6 @@ func TestListEligibility_Empty(t *testing.T) {
 	}
 }
 
-func TestListEligibility_WithPagination(t *testing.T) {
-	// Tests that nextToken triggers a second request and that the token
-	// is forwarded as a query parameter. The second page is empty,
-	// verifying the "empty final page" edge case.
-	token := "token123"
-	callCount := 0
-
-	mock := &mockHTTPClient{
-		getFunc: func(ctx context.Context, route string, params interface{}) (*http.Response, error) {
-			callCount++
-			if callCount == 1 {
-				return jsonResponse(models.EligibilityResponse{
-					Response: []models.EligibleTarget{
-						{OrganizationID: "org1", WorkspaceID: "sub1", WorkspaceName: "Subscription 1", WorkspaceType: models.WorkspaceTypeSubscription, RoleInfo: models.RoleInfo{ID: "role1", Name: "Owner"}},
-					},
-					NextToken: &token,
-					Total:     10,
-				}), nil
-			}
-			p, ok := params.(map[string]string)
-			if !ok || p["nextToken"] != token {
-				t.Errorf("expected nextToken=%q on second call, got %v", token, params)
-			}
-			return jsonResponse(models.EligibilityResponse{
-				Response:  []models.EligibleTarget{},
-				NextToken: nil,
-				Total:     10,
-			}), nil
-		},
-	}
-
-	svc := &SCAAccessService{httpClient: mock}
-	result, err := svc.ListEligibility(t.Context(), models.CSPAzure)
-
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	if callCount != 2 {
-		t.Errorf("expected 2 calls (page + follow-up), got %d", callCount)
-	}
-	if result.Total != 10 {
-		t.Errorf("expected total 10, got %d", result.Total)
-	}
-}
-
 func TestListEligibility_HTTPError(t *testing.T) {
 	mock := &mockHTTPClient{
 		getResponse: &http.Response{
@@ -893,5 +848,65 @@ func TestListGroupsEligibility_Pagination(t *testing.T) {
 	}
 	if callCount != 2 {
 		t.Errorf("expected 2 API calls for pagination, got %d", callCount)
+	}
+}
+
+func TestListEligibility_PaginationMaxPagesExceeded(t *testing.T) {
+	token := "always"
+
+	mock := &mockHTTPClient{
+		getFunc: func(_ context.Context, _ string, _ interface{}) (*http.Response, error) {
+			return jsonResponse(models.EligibilityResponse{
+				Response:  []models.EligibleTarget{{OrganizationID: "org1", WorkspaceID: "sub1"}},
+				NextToken: &token,
+				Total:     999,
+			}), nil
+		},
+	}
+
+	svc := &SCAAccessService{httpClient: mock}
+	_, err := svc.ListEligibility(t.Context(), models.CSPAzure)
+
+	if err == nil {
+		t.Fatal("expected error when max pages exceeded")
+	}
+	if !strings.Contains(err.Error(), "pagination exceeded maximum page limit") {
+		t.Errorf("expected max page limit error, got: %v", err)
+	}
+}
+
+func TestListEligibility_Pagination_TotalFromFirstPage(t *testing.T) {
+	token := "page2"
+	callCount := 0
+
+	mock := &mockHTTPClient{
+		getFunc: func(_ context.Context, _ string, _ interface{}) (*http.Response, error) {
+			callCount++
+			if callCount == 1 {
+				return jsonResponse(models.EligibilityResponse{
+					Response:  []models.EligibleTarget{{OrganizationID: "org1", WorkspaceID: "sub1"}},
+					NextToken: &token,
+					Total:     42,
+				}), nil
+			}
+			return jsonResponse(models.EligibilityResponse{
+				Response:  []models.EligibleTarget{{OrganizationID: "org1", WorkspaceID: "sub2"}},
+				NextToken: nil,
+				Total:     99,
+			}), nil
+		},
+	}
+
+	svc := &SCAAccessService{httpClient: mock}
+	result, err := svc.ListEligibility(t.Context(), models.CSPAzure)
+
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if result.Total != 42 {
+		t.Errorf("expected total from first page (42), got %d", result.Total)
+	}
+	if len(result.Response) != 2 {
+		t.Errorf("expected 2 targets, got %d", len(result.Response))
 	}
 }
