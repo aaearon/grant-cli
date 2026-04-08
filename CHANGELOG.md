@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-04-08
+
+### Fixed
+
+- AWS elevation no longer shows the Azure CLI session message — post-elevation guidance is now CSP-aware (#37, thanks @svnlto)
+- SCA list endpoints (`eligibility`, `sessions`, `groups eligibility`) now paginate correctly via `nextToken`, preventing truncated results on large tenants (#38, thanks @svnlto)
+
 ## [0.6.0] - 2026-02-21
 
 ### Added
