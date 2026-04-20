@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- `--output json` is now a pure serialisation flag; it no longer forces non-interactive mode. Interactive pickers and prompts (e.g. `grant request get -o json` with no ID, `grant request submit -o json` without `--target`/`--role`) work in a TTY, writing prompts to stderr and JSON to stdout.
+
 ### Added
 
 - `grant request` command group for managing access requests through the approval workflow

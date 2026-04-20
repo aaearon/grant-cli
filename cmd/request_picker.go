@@ -32,9 +32,6 @@ var resolveRequestIDFn = resolveRequestIDInteractive
 // shows the interactive picker, returning the chosen request ID.
 func resolveRequestIDInteractive(ctx context.Context, svc accessRequestService, scope pickerScope) (string, error) {
 	if !ui.IsInteractive() {
-		if isJSONOutput() {
-			return "", errors.New("request ID is required with --output json; run `grant request list --output json` to find it")
-		}
 		return "", fmt.Errorf("%w; pass the request ID as a positional argument (run `grant request list` to find it)", ui.ErrNotInteractive)
 	}
 
