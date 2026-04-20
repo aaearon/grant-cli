@@ -139,9 +139,15 @@ func defaultSubmitPrompt(existing *submitFields) (*submitFields, error) {
 		}
 	}
 
-	// 5. Start time
+	// 5. Start time (default: current time in selected timezone)
 	if existing.timeFrom == "" {
-		if err := survey.AskOne(&survey.Input{Message: "Start time (HH:MM):"}, &f.timeFrom,
+		tz := f.timezone
+		if tz == "" {
+			tz = existing.timezone
+		}
+		loc, _ := time.LoadLocation(tz)
+		defaultStart := time.Now().In(loc).Format("15:04")
+		if err := survey.AskOne(&survey.Input{Message: "Start time (HH:MM):", Default: defaultStart}, &f.timeFrom,
 			survey.WithValidator(func(val interface{}) error {
 				s, _ := val.(string)
 				if _, err := time.Parse("15:04", s); err != nil {
@@ -153,9 +159,17 @@ func defaultSubmitPrompt(existing *submitFields) (*submitFields, error) {
 		}
 	}
 
-	// 6. End time
+	// 6. End time (default: start + 1 hour)
 	if existing.timeTo == "" {
-		if err := survey.AskOne(&survey.Input{Message: "End time (HH:MM):"}, &f.timeTo,
+		startTime := f.timeFrom
+		if startTime == "" {
+			startTime = existing.timeFrom
+		}
+		defaultEnd := ""
+		if parsed, parseErr := time.Parse("15:04", startTime); parseErr == nil {
+			defaultEnd = parsed.Add(time.Hour).Format("15:04")
+		}
+		if err := survey.AskOne(&survey.Input{Message: "End time (HH:MM):", Default: defaultEnd}, &f.timeTo,
 			survey.WithValidator(func(val interface{}) error {
 				s, _ := val.(string)
 				if _, err := time.Parse("15:04", s); err != nil {
