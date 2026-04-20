@@ -501,13 +501,13 @@ func TestRunRequestSubmit_NonInteractive(t *testing.T) {
 	original := resolveSubmitTargetFn
 	defer func() { resolveSubmitTargetFn = original }()
 
-	resolveSubmitTargetFn = func(_ context.Context, _, _, _ string) (*models.EligibleTarget, error) {
-		return &models.EligibleTarget{
-			WorkspaceName: "Test Sub",
-			WorkspaceID:   "ws-1",
-			WorkspaceType: models.WorkspaceTypeSubscription,
-			CSP:           models.CSPAzure,
-			RoleInfo:      models.RoleInfo{ID: "role-1", Name: "Contributor"},
+	resolveSubmitTargetFn = func(_ context.Context, _, _ string) (*submitWorkspace, error) {
+		return &submitWorkspace{
+			WorkspaceName:  "Test Sub",
+			WorkspaceID:    "ws-1",
+			WorkspaceType:  models.WorkspaceTypeSubscription,
+			CSP:            models.CSPAzure,
+			OrganizationID: "org-1",
 		}, nil
 	}
 
@@ -523,7 +523,7 @@ func TestRunRequestSubmit_NonInteractive(t *testing.T) {
 	root.AddCommand(cmd)
 
 	output, err := executeCommand(root, "request", "submit",
-		"--target", "Test Sub", "--role", "Contributor",
+		"--target", "Test Sub", "--role-id", "role-1", "--role", "Contributor",
 		"--reason", "need access", "--date", "2026-04-21",
 		"--timezone", "UTC", "--from", "09:00", "--to", "17:00",
 		"--yes")
@@ -539,12 +539,12 @@ func TestRunRequestSubmit_JSONOutput(t *testing.T) {
 	original := resolveSubmitTargetFn
 	defer func() { resolveSubmitTargetFn = original }()
 
-	resolveSubmitTargetFn = func(_ context.Context, _, _, _ string) (*models.EligibleTarget, error) {
-		return &models.EligibleTarget{
-			WorkspaceName: "Test Sub",
-			WorkspaceID:   "ws-1",
-			CSP:           models.CSPAzure,
-			RoleInfo:      models.RoleInfo{ID: "role-1", Name: "Contributor"},
+	resolveSubmitTargetFn = func(_ context.Context, _, _ string) (*submitWorkspace, error) {
+		return &submitWorkspace{
+			WorkspaceName:  "Test Sub",
+			WorkspaceID:    "ws-1",
+			CSP:            models.CSPAzure,
+			OrganizationID: "org-1",
 		}, nil
 	}
 
@@ -565,7 +565,7 @@ func TestRunRequestSubmit_JSONOutput(t *testing.T) {
 	root.AddCommand(cmd)
 
 	output, err := executeCommand(root, "request", "submit",
-		"--target", "Test Sub", "--role", "Contributor",
+		"--target", "Test Sub", "--role-id", "role-1", "--role", "Contributor",
 		"--reason", "test", "--date", "2026-04-21",
 		"--timezone", "UTC", "--from", "09:00", "--to", "17:00",
 		"--output", "json", "--yes")
@@ -586,12 +586,12 @@ func TestRunRequestSubmit_ServiceError(t *testing.T) {
 	original := resolveSubmitTargetFn
 	defer func() { resolveSubmitTargetFn = original }()
 
-	resolveSubmitTargetFn = func(_ context.Context, _, _, _ string) (*models.EligibleTarget, error) {
-		return &models.EligibleTarget{
-			WorkspaceName: "Sub",
-			WorkspaceID:   "ws-1",
-			CSP:           models.CSPAzure,
-			RoleInfo:      models.RoleInfo{ID: "r1", Name: "Reader"},
+	resolveSubmitTargetFn = func(_ context.Context, _, _ string) (*submitWorkspace, error) {
+		return &submitWorkspace{
+			WorkspaceName:  "Sub",
+			WorkspaceID:    "ws-1",
+			CSP:            models.CSPAzure,
+			OrganizationID: "org-1",
 		}, nil
 	}
 
@@ -604,7 +604,7 @@ func TestRunRequestSubmit_ServiceError(t *testing.T) {
 	root.AddCommand(cmd)
 
 	_, err := executeCommand(root, "request", "submit",
-		"--target", "Sub", "--role", "Reader",
+		"--target", "Sub", "--role-id", "r1",
 		"--reason", "test", "--date", "2026-04-21",
 		"--timezone", "UTC", "--from", "09:00", "--to", "17:00",
 		"--yes")
@@ -620,12 +620,12 @@ func TestRunRequestSubmit_MissingFlags_NonInteractive(t *testing.T) {
 	original := resolveSubmitTargetFn
 	defer func() { resolveSubmitTargetFn = original }()
 
-	resolveSubmitTargetFn = func(_ context.Context, _, _, _ string) (*models.EligibleTarget, error) {
-		return &models.EligibleTarget{
-			WorkspaceName: "Sub",
-			WorkspaceID:   "ws-1",
-			CSP:           models.CSPAzure,
-			RoleInfo:      models.RoleInfo{ID: "r1", Name: "Reader"},
+	resolveSubmitTargetFn = func(_ context.Context, _, _ string) (*submitWorkspace, error) {
+		return &submitWorkspace{
+			WorkspaceName:  "Sub",
+			WorkspaceID:    "ws-1",
+			CSP:            models.CSPAzure,
+			OrganizationID: "org-1",
 		}, nil
 	}
 
@@ -635,7 +635,7 @@ func TestRunRequestSubmit_MissingFlags_NonInteractive(t *testing.T) {
 	root.AddCommand(cmd)
 
 	_, err := executeCommand(root, "request", "submit",
-		"--target", "Sub", "--role", "Reader",
+		"--target", "Sub", "--role-id", "r1",
 		"--reason", "test")
 	if err == nil {
 		t.Fatal("expected error for missing --date/--timezone/--from/--to, got nil")
@@ -762,7 +762,7 @@ func TestRunRequestSubmit_InvalidProvider(t *testing.T) {
 	original := resolveSubmitTargetFn
 	defer func() { resolveSubmitTargetFn = original }()
 
-	resolveSubmitTargetFn = func(_ context.Context, _, _, _ string) (*models.EligibleTarget, error) {
+	resolveSubmitTargetFn = func(_ context.Context, _, _ string) (*submitWorkspace, error) {
 		t.Fatal("resolveSubmitTarget should not be called with invalid provider")
 		return nil, nil
 	}
@@ -774,7 +774,7 @@ func TestRunRequestSubmit_InvalidProvider(t *testing.T) {
 
 	_, err := executeCommand(root, "request", "submit",
 		"--provider", "gcp",
-		"--target", "Sub", "--role", "Reader",
+		"--target", "Sub", "--role-id", "r1",
 		"--reason", "test", "--date", "2026-04-21",
 		"--timezone", "UTC", "--from", "09:00", "--to", "17:00",
 		"--yes")
@@ -794,12 +794,12 @@ func TestRunRequestSubmit_ConfirmationDenied(t *testing.T) {
 		confirmSubmitFn = originalConfirm
 	}()
 
-	resolveSubmitTargetFn = func(_ context.Context, _, _, _ string) (*models.EligibleTarget, error) {
-		return &models.EligibleTarget{
-			WorkspaceName: "Test Sub",
-			WorkspaceID:   "ws-1",
-			CSP:           models.CSPAzure,
-			RoleInfo:      models.RoleInfo{ID: "role-1", Name: "Contributor"},
+	resolveSubmitTargetFn = func(_ context.Context, _, _ string) (*submitWorkspace, error) {
+		return &submitWorkspace{
+			WorkspaceName:  "Test Sub",
+			WorkspaceID:    "ws-1",
+			CSP:            models.CSPAzure,
+			OrganizationID: "org-1",
 		}, nil
 	}
 	confirmSubmitFn = func() (bool, error) {
@@ -819,7 +819,7 @@ func TestRunRequestSubmit_ConfirmationDenied(t *testing.T) {
 	root.AddCommand(cmd)
 
 	output, err := executeCommand(root, "request", "submit",
-		"--target", "Test Sub", "--role", "Contributor",
+		"--target", "Test Sub", "--role-id", "role-1",
 		"--reason", "test", "--date", "2026-04-21",
 		"--timezone", "UTC", "--from", "09:00", "--to", "17:00")
 	if err != nil {
@@ -838,12 +838,12 @@ func TestRunRequestSubmit_YesFlagSkipsConfirmation(t *testing.T) {
 		confirmSubmitFn = originalConfirm
 	}()
 
-	resolveSubmitTargetFn = func(_ context.Context, _, _, _ string) (*models.EligibleTarget, error) {
-		return &models.EligibleTarget{
-			WorkspaceName: "Test Sub",
-			WorkspaceID:   "ws-1",
-			CSP:           models.CSPAzure,
-			RoleInfo:      models.RoleInfo{ID: "role-1", Name: "Contributor"},
+	resolveSubmitTargetFn = func(_ context.Context, _, _ string) (*submitWorkspace, error) {
+		return &submitWorkspace{
+			WorkspaceName:  "Test Sub",
+			WorkspaceID:    "ws-1",
+			CSP:            models.CSPAzure,
+			OrganizationID: "org-1",
 		}, nil
 	}
 	confirmSubmitFn = func() (bool, error) {
@@ -863,7 +863,7 @@ func TestRunRequestSubmit_YesFlagSkipsConfirmation(t *testing.T) {
 	root.AddCommand(cmd)
 
 	output, err := executeCommand(root, "request", "submit",
-		"--target", "Test Sub", "--role", "Contributor",
+		"--target", "Test Sub", "--role-id", "role-1",
 		"--reason", "test", "--date", "2026-04-21",
 		"--timezone", "UTC", "--from", "09:00", "--to", "17:00",
 		"--yes")
@@ -875,50 +875,38 @@ func TestRunRequestSubmit_YesFlagSkipsConfirmation(t *testing.T) {
 	}
 }
 
-func TestResolveSubmitTarget_PartialTarget(t *testing.T) {
-	original := resolveSubmitTargetFn
-	defer func() { resolveSubmitTargetFn = original }()
-
+func TestDeduplicateWorkspaces(t *testing.T) {
 	targets := []models.EligibleTarget{
-		{WorkspaceName: "Sub A", WorkspaceID: "ws-a", CSP: models.CSPAzure, RoleInfo: models.RoleInfo{ID: "r1", Name: "Reader"}},
-		{WorkspaceName: "Sub A", WorkspaceID: "ws-a", CSP: models.CSPAzure, RoleInfo: models.RoleInfo{ID: "r2", Name: "Contributor"}},
-		{WorkspaceName: "Sub B", WorkspaceID: "ws-b", CSP: models.CSPAzure, RoleInfo: models.RoleInfo{ID: "r3", Name: "Reader"}},
+		{WorkspaceName: "Sub A", WorkspaceID: "ws-a", CSP: models.CSPAzure, WorkspaceType: models.WorkspaceTypeSubscription, RoleInfo: models.RoleInfo{ID: "r1", Name: "Reader"}},
+		{WorkspaceName: "Sub A", WorkspaceID: "ws-a", CSP: models.CSPAzure, WorkspaceType: models.WorkspaceTypeSubscription, RoleInfo: models.RoleInfo{ID: "r2", Name: "Contributor"}},
+		{WorkspaceName: "Sub B", WorkspaceID: "ws-b", CSP: models.CSPAzure, WorkspaceType: models.WorkspaceTypeSubscription, RoleInfo: models.RoleInfo{ID: "r3", Name: "Reader"}},
+		{WorkspaceName: "AWS Account", WorkspaceID: "ws-c", CSP: models.CSPAWS, WorkspaceType: models.WorkspaceTypeAccount, RoleInfo: models.RoleInfo{ID: "r4", Name: "Admin"}},
 	}
 
-	// Single match with --target filters to one result
-	var filtered []models.EligibleTarget
-	for i := range targets {
-		if strings.EqualFold(targets[i].WorkspaceName, "Sub B") {
-			filtered = append(filtered, targets[i])
-		}
+	workspaces := deduplicateWorkspaces(targets)
+	if len(workspaces) != 3 {
+		t.Fatalf("expected 3 unique workspaces, got %d", len(workspaces))
 	}
-	if len(filtered) != 1 {
-		t.Fatalf("expected 1 match for 'Sub B', got %d", len(filtered))
+
+	names := make(map[string]bool)
+	for _, ws := range workspaces {
+		names[ws.WorkspaceName] = true
 	}
-	if filtered[0].RoleInfo.Name != "Reader" {
-		t.Errorf("expected Reader, got %s", filtered[0].RoleInfo.Name)
+	if !names["Sub A"] || !names["Sub B"] || !names["AWS Account"] {
+		t.Errorf("unexpected workspace names: %v", names)
 	}
 }
 
-func TestResolveSubmitTarget_PartialRole(t *testing.T) {
-	targets := []models.EligibleTarget{
-		{WorkspaceName: "Sub A", WorkspaceID: "ws-a", CSP: models.CSPAzure, RoleInfo: models.RoleInfo{ID: "r1", Name: "Reader"}},
-		{WorkspaceName: "Sub A", WorkspaceID: "ws-a", CSP: models.CSPAzure, RoleInfo: models.RoleInfo{ID: "r2", Name: "Contributor"}},
-		{WorkspaceName: "Sub B", WorkspaceID: "ws-b", CSP: models.CSPAzure, RoleInfo: models.RoleInfo{ID: "r3", Name: "Contributor"}},
+func TestFormatWorkspaceOption(t *testing.T) {
+	ws := submitWorkspace{
+		WorkspaceName: "Production Account",
+		WorkspaceType: models.WorkspaceTypeAccount,
+		CSP:           models.CSPAWS,
 	}
-
-	// --role "Reader" should match only Sub A/Reader
-	var filtered []models.EligibleTarget
-	for i := range targets {
-		if strings.EqualFold(targets[i].RoleInfo.Name, "Reader") {
-			filtered = append(filtered, targets[i])
-		}
-	}
-	if len(filtered) != 1 {
-		t.Fatalf("expected 1 match for 'Reader', got %d", len(filtered))
-	}
-	if filtered[0].WorkspaceName != "Sub A" {
-		t.Errorf("expected Sub A, got %s", filtered[0].WorkspaceName)
+	got := formatWorkspaceOption(ws)
+	want := "Account: Production Account (aws)"
+	if got != want {
+		t.Errorf("formatWorkspaceOption() = %q, want %q", got, want)
 	}
 }
 

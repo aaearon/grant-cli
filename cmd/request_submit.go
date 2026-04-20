@@ -35,7 +35,8 @@ func newRequestSubmitCommand(svc accessRequestService) *cobra.Command {
 
 	cmd.Flags().StringP("provider", "p", "", "Cloud provider: azure, aws")
 	cmd.Flags().StringP("target", "t", "", "Target workspace name")
-	cmd.Flags().StringP("role", "r", "", "Role name")
+	cmd.Flags().String("role-id", "", "Role ID to request access for (required)")
+	cmd.Flags().StringP("role", "r", "", "Role name (display only)")
 	cmd.Flags().String("reason", "", "Reason for the request (required)")
 	cmd.Flags().String("priority", "Medium", "Priority: High, Medium, Low")
 	cmd.Flags().String("date", "", "Request date (YYYY-MM-DD)")
@@ -56,6 +57,9 @@ var confirmSubmitFn = confirmSubmit
 // resolveSubmitTargetFn is injectable for testing target resolution.
 var resolveSubmitTargetFn = resolveSubmitTarget
 
+// submitWorkspaceSelectorFn is injectable for testing workspace selection.
+var submitWorkspaceSelectorFn = selectSubmitWorkspace
+
 type submitFields struct {
 	reason   string
 	priority string
@@ -63,6 +67,15 @@ type submitFields struct {
 	timezone string
 	timeFrom string
 	timeTo   string
+}
+
+// submitWorkspace holds deduplicated workspace info derived from eligibility.
+type submitWorkspace struct {
+	WorkspaceID   string
+	WorkspaceName string
+	WorkspaceType models.WorkspaceType
+	CSP           models.CSP
+	OrganizationID string
 }
 
 func resolveLocalTimezone() string {
@@ -212,23 +225,42 @@ func runRequestSubmit(cmd *cobra.Command, svc accessRequestService) error {
 	}
 
 	targetName, _ := cmd.Flags().GetString("target")
+	roleID, _ := cmd.Flags().GetString("role-id")
 	roleName, _ := cmd.Flags().GetString("role")
 
 	ctx, cancel := context.WithTimeout(cmd.Context(), apiTimeout)
 	defer cancel()
 
-	target, err := resolveSubmitTargetFn(ctx, provider, targetName, roleName)
+	workspace, err := resolveSubmitTargetFn(ctx, provider, targetName)
 	if err != nil {
 		return err
 	}
 
+	// Resolve role ID
+	if roleID == "" {
+		if !ui.IsInteractive() {
+			return errors.New("non-interactive mode requires --role-id")
+		}
+		stdio := survey.WithStdio(os.Stdin, os.Stderr, os.Stderr)
+		if err := survey.AskOne(&survey.Input{Message: "Role ID:"}, &roleID,
+			survey.WithValidator(survey.Required), stdio); err != nil {
+			return err
+		}
+	}
+
+	// Resolve role name (optional, defaults to role ID if not provided)
+	if roleName == "" {
+		roleName = roleID
+	}
+
 	// Summary before submission
 	if !isJSONOutput() {
-		fmt.Fprintf(cmd.ErrOrStderr(), "\nTarget:   %s / %s\n", target.WorkspaceName, target.RoleInfo.Name)
-		fmt.Fprintf(cmd.ErrOrStderr(), "Date:     %s\n", fields.date)
-		fmt.Fprintf(cmd.ErrOrStderr(), "Time:     %s – %s (%s)\n", fields.timeFrom, fields.timeTo, fields.timezone)
-		fmt.Fprintf(cmd.ErrOrStderr(), "Priority: %s\n", fields.priority)
-		fmt.Fprintf(cmd.ErrOrStderr(), "Reason:   %s\n\n", fields.reason)
+		fmt.Fprintf(cmd.ErrOrStderr(), "\nWorkspace: %s\n", workspace.WorkspaceName)
+		fmt.Fprintf(cmd.ErrOrStderr(), "Role:      %s (ID: %s)\n", roleName, roleID)
+		fmt.Fprintf(cmd.ErrOrStderr(), "Date:      %s\n", fields.date)
+		fmt.Fprintf(cmd.ErrOrStderr(), "Time:      %s – %s (%s)\n", fields.timeFrom, fields.timeTo, fields.timezone)
+		fmt.Fprintf(cmd.ErrOrStderr(), "Priority:  %s\n", fields.priority)
+		fmt.Fprintf(cmd.ErrOrStderr(), "Reason:    %s\n\n", fields.reason)
 	}
 
 	// Confirmation
@@ -244,9 +276,9 @@ func runRequestSubmit(cmd *cobra.Command, svc accessRequestService) error {
 		}
 	}
 
-	details := buildRequestDetails(target, fields)
+	details := buildRequestDetails(workspace, roleID, roleName, fields)
 
-	log.Info("Submitting access request for %s / %s", target.WorkspaceName, target.RoleInfo.Name)
+	log.Info("Submitting access request for %s / %s", workspace.WorkspaceName, roleName)
 
 	result, err := svc.SubmitRequest(ctx, &wfmodels.SubmitAccessRequest{
 		TargetCategory: "CLOUD_CONSOLE",
@@ -311,7 +343,7 @@ func resolveSubmitFields(cmd *cobra.Command) (*submitFields, error) {
 	return f, nil
 }
 
-func resolveSubmitTarget(ctx context.Context, provider, targetName, roleName string) (*models.EligibleTarget, error) {
+func resolveSubmitTarget(ctx context.Context, provider, targetName string) (*submitWorkspace, error) {
 	_, scaSvc, _, err := bootstrapSCAService()
 	if err != nil {
 		return nil, fmt.Errorf("failed to bootstrap SCA service: %w", err)
@@ -331,82 +363,106 @@ func resolveSubmitTarget(ctx context.Context, provider, targetName, roleName str
 		return nil, fmt.Errorf("failed to fetch eligibility: %w", err)
 	}
 
-	if targetName != "" && roleName != "" {
-		target := findMatchingTarget(targets, targetName, roleName)
-		if target == nil {
-			return nil, fmt.Errorf("no eligible target found matching target=%q role=%q", targetName, roleName)
-		}
-		resolveTargetCSP(target, targets, provider)
-		return target, nil
+	workspaces := deduplicateWorkspaces(targets)
+	if len(workspaces) == 0 {
+		return nil, errors.New("no eligible workspaces found")
 	}
 
-	// Partial --target: filter to matching workspaces
-	if targetName != "" && roleName == "" {
-		var filtered []models.EligibleTarget
-		for i := range targets {
-			if strings.EqualFold(targets[i].WorkspaceName, targetName) {
-				filtered = append(filtered, targets[i])
+	// Non-interactive: match by --target flag
+	if targetName != "" {
+		for i := range workspaces {
+			if strings.EqualFold(workspaces[i].WorkspaceName, targetName) {
+				return &workspaces[i], nil
 			}
 		}
-		if len(filtered) == 0 {
-			return nil, fmt.Errorf("no eligible target found matching target=%q", targetName)
-		}
-		if len(filtered) == 1 {
-			resolveTargetCSP(&filtered[0], targets, provider)
-			return &filtered[0], nil
-		}
-		targets = filtered
+		return nil, fmt.Errorf("no eligible workspace found matching target=%q", targetName)
 	}
 
-	// Partial --role: filter to matching roles
-	if roleName != "" && targetName == "" {
-		var filtered []models.EligibleTarget
-		for i := range targets {
-			if strings.EqualFold(targets[i].RoleInfo.Name, roleName) {
-				filtered = append(filtered, targets[i])
-			}
-		}
-		if len(filtered) == 0 {
-			return nil, fmt.Errorf("no eligible target found matching role=%q", roleName)
-		}
-		if len(filtered) == 1 {
-			resolveTargetCSP(&filtered[0], targets, provider)
-			return &filtered[0], nil
-		}
-		targets = filtered
+	// Single workspace: auto-select
+	if len(workspaces) == 1 {
+		return &workspaces[0], nil
 	}
 
+	// Interactive selection
+	return submitWorkspaceSelectorFn(workspaces)
+}
+
+func selectSubmitWorkspace(workspaces []submitWorkspace) (*submitWorkspace, error) {
 	if !ui.IsInteractive() {
-		return nil, errors.New("non-interactive mode requires --target and --role")
+		return nil, errors.New("non-interactive mode requires --target")
 	}
-	items := buildCloudSelectionItems(targets)
-	sel := &uiUnifiedSelector{}
-	selected, err := sel.SelectItem(items)
+
+	options := make([]string, len(workspaces))
+	for i, ws := range workspaces {
+		options[i] = formatWorkspaceOption(ws)
+	}
+
+	var selected int
+	err := survey.AskOne(&survey.Select{
+		Message: "Select a workspace:",
+		Options: options,
+	}, &selected, survey.WithStdio(os.Stdin, os.Stderr, os.Stderr))
 	if err != nil {
 		return nil, err
 	}
-	resolveTargetCSP(selected.cloud, targets, provider)
-	return selected.cloud, nil
+	return &workspaces[selected], nil
 }
 
-// API submit payload uses camelCase keys (per spec example), not the snake_case
-// form question keys from GET /request-forms.
-func buildRequestDetails(target *models.EligibleTarget, f *submitFields) map[string]interface{} {
-	locationType := string(target.CSP)
-	if target.CSP == models.CSPAzure {
+func formatWorkspaceOption(ws submitWorkspace) string {
+	label := workspaceTypeLabel(ws.WorkspaceType)
+	return fmt.Sprintf("%s: %s (%s)", label, ws.WorkspaceName, strings.ToLower(string(ws.CSP)))
+}
+
+func workspaceTypeLabel(wt models.WorkspaceType) string {
+	switch wt {
+	case models.WorkspaceTypeSubscription:
+		return "Subscription"
+	case models.WorkspaceTypeManagementGroup:
+		return "Management Group"
+	case models.WorkspaceTypeDirectory:
+		return "Directory"
+	case models.WorkspaceTypeAccount:
+		return "Account"
+	default:
+		return string(wt)
+	}
+}
+
+func deduplicateWorkspaces(targets []models.EligibleTarget) []submitWorkspace {
+	seen := make(map[string]bool)
+	var result []submitWorkspace
+	for _, t := range targets {
+		if seen[t.WorkspaceID] {
+			continue
+		}
+		seen[t.WorkspaceID] = true
+		result = append(result, submitWorkspace{
+			WorkspaceID:    t.WorkspaceID,
+			WorkspaceName:  t.WorkspaceName,
+			WorkspaceType:  t.WorkspaceType,
+			CSP:            t.CSP,
+			OrganizationID: t.OrganizationID,
+		})
+	}
+	return result
+}
+
+func buildRequestDetails(ws *submitWorkspace, roleID, roleName string, f *submitFields) map[string]interface{} {
+	locationType := string(ws.CSP)
+	if ws.CSP == models.CSPAzure {
 		locationType = "Azure"
-	} else if target.CSP == models.CSPAWS {
+	} else if ws.CSP == models.CSPAWS {
 		locationType = "AWS"
 	}
 
 	return map[string]interface{}{
 		"locationType":  locationType,
-		"roleId":        target.RoleInfo.ID,
-		"roleName":      target.RoleInfo.Name,
-		"workspaceId":   target.WorkspaceID,
-		"workspaceName": target.WorkspaceName,
-		"workspaceType": string(target.WorkspaceType),
-		"orgId":         target.OrganizationID,
+		"roleId":        roleID,
+		"roleName":      roleName,
+		"workspaceId":   ws.WorkspaceID,
+		"workspaceName": ws.WorkspaceName,
+		"workspaceType": string(ws.WorkspaceType),
+		"orgId":         ws.OrganizationID,
 		"reason":        f.reason,
 		"priority":      f.priority,
 		"requestDate":   f.date,
@@ -455,16 +511,4 @@ func validateSubmitFields(f *submitFields) error {
 	}
 
 	return nil
-}
-
-// buildCloudSelectionItems wraps cloud targets in selectionItems for the unified selector.
-func buildCloudSelectionItems(targets []models.EligibleTarget) []selectionItem {
-	items := make([]selectionItem, len(targets))
-	for i := range targets {
-		items[i] = selectionItem{
-			kind:  selectionCloud,
-			cloud: &targets[i],
-		}
-	}
-	return items
 }
