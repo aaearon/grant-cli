@@ -9,6 +9,15 @@ import (
 	"github.com/aaearon/grant-cli/internal/workflows"
 )
 
+// earlyNonInteractiveCheck fails fast before bootstrap when no requestID is
+// provided and stdin is not a TTY.
+func earlyNonInteractiveCheck(requestID string) error {
+	if requestID == "" && !ui.IsInteractive() {
+		return fmt.Errorf("%w; pass the request ID as a positional argument (run `grant request list` to find it)", ui.ErrNotInteractive)
+	}
+	return nil
+}
+
 // pickerScope describes how to scope the list of requests surfaced in the picker.
 type pickerScope struct {
 	filter      string // OData filter; empty = no filter

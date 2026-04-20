@@ -14,16 +14,19 @@ func newRequestGetCommand(svc accessRequestService) *cobra.Command {
 		Long:  "Get details of an access request. If <requestId> is omitted in a terminal, an interactive picker of your access requests is shown.",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			requestID := ""
+			if len(args) > 0 {
+				requestID = args[0]
+			}
+			if err := earlyNonInteractiveCheck(requestID); err != nil {
+				return err
+			}
 			if svc == nil {
 				bootstrapped, err := bootstrapWorkflowsService()
 				if err != nil {
 					return err
 				}
 				svc = bootstrapped
-			}
-			requestID := ""
-			if len(args) > 0 {
-				requestID = args[0]
 			}
 			if requestID == "" {
 				id, err := resolveRequestIDFn(cmd.Context(), svc, pickerScope{

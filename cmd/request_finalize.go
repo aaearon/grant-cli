@@ -13,6 +13,13 @@ func newRequestApproveCommand(svc accessRequestService) *cobra.Command {
 		Long:  "Approve an access request. If <requestId> is omitted in a terminal, an interactive picker of pending requests assigned to you is shown.",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			requestID := ""
+			if len(args) > 0 {
+				requestID = args[0]
+			}
+			if err := earlyNonInteractiveCheck(requestID); err != nil {
+				return err
+			}
 			if svc == nil {
 				bootstrapped, err := bootstrapWorkflowsService()
 				if err != nil {
@@ -20,11 +27,11 @@ func newRequestApproveCommand(svc accessRequestService) *cobra.Command {
 				}
 				svc = bootstrapped
 			}
-			requestID, err := resolveFinalizeRequestID(cmd, args, svc)
+			id, err := resolveFinalizeRequestID(cmd, args, svc)
 			if err != nil {
 				return err
 			}
-			return runFinalize(cmd, requestID, "APPROVED", svc)
+			return runFinalize(cmd, id, "APPROVED", svc)
 		},
 	}
 
@@ -40,6 +47,13 @@ func newRequestRejectCommand(svc accessRequestService) *cobra.Command {
 		Long:  "Reject an access request. If <requestId> is omitted in a terminal, an interactive picker of pending requests assigned to you is shown.",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			requestID := ""
+			if len(args) > 0 {
+				requestID = args[0]
+			}
+			if err := earlyNonInteractiveCheck(requestID); err != nil {
+				return err
+			}
 			if svc == nil {
 				bootstrapped, err := bootstrapWorkflowsService()
 				if err != nil {
@@ -47,11 +61,11 @@ func newRequestRejectCommand(svc accessRequestService) *cobra.Command {
 				}
 				svc = bootstrapped
 			}
-			requestID, err := resolveFinalizeRequestID(cmd, args, svc)
+			id, err := resolveFinalizeRequestID(cmd, args, svc)
 			if err != nil {
 				return err
 			}
-			return runFinalize(cmd, requestID, "REJECTED", svc)
+			return runFinalize(cmd, id, "REJECTED", svc)
 		},
 	}
 

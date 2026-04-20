@@ -126,6 +126,7 @@ func stubResolver(t *testing.T, id string, err error) *struct {
 }
 
 func TestRequestCancel_PickerFallback(t *testing.T) {
+	withInteractiveTTY(t, true)
 	svc := &mockAccessRequestService{
 		cancelResult: &wfmodels.AccessRequest{RequestID: "picked-id", RequestResult: wfmodels.RequestResultCanceled},
 	}
@@ -154,6 +155,7 @@ func TestRequestCancel_PickerFallback(t *testing.T) {
 }
 
 func TestRequestApprove_PickerFallback(t *testing.T) {
+	withInteractiveTTY(t, true)
 	svc := &mockAccessRequestService{
 		finalizeResult: &wfmodels.AccessRequest{RequestID: "picked-id", RequestResult: wfmodels.RequestResultApproved},
 	}
@@ -182,6 +184,7 @@ func TestRequestApprove_PickerFallback(t *testing.T) {
 }
 
 func TestRequestReject_PickerFallback(t *testing.T) {
+	withInteractiveTTY(t, true)
 	svc := &mockAccessRequestService{
 		finalizeResult: &wfmodels.AccessRequest{RequestID: "picked-id", RequestResult: wfmodels.RequestResultRejected},
 	}
@@ -204,6 +207,7 @@ func TestRequestReject_PickerFallback(t *testing.T) {
 }
 
 func TestRequestGet_PickerFallback(t *testing.T) {
+	withInteractiveTTY(t, true)
 	svc := &mockAccessRequestService{
 		getResult: &wfmodels.AccessRequest{
 			RequestID:     "picked-id",
@@ -237,6 +241,7 @@ func TestRequestGet_PickerFallback(t *testing.T) {
 }
 
 func TestRequestCancel_PickerError(t *testing.T) {
+	withInteractiveTTY(t, true)
 	svc := &mockAccessRequestService{}
 	stubResolver(t, "", errors.New("no open requests"))
 
@@ -250,5 +255,52 @@ func TestRequestCancel_PickerError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "no open requests") {
 		t.Errorf("expected picker error, got %v", err)
+	}
+}
+
+func TestEarlyNonInteractiveCheck_NoID(t *testing.T) {
+	withInteractiveTTY(t, false)
+	err := earlyNonInteractiveCheck("")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !errors.Is(err, ui.ErrNotInteractive) {
+		t.Errorf("expected ErrNotInteractive, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "grant request list") {
+		t.Errorf("expected hint to 'grant request list', got %v", err)
+	}
+}
+
+func TestEarlyNonInteractiveCheck_WithID(t *testing.T) {
+	withInteractiveTTY(t, false)
+	if err := earlyNonInteractiveCheck("some-id"); err != nil {
+		t.Errorf("expected nil when ID provided, got %v", err)
+	}
+}
+
+func TestEarlyNonInteractiveCheck_Interactive(t *testing.T) {
+	withInteractiveTTY(t, true)
+	if err := earlyNonInteractiveCheck(""); err != nil {
+		t.Errorf("expected nil in interactive mode, got %v", err)
+	}
+}
+
+// TestRequestCancel_NonInteractiveNoArgs verifies bootstrap is not reached when
+// stdin is non-interactive and no requestID is provided.
+func TestRequestCancel_NonInteractiveNoArgs(t *testing.T) {
+	withInteractiveTTY(t, false)
+
+	// Pass nil svc so bootstrap would be attempted if early check is bypassed.
+	cmd := newRequestCancelCommand(nil)
+	root := newTestRootCommand()
+	root.AddCommand(cmd)
+
+	_, err := executeCommand(root, "cancel")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !errors.Is(err, ui.ErrNotInteractive) {
+		t.Errorf("expected ErrNotInteractive (bootstrap not reached), got %v", err)
 	}
 }

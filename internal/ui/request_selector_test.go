@@ -78,6 +78,22 @@ func TestSelectRequest_NonInteractive(t *testing.T) {
 	}
 }
 
+func TestBuildRequestOptions_SortedCorrectlyWithOffsets(t *testing.T) {
+	// "2026-04-20T10:00:00+02:00" == 08:00 UTC — earlier than 09:30Z
+	// String sort would put +02:00 after Z; time sort must put 09:30Z first.
+	reqs := []wfmodels.AccessRequest{
+		{RequestID: "offset", CreatedAt: "2026-04-20T10:00:00+02:00"}, // 08:00 UTC
+		{RequestID: "utc", CreatedAt: "2026-04-20T09:30:00Z"},          // 09:30 UTC (more recent)
+	}
+	_, sorted := BuildRequestOptions(reqs)
+	if sorted[0].RequestID != "utc" {
+		t.Errorf("expected utc (09:30Z) first, got %q", sorted[0].RequestID)
+	}
+	if sorted[1].RequestID != "offset" {
+		t.Errorf("expected offset (08:00 UTC) second, got %q", sorted[1].RequestID)
+	}
+}
+
 func TestSelectRequest_EmptyList(t *testing.T) {
 	orig := IsTerminalFunc
 	defer func() { IsTerminalFunc = orig }()

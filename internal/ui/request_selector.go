@@ -55,6 +55,11 @@ func BuildRequestOptions(requests []wfmodels.AccessRequest) ([]string, []wfmodel
 	sorted := make([]wfmodels.AccessRequest, len(requests))
 	copy(sorted, requests)
 	sort.SliceStable(sorted, func(i, j int) bool {
+		ti, erri := time.Parse(time.RFC3339Nano, sorted[i].CreatedAt)
+		tj, errj := time.Parse(time.RFC3339Nano, sorted[j].CreatedAt)
+		if erri == nil && errj == nil {
+			return ti.After(tj)
+		}
 		return sorted[i].CreatedAt > sorted[j].CreatedAt
 	})
 	opts := make([]string, len(sorted))
