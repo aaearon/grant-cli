@@ -501,7 +501,7 @@ func TestRunRequestSubmit_NonInteractive(t *testing.T) {
 	original := resolveSubmitTargetFn
 	defer func() { resolveSubmitTargetFn = original }()
 
-	resolveSubmitTargetFn = func(_ context.Context, _, _ string) (*submitWorkspace, error) {
+	resolveSubmitTargetFn = func(_ context.Context, _, _ string, _ bool) (*submitWorkspace, error) {
 		return &submitWorkspace{
 			WorkspaceName:  "Test Sub",
 			WorkspaceID:    "ws-1",
@@ -539,7 +539,7 @@ func TestRunRequestSubmit_JSONOutput(t *testing.T) {
 	original := resolveSubmitTargetFn
 	defer func() { resolveSubmitTargetFn = original }()
 
-	resolveSubmitTargetFn = func(_ context.Context, _, _ string) (*submitWorkspace, error) {
+	resolveSubmitTargetFn = func(_ context.Context, _, _ string, _ bool) (*submitWorkspace, error) {
 		return &submitWorkspace{
 			WorkspaceName:  "Test Sub",
 			WorkspaceID:    "ws-1",
@@ -586,7 +586,7 @@ func TestRunRequestSubmit_ServiceError(t *testing.T) {
 	original := resolveSubmitTargetFn
 	defer func() { resolveSubmitTargetFn = original }()
 
-	resolveSubmitTargetFn = func(_ context.Context, _, _ string) (*submitWorkspace, error) {
+	resolveSubmitTargetFn = func(_ context.Context, _, _ string, _ bool) (*submitWorkspace, error) {
 		return &submitWorkspace{
 			WorkspaceName:  "Sub",
 			WorkspaceID:    "ws-1",
@@ -620,7 +620,7 @@ func TestRunRequestSubmit_MissingFlags_NonInteractive(t *testing.T) {
 	original := resolveSubmitTargetFn
 	defer func() { resolveSubmitTargetFn = original }()
 
-	resolveSubmitTargetFn = func(_ context.Context, _, _ string) (*submitWorkspace, error) {
+	resolveSubmitTargetFn = func(_ context.Context, _, _ string, _ bool) (*submitWorkspace, error) {
 		return &submitWorkspace{
 			WorkspaceName:  "Sub",
 			WorkspaceID:    "ws-1",
@@ -646,31 +646,16 @@ func TestRunRequestSubmit_MissingFlags_NonInteractive(t *testing.T) {
 }
 
 func TestBuildOnDemandRequest_UnsupportedType(t *testing.T) {
-	tests := []struct {
-		name string
-		wt   models.WorkspaceType
-	}{
-		{"subscription", models.WorkspaceTypeSubscription},
-		{"resource_group", models.WorkspaceType("RESOURCE_GROUP")},
-		{"resource", models.WorkspaceType("RESOURCE")},
+	_, err := buildOnDemandRequest(&submitWorkspace{
+		WorkspaceID:    "ws-1",
+		WorkspaceType:  models.WorkspaceType("SOMETHING_NEW"),
+		OrganizationID: "org-1",
+	})
+	if err == nil {
+		t.Fatal("expected error for unknown workspace type")
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := buildOnDemandRequest(&submitWorkspace{
-				WorkspaceID:    "ws-1",
-				WorkspaceType:  tt.wt,
-				OrganizationID: "org-1",
-			})
-			if err == nil {
-				t.Fatalf("expected error for %s", tt.name)
-			}
-			if !strings.Contains(err.Error(), "not supported") {
-				t.Errorf("error should mention not supported: %v", err)
-			}
-			if !strings.Contains(err.Error(), "--role-id") {
-				t.Errorf("error should point to --role-id: %v", err)
-			}
-		})
+	if !strings.Contains(err.Error(), "--role-id") {
+		t.Errorf("error should point to --role-id: %v", err)
 	}
 }
 
@@ -686,6 +671,9 @@ func TestBuildOnDemandRequest_SupportedTypes(t *testing.T) {
 		{"directory", models.WorkspaceType("DIRECTORY"), "dir-1", "dir-1", "azure_ad", 0},
 		{"account", models.WorkspaceType("ACCOUNT"), "123", "123", "aws", 0},
 		{"management_group", models.WorkspaceType("MANAGEMENT_GROUP"), "providers/Microsoft.Management/managementGroups/root", "dir-456", "azure_resource", 2},
+		{"subscription", models.WorkspaceType("SUBSCRIPTION"), "sub-1", "dir-456", "azure_resource", 2},
+		{"resource_group", models.WorkspaceType("RESOURCE_GROUP"), "rg-1", "dir-456", "azure_resource", 2},
+		{"resource", models.WorkspaceType("RESOURCE"), "res-1", "dir-456", "azure_resource", 2},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -718,7 +706,7 @@ func TestRunRequestSubmit_InteractiveRoleSelection(t *testing.T) {
 	}()
 	ui.IsTerminalFunc = func(fd uintptr) bool { return true }
 
-	resolveSubmitTargetFn = func(_ context.Context, _, _ string) (*submitWorkspace, error) {
+	resolveSubmitTargetFn = func(_ context.Context, _, _ string, _ bool) (*submitWorkspace, error) {
 		return &submitWorkspace{
 			WorkspaceName:  "Dir",
 			WorkspaceID:    "dir-1",
@@ -727,7 +715,7 @@ func TestRunRequestSubmit_InteractiveRoleSelection(t *testing.T) {
 			OrganizationID: "dir-1",
 		}, nil
 	}
-	resolveRoleFn = func(_ context.Context, ws *submitWorkspace) (string, string, error) {
+	resolveRoleFn = func(_ context.Context, ws *submitWorkspace, _ bool) (string, string, error) {
 		if ws.WorkspaceID != "dir-1" {
 			t.Errorf("expected ws dir-1, got %s", ws.WorkspaceID)
 		}
@@ -878,7 +866,7 @@ func TestRunRequestSubmit_InvalidProvider(t *testing.T) {
 	original := resolveSubmitTargetFn
 	defer func() { resolveSubmitTargetFn = original }()
 
-	resolveSubmitTargetFn = func(_ context.Context, _, _ string) (*submitWorkspace, error) {
+	resolveSubmitTargetFn = func(_ context.Context, _, _ string, _ bool) (*submitWorkspace, error) {
 		t.Fatal("resolveSubmitTarget should not be called with invalid provider")
 		return nil, nil
 	}
@@ -910,7 +898,7 @@ func TestRunRequestSubmit_ConfirmationDenied(t *testing.T) {
 		confirmSubmitFn = originalConfirm
 	}()
 
-	resolveSubmitTargetFn = func(_ context.Context, _, _ string) (*submitWorkspace, error) {
+	resolveSubmitTargetFn = func(_ context.Context, _, _ string, _ bool) (*submitWorkspace, error) {
 		return &submitWorkspace{
 			WorkspaceName:  "Test Sub",
 			WorkspaceID:    "ws-1",
@@ -954,7 +942,7 @@ func TestRunRequestSubmit_YesFlagSkipsConfirmation(t *testing.T) {
 		confirmSubmitFn = originalConfirm
 	}()
 
-	resolveSubmitTargetFn = func(_ context.Context, _, _ string) (*submitWorkspace, error) {
+	resolveSubmitTargetFn = func(_ context.Context, _, _ string, _ bool) (*submitWorkspace, error) {
 		return &submitWorkspace{
 			WorkspaceName:  "Test Sub",
 			WorkspaceID:    "ws-1",

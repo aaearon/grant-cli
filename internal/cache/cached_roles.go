@@ -15,29 +15,35 @@ type OnDemandRolesLister interface {
 
 // CachedRolesLister decorates an OnDemandRolesLister with file-based caching.
 type CachedRolesLister struct {
-	inner OnDemandRolesLister
-	store *Store
-	log   Logger
+	inner   OnDemandRolesLister
+	store   *Store
+	refresh bool
+	log     Logger
 }
 
 // NewCachedRolesLister creates a caching decorator for on-demand role discovery.
-func NewCachedRolesLister(inner OnDemandRolesLister, store *Store, log Logger) *CachedRolesLister {
+// When refresh is true, the cache read is bypassed but the API response is still cached.
+func NewCachedRolesLister(inner OnDemandRolesLister, store *Store, refresh bool, log Logger) *CachedRolesLister {
 	if log == nil {
 		log = nopLogger{}
 	}
-	return &CachedRolesLister{inner: inner, store: store, log: log}
+	return &CachedRolesLister{inner: inner, store: store, refresh: refresh, log: log}
 }
 
 // ListOnDemandResources checks the cache first, then falls through to the inner lister.
 func (c *CachedRolesLister) ListOnDemandResources(ctx context.Context, req scamodels.OnDemandRequest) ([]scamodels.OnDemandResource, error) {
 	key := onDemandRolesCacheKey(req.PlatformName, req.WorkspaceID)
 
-	var cached []scamodels.OnDemandResource
-	if Get(c.store, key, &cached) {
-		c.log.Info("Cache hit for on-demand roles (%s, %d roles)", req.PlatformName, len(cached))
-		return cached, nil
+	if c.refresh {
+		c.log.Info("Cache refresh requested for on-demand roles (%s), bypassing cache", req.PlatformName)
+	} else {
+		var cached []scamodels.OnDemandResource
+		if Get(c.store, key, &cached) {
+			c.log.Info("Cache hit for on-demand roles (%s, %d roles)", req.PlatformName, len(cached))
+			return cached, nil
+		}
+		c.log.Info("Cache miss for on-demand roles (%s), fetching from API", req.PlatformName)
 	}
-	c.log.Info("Cache miss for on-demand roles (%s), fetching from API", req.PlatformName)
 
 	roles, err := c.inner.ListOnDemandResources(ctx, req)
 	if err != nil {

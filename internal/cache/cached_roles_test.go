@@ -30,7 +30,7 @@ func newTestStore(t *testing.T) *Store {
 
 func TestCachedRolesLister_MissThenHit(t *testing.T) {
 	fake := &fakeRolesLister{roles: []scamodels.OnDemandResource{{ResourceID: "r1", ResourceName: "Role 1"}}}
-	cached := NewCachedRolesLister(fake, newTestStore(t), nil)
+	cached := NewCachedRolesLister(fake, newTestStore(t), false, nil)
 
 	req := scamodels.OnDemandRequest{WorkspaceID: "ws-1", PlatformName: "azure_ad", OrgID: "ws-1"}
 
@@ -56,7 +56,7 @@ func TestCachedRolesLister_MissThenHit(t *testing.T) {
 
 func TestCachedRolesLister_DifferentWorkspacesDistinct(t *testing.T) {
 	fake := &fakeRolesLister{roles: []scamodels.OnDemandResource{{ResourceID: "r1"}}}
-	cached := NewCachedRolesLister(fake, newTestStore(t), nil)
+	cached := NewCachedRolesLister(fake, newTestStore(t), false, nil)
 
 	reqA := scamodels.OnDemandRequest{WorkspaceID: "ws-A", PlatformName: "azure_ad", OrgID: "ws-A"}
 	reqB := scamodels.OnDemandRequest{WorkspaceID: "ws-B", PlatformName: "azure_ad", OrgID: "ws-B"}
@@ -74,7 +74,7 @@ func TestCachedRolesLister_DifferentWorkspacesDistinct(t *testing.T) {
 
 func TestCachedRolesLister_DifferentPlatformsDistinct(t *testing.T) {
 	fake := &fakeRolesLister{roles: []scamodels.OnDemandResource{{ResourceID: "r1"}}}
-	cached := NewCachedRolesLister(fake, newTestStore(t), nil)
+	cached := NewCachedRolesLister(fake, newTestStore(t), false, nil)
 
 	reqAD := scamodels.OnDemandRequest{WorkspaceID: "same-id", PlatformName: "azure_ad", OrgID: "same-id"}
 	reqAWS := scamodels.OnDemandRequest{WorkspaceID: "same-id", PlatformName: "aws", OrgID: "same-id"}
@@ -92,12 +92,47 @@ func TestCachedRolesLister_DifferentPlatformsDistinct(t *testing.T) {
 
 func TestCachedRolesLister_InnerError(t *testing.T) {
 	fake := &fakeRolesLister{err: errors.New("api failure")}
-	cached := NewCachedRolesLister(fake, newTestStore(t), nil)
+	cached := NewCachedRolesLister(fake, newTestStore(t), false, nil)
 
 	req := scamodels.OnDemandRequest{WorkspaceID: "ws-1", PlatformName: "aws", OrgID: "ws-1"}
 	_, err := cached.ListOnDemandResources(t.Context(), req)
 	if err == nil {
 		t.Fatal("expected error from inner")
+	}
+}
+
+func TestCachedRolesLister_Refresh(t *testing.T) {
+	fake := &fakeRolesLister{roles: []scamodels.OnDemandResource{{ResourceID: "r1", ResourceName: "Role 1"}}}
+	store := newTestStore(t)
+	req := scamodels.OnDemandRequest{WorkspaceID: "ws-1", PlatformName: "azure_ad", OrgID: "ws-1"}
+
+	warm := NewCachedRolesLister(fake, store, false, nil)
+	if _, err := warm.ListOnDemandResources(t.Context(), req); err != nil {
+		t.Fatalf("prewarm: %v", err)
+	}
+	if fake.callCount != 1 {
+		t.Fatalf("prewarm: expected 1 inner call, got %d", fake.callCount)
+	}
+
+	refreshed := NewCachedRolesLister(fake, store, true, nil)
+	roles, err := refreshed.ListOnDemandResources(t.Context(), req)
+	if err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	if len(roles) != 1 {
+		t.Errorf("refresh: expected 1 role, got %d", len(roles))
+	}
+	if fake.callCount != 2 {
+		t.Errorf("refresh: expected inner called again, got callCount=%d", fake.callCount)
+	}
+
+	// Cache should have been rewritten — a non-refresh lister reads it without re-calling inner.
+	hit := NewCachedRolesLister(fake, store, false, nil)
+	if _, err := hit.ListOnDemandResources(t.Context(), req); err != nil {
+		t.Fatalf("hit: %v", err)
+	}
+	if fake.callCount != 2 {
+		t.Errorf("hit after refresh: expected cache hit, got callCount=%d", fake.callCount)
 	}
 }
 
