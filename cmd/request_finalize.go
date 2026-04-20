@@ -8,9 +8,10 @@ import (
 
 func newRequestApproveCommand(svc accessRequestService) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "approve <requestId>",
+		Use:   "approve [requestId]",
 		Short: "Approve an access request",
-		Args:  cobra.ExactArgs(1),
+		Long:  "Approve an access request. If <requestId> is omitted in a terminal, an interactive picker of pending requests assigned to you is shown.",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if svc == nil {
 				bootstrapped, err := bootstrapWorkflowsService()
@@ -19,7 +20,11 @@ func newRequestApproveCommand(svc accessRequestService) *cobra.Command {
 				}
 				svc = bootstrapped
 			}
-			return runFinalize(cmd, args[0], "APPROVED", svc)
+			requestID, err := resolveFinalizeRequestID(cmd, args, svc)
+			if err != nil {
+				return err
+			}
+			return runFinalize(cmd, requestID, "APPROVED", svc)
 		},
 	}
 
@@ -30,9 +35,10 @@ func newRequestApproveCommand(svc accessRequestService) *cobra.Command {
 
 func newRequestRejectCommand(svc accessRequestService) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "reject <requestId>",
+		Use:   "reject [requestId]",
 		Short: "Reject an access request",
-		Args:  cobra.ExactArgs(1),
+		Long:  "Reject an access request. If <requestId> is omitted in a terminal, an interactive picker of pending requests assigned to you is shown.",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if svc == nil {
 				bootstrapped, err := bootstrapWorkflowsService()
@@ -41,13 +47,30 @@ func newRequestRejectCommand(svc accessRequestService) *cobra.Command {
 				}
 				svc = bootstrapped
 			}
-			return runFinalize(cmd, args[0], "REJECTED", svc)
+			requestID, err := resolveFinalizeRequestID(cmd, args, svc)
+			if err != nil {
+				return err
+			}
+			return runFinalize(cmd, requestID, "REJECTED", svc)
 		},
 	}
 
 	cmd.Flags().String("reason", "", "Reason for rejection")
 
 	return cmd
+}
+
+// resolveFinalizeRequestID returns the positional requestId, or falls back to
+// the interactive picker scoped to approver-pending requests.
+func resolveFinalizeRequestID(cmd *cobra.Command, args []string, svc accessRequestService) (string, error) {
+	if len(args) > 0 && args[0] != "" {
+		return args[0], nil
+	}
+	return resolveRequestIDFn(cmd.Context(), svc, pickerScope{
+		filter:      "(requestState eq PENDING)",
+		requestRole: "APPROVER",
+		emptyMsg:    "pending requests assigned to you",
+	})
 }
 
 func runFinalize(cmd *cobra.Command, requestID, decision string, svc accessRequestService) error {

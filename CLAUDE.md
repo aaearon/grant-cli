@@ -78,9 +78,10 @@ Custom `SCAAccessService` follows SDK conventions:
   - Interactive role selection supports `DIRECTORY`, `ACCOUNT` (AWS), and `MANAGEMENT_GROUP` workspaces; other Azure-resource scopes (subscription, resource group, resource) require `--role-id`
   - On-demand role cache: `~/.grant/cache/ondemand_roles_<platform>_<sha256(workspaceID)>.json` (4h TTL); no `--refresh` flag — delete manually to invalidate
 - `grant request list` — list access requests; flags: `--state`, `--result`, `--priority`, `--role` (CREATOR/APPROVER), `--search`, `--sort`, `--desc`
-- `grant request get <id>` — get full request details
-- `grant request cancel <id>` — cancel an open request; optional `--reason`
-- `grant request approve <id>` / `grant request reject <id>` — finalize a request; optional `--reason`
+- `grant request get [id]` — get full request details; omitting `<id>` in a TTY opens a fuzzy-filterable picker of all your requests
+- `grant request cancel [id]` — cancel an open request; optional `--reason`. Omitting `<id>` in a TTY opens a picker scoped to STARTING/RUNNING/PENDING requests you created (role=CREATOR)
+- `grant request approve [id]` / `grant request reject [id]` — finalize a request; optional `--reason`. Omitting `<id>` in a TTY opens a picker scoped to PENDING requests assigned to you (role=APPROVER)
+- Request picker: `internal/ui/request_selector.go` mirrors the role-selector Format/Build/Select quartet; `resolveRequestIDFn` in `cmd/request_picker.go` is injectable for tests. Non-TTY invocation without `<id>` returns `ErrNotInteractive` with a hint to run `grant request list`
 - `grant update` — self-update binary via GitHub Releases (`rhysd/go-github-selfupdate`); guards against dev builds
 - `--groups` flag on root command shows only Entra ID groups in the interactive selector
 - `--group` / `-g` flag on root command for direct group membership elevation (`grant --group "Cloud Admins"`)

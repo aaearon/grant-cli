@@ -9,9 +9,10 @@ import (
 
 func newRequestGetCommand(svc accessRequestService) *cobra.Command {
 	return &cobra.Command{
-		Use:   "get <requestId>",
+		Use:   "get [requestId]",
 		Short: "Get details of an access request",
-		Args:  cobra.ExactArgs(1),
+		Long:  "Get details of an access request. If <requestId> is omitted in a terminal, an interactive picker of your access requests is shown.",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if svc == nil {
 				bootstrapped, err := bootstrapWorkflowsService()
@@ -20,7 +21,20 @@ func newRequestGetCommand(svc accessRequestService) *cobra.Command {
 				}
 				svc = bootstrapped
 			}
-			return runRequestGet(cmd, args[0], svc)
+			requestID := ""
+			if len(args) > 0 {
+				requestID = args[0]
+			}
+			if requestID == "" {
+				id, err := resolveRequestIDFn(cmd.Context(), svc, pickerScope{
+					emptyMsg: "access requests",
+				})
+				if err != nil {
+					return err
+				}
+				requestID = id
+			}
+			return runRequestGet(cmd, requestID, svc)
 		},
 	}
 }

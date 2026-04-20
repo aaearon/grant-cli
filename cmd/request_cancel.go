@@ -8,9 +8,10 @@ import (
 
 func newRequestCancelCommand(svc accessRequestService) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "cancel <requestId>",
+		Use:   "cancel [requestId]",
 		Short: "Cancel an open access request",
-		Args:  cobra.ExactArgs(1),
+		Long:  "Cancel an open access request. If <requestId> is omitted in a terminal, an interactive picker of open requests you created is shown.",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if svc == nil {
 				bootstrapped, err := bootstrapWorkflowsService()
@@ -19,7 +20,22 @@ func newRequestCancelCommand(svc accessRequestService) *cobra.Command {
 				}
 				svc = bootstrapped
 			}
-			return runRequestCancel(cmd, args[0], svc)
+			requestID := ""
+			if len(args) > 0 {
+				requestID = args[0]
+			}
+			if requestID == "" {
+				id, err := resolveRequestIDFn(cmd.Context(), svc, pickerScope{
+					filter:      "((requestState eq STARTING) or (requestState eq RUNNING) or (requestState eq PENDING))",
+					requestRole: "CREATOR",
+					emptyMsg:    "open requests you created",
+				})
+				if err != nil {
+					return err
+				}
+				requestID = id
+			}
+			return runRequestCancel(cmd, requestID, svc)
 		},
 	}
 

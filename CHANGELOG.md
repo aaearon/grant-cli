@@ -19,6 +19,7 @@ All notable changes to this project will be documented in this file.
   - Supported workspace types: `DIRECTORY` (azure_ad), `ACCOUNT` (aws), `MANAGEMENT_GROUP` (azure_resource)
   - Other Azure-resource scopes (subscription, resource group, resource) still require `--role-id` until validated
   - Roles cached in `~/.grant/cache/ondemand_roles_<platform>_<sha256(workspaceID)>.json` (4h TTL)
+- Interactive request picker for `grant request cancel`, `approve`, `reject`, and `get` — omit the `<requestId>` positional argument in a terminal to pick from a scoped, fuzzy-filterable list (cancel: open requests you created; approve/reject: pending requests assigned to you; get: any request). Non-TTY invocation still requires the positional argument.
 
 ## [0.6.1] - 2026-04-08
 
