@@ -64,3 +64,32 @@ type favoriteOutput struct {
 	Group       string `json:"group,omitempty"`
 	DirectoryID string `json:"directoryId,omitempty"`
 }
+
+// accessRequestOutput is the JSON representation of an access request.
+type accessRequestOutput struct {
+	RequestID          string `json:"requestId"`
+	TargetCategory     string `json:"targetCategory"`
+	State              string `json:"state"`
+	Result             string `json:"result"`
+	Priority           string `json:"priority,omitempty"`
+	Reason             string `json:"reason,omitempty"`
+	Provider           string `json:"provider,omitempty"`
+	Target             string `json:"target,omitempty"`
+	Role               string `json:"role,omitempty"`
+	RequestDate        string `json:"requestDate,omitempty"`
+	Timezone           string `json:"timezone,omitempty"`
+	TimeFrom           string `json:"timeFrom,omitempty"`
+	TimeTo             string `json:"timeTo,omitempty"`
+	FinalizationReason string `json:"finalizationReason,omitempty"`
+	RequestLink        string `json:"requestLink,omitempty"`
+	CreatedBy          string `json:"createdBy"`
+	CreatedAt          string `json:"createdAt"`
+	UpdatedBy          string `json:"updatedBy"`
+	UpdatedAt          string `json:"updatedAt"`
+}
+
+// accessRequestListOutput is the JSON representation of a list of access requests.
+type accessRequestListOutput struct {
+	Requests   []accessRequestOutput `json:"requests"`
+	TotalCount int                   `json:"totalCount"`
+}

@@ -12,5 +12,6 @@ func init() {
 		NewRevokeCommand(),
 		NewUpdateCommand(),
 		NewListCommand(),
+		NewRequestCommand(),
 	)
 }

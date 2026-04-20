@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"github.com/aaearon/grant-cli/internal/sca/models"
+	"github.com/aaearon/grant-cli/internal/workflows"
+	wfmodels "github.com/aaearon/grant-cli/internal/workflows/models"
 	"github.com/blang/semver"
 	sdkmodels "github.com/cyberark/idsec-sdk-golang/pkg/models"
 	authmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
@@ -89,3 +91,13 @@ type unifiedSelector interface {
 type selfUpdater interface {
 	UpdateSelf(current semver.Version, slug string) (*selfupdate.Release, error)
 }
+
+// accessRequestService interface for access request operations
+type accessRequestService interface {
+	ListRequests(ctx context.Context, params workflows.ListRequestsParams) ([]wfmodels.AccessRequest, int, error)
+	GetRequest(ctx context.Context, requestID string) (*wfmodels.AccessRequest, error)
+	SubmitRequest(ctx context.Context, req *wfmodels.SubmitAccessRequest) (*wfmodels.AccessRequest, error)
+	CancelRequest(ctx context.Context, requestID string, reason *string) (*wfmodels.AccessRequest, error)
+	FinalizeRequest(ctx context.Context, requestID string, result string, reason *string) (*wfmodels.AccessRequest, error)
+}
+

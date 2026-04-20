@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `grant request` command group for managing access requests through the approval workflow
+  - `grant request submit` — submit a new access request with target selection from eligibility, reason, priority, date/time scheduling
+  - `grant request list` — list access requests with filtering (state, result, priority, role), sorting, and free-text search
+  - `grant request get <id>` — view full details of a specific access request
+  - `grant request cancel <id>` — cancel an open request with optional reason
+  - `grant request approve <id>` — approve a pending request with optional reason
+  - `grant request reject <id>` — reject a pending request with optional reason
+- All `grant request` subcommands support `--output json` for machine-readable output
+- New `internal/workflows/` package implementing the CyberArk Access Requests API client (`/api/workflows/requests`)
+
 ## [0.6.1] - 2026-04-08
 
 ### Fixed

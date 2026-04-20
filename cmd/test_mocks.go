@@ -6,6 +6,8 @@ import (
 	"sync"
 
 	"github.com/aaearon/grant-cli/internal/sca/models"
+	"github.com/aaearon/grant-cli/internal/workflows"
+	wfmodels "github.com/aaearon/grant-cli/internal/workflows/models"
 	"github.com/blang/semver"
 	sdkmodels "github.com/cyberark/idsec-sdk-golang/pkg/models"
 	authmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
@@ -236,6 +238,41 @@ func (m *mockSelfUpdater) UpdateSelf(current semver.Version, slug string) (*self
 		return m.updateSelfFn(current, slug)
 	}
 	return m.release, m.updateErr
+}
+
+// mockAccessRequestService implements accessRequestService for testing
+type mockAccessRequestService struct {
+	listItems      []wfmodels.AccessRequest
+	listTotalCount int
+	listErr        error
+	getResult      *wfmodels.AccessRequest
+	getErr         error
+	submitResult   *wfmodels.AccessRequest
+	submitErr      error
+	cancelResult   *wfmodels.AccessRequest
+	cancelErr      error
+	finalizeResult *wfmodels.AccessRequest
+	finalizeErr    error
+}
+
+func (m *mockAccessRequestService) ListRequests(_ context.Context, _ workflows.ListRequestsParams) ([]wfmodels.AccessRequest, int, error) {
+	return m.listItems, m.listTotalCount, m.listErr
+}
+
+func (m *mockAccessRequestService) GetRequest(_ context.Context, _ string) (*wfmodels.AccessRequest, error) {
+	return m.getResult, m.getErr
+}
+
+func (m *mockAccessRequestService) SubmitRequest(_ context.Context, _ *wfmodels.SubmitAccessRequest) (*wfmodels.AccessRequest, error) {
+	return m.submitResult, m.submitErr
+}
+
+func (m *mockAccessRequestService) CancelRequest(_ context.Context, _ string, _ *string) (*wfmodels.AccessRequest, error) {
+	return m.cancelResult, m.cancelErr
+}
+
+func (m *mockAccessRequestService) FinalizeRequest(_ context.Context, _, _ string, _ *string) (*wfmodels.AccessRequest, error) {
+	return m.finalizeResult, m.finalizeErr
 }
 
 // countingEligibilityLister wraps an eligibilityLister and counts calls per CSP.

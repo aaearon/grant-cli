@@ -44,6 +44,22 @@ Custom `SCAAccessService` follows SDK conventions:
   - `POST /api/access/elevate/groups` — request group membership elevation (response wrapped in `response` key, same as cloud elevation)
 - **Headers:** `Authorization: Bearer {jwt}`, `X-API-Version: 2.0`, `Content-Type: application/json`
 
+## Access Requests API (Workflows)
+- **Base URL:** `https://{subdomain}.uar.{platform_domain}/api`
+- **Package:** `internal/workflows/` — `AccessRequestService` (mirrors SCA service pattern with ISP client for "uar" service)
+- **Models:** `internal/workflows/models/` — `AccessRequest`, `RequestState`, `RequestResult`, `SubmitAccessRequest`, `CancelAccessRequest`, `FinalizeAccessRequest`, `RequestFormResponse`
+- **Endpoints:**
+  - `GET /api/workflows/request-forms` — get form structure for target category + request type
+  - `GET /api/workflows/requests` — list access requests (offset/limit pagination, filter/sort/freeText)
+  - `GET /api/workflows/requests/{requestId}` — get single request details
+  - `POST /api/workflows/requests` — submit new access request
+  - `POST /api/workflows/requests/{requestId}/cancel` — cancel an open request
+  - `POST /api/workflows/requests/{requestId}/finalize` — approve or reject a request
+- **Pagination:** offset/limit (not nextToken); `ListRequests` fetches all pages automatically
+- **DI interfaces:** `accessRequestService` in `cmd/interfaces.go`
+- **Target category:** `CLOUD_CONSOLE` (hardcoded for v1)
+- **Headers:** `Authorization: Bearer {jwt}`, `Content-Type: application/json`
+
 ## Testing
 - TDD: write `_test.go` before `.go` for every package
 - Table-driven tests
@@ -57,6 +73,12 @@ Custom `SCAAccessService` follows SDK conventions:
 - `grant env` — performs elevation, outputs only `export` statements (no human text); usage: `eval $(grant env --provider aws)`; supports `--refresh`
 - `grant list` — list eligible targets and groups without triggering elevation; supports `--provider`, `--groups`, `--refresh`, `--output json`; used by LLMs to discover available targets programmatically
 - `grant revoke` — revoke sessions: direct (`grant revoke <id>`), `--all`, or interactive multi-select; `--yes` skips confirmation
+- `grant request` — manage access requests through approval workflow; subcommands: `submit`, `list`, `get`, `cancel`, `approve`, `reject`
+- `grant request submit` — submit access request; reuses SCA eligibility for target selection; flags: `--target`, `--role`, `--provider`, `--reason`, `--priority`, `--date`, `--timezone`, `--from`, `--to`
+- `grant request list` — list access requests; flags: `--state`, `--result`, `--priority`, `--role` (CREATOR/APPROVER), `--search`, `--sort`, `--desc`
+- `grant request get <id>` — get full request details
+- `grant request cancel <id>` — cancel an open request; optional `--reason`
+- `grant request approve <id>` / `grant request reject <id>` — finalize a request; optional `--reason`
 - `grant update` — self-update binary via GitHub Releases (`rhysd/go-github-selfupdate`); guards against dev builds
 - `--groups` flag on root command shows only Entra ID groups in the interactive selector
 - `--group` / `-g` flag on root command for direct group membership elevation (`grant --group "Cloud Admins"`)
@@ -75,8 +97,8 @@ Custom `SCAAccessService` follows SDK conventions:
 - `--output` / `-o` persistent flag on root command: `text` (default) or `json`
 - Validated in `PersistentPreRunE`; JSON mode forces `IsTerminalFunc` to return false (non-interactive)
 - `cmd/output.go` — `outputFormat` var, `isJSONOutput()`, `writeJSON(w, data)`
-- `cmd/output_types.go` — JSON structs: `cloudElevationOutput`, `groupElevationJSON`, `sessionOutput`, `statusOutput`, `revocationOutput`, `favoriteOutput`, `awsCredentialOutput`
-- All commands support JSON: root elevation, `env`, `status`, `revoke`, `favorites list`
+- `cmd/output_types.go` — JSON structs: `cloudElevationOutput`, `groupElevationJSON`, `sessionOutput`, `statusOutput`, `revocationOutput`, `favoriteOutput`, `awsCredentialOutput`, `accessRequestOutput`, `accessRequestListOutput`
+- All commands support JSON: root elevation, `env`, `status`, `revoke`, `favorites list`, `request list`, `request get`, `request submit`, `request cancel`, `request approve`, `request reject`
 - `config.Favorite` has both `yaml:"..."` and `json:"..."` struct tags
 
 ## Cache
