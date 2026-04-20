@@ -405,8 +405,17 @@ func TestFormatTimestamp(t *testing.T) {
 		input string
 		want  string
 	}{
+		// No timezone, with fractional seconds: trim fraction
 		{"2025-08-12T09:41:00.594008", "2025-08-12T09:41:00"},
+		// No timezone, no fractional seconds: return as-is
 		{"2025-08-12T09:41:00", "2025-08-12T09:41:00"},
+		// RFC3339 UTC with fractional seconds: strip fraction, keep Z
+		{"2025-08-12T09:41:00.594008Z", "2025-08-12T09:41:00Z"},
+		// RFC3339 UTC without fractional seconds: return normalised form
+		{"2025-08-12T09:41:00Z", "2025-08-12T09:41:00Z"},
+		// RFC3339 with offset and fractional seconds: strip fraction, keep offset
+		{"2025-08-12T09:41:00.123+05:30", "2025-08-12T09:41:00+05:30"},
+		// Arbitrary short string: return as-is
 		{"short", "short"},
 	}
 	for _, tt := range tests {

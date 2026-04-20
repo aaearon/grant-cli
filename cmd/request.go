@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/aaearon/grant-cli/internal/workflows"
 	"github.com/aaearon/grant-cli/internal/workflows/models"
@@ -165,10 +166,18 @@ func formatRequestDetail(cmd *cobra.Command, r *models.AccessRequest) {
 	}
 }
 
-// formatTimestamp truncates a timestamp to just the date+time portion (no microseconds).
+// formatTimestamp strips fractional seconds from a timestamp while preserving
+// timezone offset information. RFC3339 timestamps (with Z or ±HH:MM timezone
+// offset) are parsed with RFC3339Nano and reformatted as RFC3339 (no subseconds),
+// keeping the original offset. Non-RFC3339 timestamps have the fractional-seconds
+// portion trimmed if present.
 func formatTimestamp(ts string) string {
-	if len(ts) > 19 {
-		return ts[:19]
+	if t, err := time.Parse(time.RFC3339Nano, ts); err == nil {
+		return t.Format("2006-01-02T15:04:05Z07:00")
+	}
+	// Non-RFC3339 timestamps (e.g. no timezone): trim fractional seconds if present.
+	if i := strings.IndexByte(ts, '.'); i >= 0 {
+		return ts[:i]
 	}
 	return ts
 }

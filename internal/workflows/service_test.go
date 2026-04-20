@@ -3,6 +3,7 @@ package workflows
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -124,6 +125,30 @@ func TestListRequests(t *testing.T) {
 		t.Errorf("expected 2 API calls, got %d", callCount)
 	}
 }
+
+func TestListRequests_MaxPagesExceeded(t *testing.T) {
+	// Every page returns 1 item but claims totalCount is enormous, so the loop
+	// never hits the break condition and must eventually return an error.
+	mock := &mockHTTPClient{
+		getFn: func(_ context.Context, _ string, _ interface{}) (*http.Response, error) {
+			return jsonResponse(200, models.ListRequestsResponse{
+				Items:      []models.AccessRequest{{RequestID: "id-1"}},
+				Count:      1,
+				TotalCount: 99999,
+			}), nil
+		},
+	}
+
+	svc := NewAccessRequestServiceWithClient(mock)
+	_, _, err := svc.ListRequests(t.Context(), ListRequestsParams{Limit: 1})
+	if err == nil {
+		t.Fatal("expected error when maxPages exceeded, got nil")
+	}
+	if !errors.Is(err, errPaginationLimit) {
+		t.Errorf("expected errPaginationLimit, got: %v", err)
+	}
+}
+
 
 func TestListRequests_WithFilters(t *testing.T) {
 	mock := &mockHTTPClient{

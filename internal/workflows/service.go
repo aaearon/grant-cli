@@ -167,12 +167,12 @@ func (s *AccessRequestService) ListRequests(ctx context.Context, params ListRequ
 		totalCount = page.TotalCount
 
 		if len(allItems) >= page.TotalCount || len(page.Items) < limit {
-			break
+			return allItems, totalCount, nil
 		}
 		offset += len(page.Items)
 	}
 
-	return allItems, totalCount, nil
+	return nil, 0, errPaginationLimit
 }
 
 // GetRequest retrieves a single access request by ID.
@@ -275,6 +275,10 @@ func (s *AccessRequestService) FinalizeRequest(ctx context.Context, requestID, r
 }
 
 const maxPages = 100
+
+// errPaginationLimit is returned when ListRequests exhausts the maximum number of
+// page fetches without completing pagination.
+var errPaginationLimit = errors.New("list requests pagination exceeded maximum page limit")
 
 func checkResponse(resp *http.Response, operation string) error {
 	if resp.StatusCode == http.StatusOK {
