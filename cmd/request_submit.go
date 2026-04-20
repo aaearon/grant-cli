@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	survey "github.com/Iilun/survey/v2"
@@ -41,12 +42,16 @@ func newRequestSubmitCommand(svc accessRequestService) *cobra.Command {
 	cmd.Flags().String("timezone", "", "Timezone (TZ identifier, e.g. America/New_York)")
 	cmd.Flags().String("from", "", "Start time (HH:MM)")
 	cmd.Flags().String("to", "", "End time (HH:MM)")
+	cmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
 
 	return cmd
 }
 
 // submitPromptFn is injectable for testing interactive prompts.
 var submitPromptFn = defaultSubmitPrompt
+
+// confirmSubmitFn is injectable for testing the confirmation prompt.
+var confirmSubmitFn = confirmSubmit
 
 // resolveSubmitTargetFn is injectable for testing target resolution.
 var resolveSubmitTargetFn = resolveSubmitTarget
@@ -60,57 +65,128 @@ type submitFields struct {
 	timeTo   string
 }
 
-func defaultSubmitPrompt() (*submitFields, error) {
+func resolveLocalTimezone() string {
+	tz := time.Now().Location().String()
+	if tz == "Local" {
+		if env := os.Getenv("TZ"); env != "" {
+			return env
+		}
+		return "UTC"
+	}
+	return tz
+}
+
+func defaultSubmitPrompt(existing *submitFields) (*submitFields, error) {
+	if !ui.IsInteractive() {
+		return nil, fmt.Errorf("%w; use --reason, --date, --timezone, --from, --to flags", ui.ErrNotInteractive)
+	}
+
 	stdio := survey.WithStdio(os.Stdin, os.Stderr, os.Stderr)
+	f := &submitFields{}
 
-	var reason string
-	if err := survey.AskOne(&survey.Input{Message: "Reason:"}, &reason, survey.WithValidator(survey.Required), stdio); err != nil {
-		return nil, err
+	// 1. Reason
+	if existing.reason == "" {
+		if err := survey.AskOne(&survey.Input{Message: "Reason:"}, &f.reason, survey.WithValidator(survey.Required), stdio); err != nil {
+			return nil, err
+		}
 	}
 
-	var priority string
-	if err := survey.AskOne(&survey.Select{
-		Message: "Priority:",
-		Options: []string{"High", "Medium", "Low"},
-		Default: "Medium",
-	}, &priority, stdio); err != nil {
-		return nil, err
+	// 2. Priority
+	if existing.priority == "" || existing.priority == "Medium" {
+		var priority string
+		if err := survey.AskOne(&survey.Select{
+			Message: "Priority:",
+			Options: []string{"High", "Medium", "Low"},
+			Default: "Medium",
+		}, &priority, stdio); err != nil {
+			return nil, err
+		}
+		f.priority = priority
 	}
 
-	today := time.Now().Format("2006-01-02")
-	var date string
-	if err := survey.AskOne(&survey.Input{Message: "Date (YYYY-MM-DD):", Default: today}, &date, stdio); err != nil {
-		return nil, err
+	// 3. Timezone (before date so we can compute correct default date)
+	if existing.timezone == "" {
+		localTZ := resolveLocalTimezone()
+		if err := survey.AskOne(&survey.Input{Message: "Timezone:", Default: localTZ}, &f.timezone,
+			survey.WithValidator(func(val interface{}) error {
+				s, _ := val.(string)
+				if _, err := time.LoadLocation(s); err != nil {
+					return errors.New("must be a valid timezone (e.g. America/New_York, UTC)")
+				}
+				return nil
+			}), stdio); err != nil {
+			return nil, err
+		}
 	}
 
-	localTZ := time.Now().Location().String()
-	var timezone string
-	if err := survey.AskOne(&survey.Input{Message: "Timezone:", Default: localTZ}, &timezone, stdio); err != nil {
-		return nil, err
+	// 4. Date (default: today in selected timezone)
+	if existing.date == "" {
+		tz := f.timezone
+		if tz == "" {
+			tz = existing.timezone
+		}
+		loc, _ := time.LoadLocation(tz)
+		today := time.Now().In(loc).Format("2006-01-02")
+		if err := survey.AskOne(&survey.Input{Message: "Date (YYYY-MM-DD):", Default: today}, &f.date,
+			survey.WithValidator(func(val interface{}) error {
+				s, _ := val.(string)
+				if _, err := time.Parse("2006-01-02", s); err != nil {
+					return errors.New("must be YYYY-MM-DD format")
+				}
+				return nil
+			}), stdio); err != nil {
+			return nil, err
+		}
 	}
 
-	var timeFrom string
-	if err := survey.AskOne(&survey.Input{Message: "Start time (HH:MM):"}, &timeFrom, survey.WithValidator(survey.Required), stdio); err != nil {
-		return nil, err
+	// 5. Start time
+	if existing.timeFrom == "" {
+		if err := survey.AskOne(&survey.Input{Message: "Start time (HH:MM):"}, &f.timeFrom,
+			survey.WithValidator(func(val interface{}) error {
+				s, _ := val.(string)
+				if _, err := time.Parse("15:04", s); err != nil {
+					return errors.New("must be HH:MM format")
+				}
+				return nil
+			}), stdio); err != nil {
+			return nil, err
+		}
 	}
 
-	var timeTo string
-	if err := survey.AskOne(&survey.Input{Message: "End time (HH:MM):"}, &timeTo, survey.WithValidator(survey.Required), stdio); err != nil {
-		return nil, err
+	// 6. End time
+	if existing.timeTo == "" {
+		if err := survey.AskOne(&survey.Input{Message: "End time (HH:MM):"}, &f.timeTo,
+			survey.WithValidator(func(val interface{}) error {
+				s, _ := val.(string)
+				if _, err := time.Parse("15:04", s); err != nil {
+					return errors.New("must be HH:MM format")
+				}
+				return nil
+			}), stdio); err != nil {
+			return nil, err
+		}
 	}
 
-	return &submitFields{
-		reason:   reason,
-		priority: priority,
-		date:     date,
-		timezone: timezone,
-		timeFrom: timeFrom,
-		timeTo:   timeTo,
-	}, nil
+	return f, nil
+}
+
+func confirmSubmit() (bool, error) {
+	if !ui.IsInteractive() {
+		return false, fmt.Errorf("%w; use --yes to skip confirmation", ui.ErrNotInteractive)
+	}
+	var confirmed bool
+	err := survey.AskOne(&survey.Confirm{Message: "Submit this request?"}, &confirmed,
+		survey.WithStdio(os.Stdin, os.Stderr, os.Stderr))
+	return confirmed, err
 }
 
 func runRequestSubmit(cmd *cobra.Command, svc accessRequestService) error {
-	ctx := cmd.Context()
+	provider, _ := cmd.Flags().GetString("provider")
+	if provider != "" {
+		if _, err := parseProvider(provider); err != nil {
+			return err
+		}
+	}
 
 	fields, err := resolveSubmitFields(cmd)
 	if err != nil {
@@ -121,13 +197,37 @@ func runRequestSubmit(cmd *cobra.Command, svc accessRequestService) error {
 		return err
 	}
 
-	provider, _ := cmd.Flags().GetString("provider")
 	targetName, _ := cmd.Flags().GetString("target")
 	roleName, _ := cmd.Flags().GetString("role")
+
+	ctx, cancel := context.WithTimeout(cmd.Context(), apiTimeout)
+	defer cancel()
 
 	target, err := resolveSubmitTargetFn(ctx, provider, targetName, roleName)
 	if err != nil {
 		return err
+	}
+
+	// Summary before submission
+	if !isJSONOutput() {
+		fmt.Fprintf(cmd.ErrOrStderr(), "\nTarget:   %s / %s\n", target.WorkspaceName, target.RoleInfo.Name)
+		fmt.Fprintf(cmd.ErrOrStderr(), "Date:     %s\n", fields.date)
+		fmt.Fprintf(cmd.ErrOrStderr(), "Time:     %s – %s (%s)\n", fields.timeFrom, fields.timeTo, fields.timezone)
+		fmt.Fprintf(cmd.ErrOrStderr(), "Priority: %s\n", fields.priority)
+		fmt.Fprintf(cmd.ErrOrStderr(), "Reason:   %s\n\n", fields.reason)
+	}
+
+	// Confirmation
+	yesFlag, _ := cmd.Flags().GetBool("yes")
+	if !yesFlag && !isJSONOutput() {
+		confirmed, confirmErr := confirmSubmitFn()
+		if confirmErr != nil {
+			return confirmErr
+		}
+		if !confirmed {
+			fmt.Fprintln(cmd.OutOrStdout(), "Submission canceled.")
+			return nil
+		}
 	}
 
 	details := buildRequestDetails(target, fields)
@@ -172,7 +272,7 @@ func resolveSubmitFields(cmd *cobra.Command) (*submitFields, error) {
 		return nil, errors.New("non-interactive mode requires --reason, --date, --timezone, --from, --to")
 	}
 
-	prompted, err := submitPromptFn()
+	prompted, err := submitPromptFn(f)
 	if err != nil {
 		return nil, err
 	}
@@ -209,7 +309,10 @@ func resolveSubmitTarget(ctx context.Context, provider, targetName, roleName str
 	}
 	cachedLister := buildCachedLister(cfg, false, scaSvc, nil)
 
-	targets, err := fetchEligibility(ctx, cachedLister, provider)
+	fetchCtx, fetchCancel := context.WithTimeout(ctx, apiTimeout)
+	defer fetchCancel()
+
+	targets, err := fetchEligibility(fetchCtx, cachedLister, provider)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch eligibility: %w", err)
 	}
@@ -221,6 +324,42 @@ func resolveSubmitTarget(ctx context.Context, provider, targetName, roleName str
 		}
 		resolveTargetCSP(target, targets, provider)
 		return target, nil
+	}
+
+	// Partial --target: filter to matching workspaces
+	if targetName != "" && roleName == "" {
+		var filtered []models.EligibleTarget
+		for i := range targets {
+			if strings.EqualFold(targets[i].WorkspaceName, targetName) {
+				filtered = append(filtered, targets[i])
+			}
+		}
+		if len(filtered) == 0 {
+			return nil, fmt.Errorf("no eligible target found matching target=%q", targetName)
+		}
+		if len(filtered) == 1 {
+			resolveTargetCSP(&filtered[0], targets, provider)
+			return &filtered[0], nil
+		}
+		targets = filtered
+	}
+
+	// Partial --role: filter to matching roles
+	if roleName != "" && targetName == "" {
+		var filtered []models.EligibleTarget
+		for i := range targets {
+			if strings.EqualFold(targets[i].RoleInfo.Name, roleName) {
+				filtered = append(filtered, targets[i])
+			}
+		}
+		if len(filtered) == 0 {
+			return nil, fmt.Errorf("no eligible target found matching role=%q", roleName)
+		}
+		if len(filtered) == 1 {
+			resolveTargetCSP(&filtered[0], targets, provider)
+			return &filtered[0], nil
+		}
+		targets = filtered
 	}
 
 	if !ui.IsInteractive() {
@@ -273,28 +412,32 @@ func validateSubmitFields(f *submitFields) error {
 		return fmt.Errorf("--priority must be High, Medium, or Low (got %q)", f.priority)
 	}
 
-	if f.date != "" {
-		if _, err := time.Parse("2006-01-02", f.date); err != nil {
-			return fmt.Errorf("--date must be in YYYY-MM-DD format (got %q)", f.date)
-		}
+	if f.date == "" {
+		return errors.New("--date is required")
+	}
+	if _, err := time.Parse("2006-01-02", f.date); err != nil {
+		return fmt.Errorf("--date must be in YYYY-MM-DD format (got %q)", f.date)
 	}
 
-	if f.timeFrom != "" {
-		if _, err := time.Parse("15:04", f.timeFrom); err != nil {
-			return fmt.Errorf("--from must be in HH:MM format (got %q)", f.timeFrom)
-		}
+	if f.timezone == "" {
+		return errors.New("--timezone is required")
+	}
+	if _, err := time.LoadLocation(f.timezone); err != nil {
+		return fmt.Errorf("--timezone must be a valid TZ identifier (e.g. America/New_York, UTC), got %q", f.timezone)
 	}
 
-	if f.timeTo != "" {
-		if _, err := time.Parse("15:04", f.timeTo); err != nil {
-			return fmt.Errorf("--to must be in HH:MM format (got %q)", f.timeTo)
-		}
+	if f.timeFrom == "" {
+		return errors.New("--from is required")
+	}
+	if _, err := time.Parse("15:04", f.timeFrom); err != nil {
+		return fmt.Errorf("--from must be in HH:MM format (got %q)", f.timeFrom)
 	}
 
-	if f.timezone != "" {
-		if _, err := time.LoadLocation(f.timezone); err != nil {
-			return fmt.Errorf("--timezone must be a valid TZ identifier (e.g. America/New_York, UTC), got %q", f.timezone)
-		}
+	if f.timeTo == "" {
+		return errors.New("--to is required")
+	}
+	if _, err := time.Parse("15:04", f.timeTo); err != nil {
+		return fmt.Errorf("--to must be in HH:MM format (got %q)", f.timeTo)
 	}
 
 	return nil

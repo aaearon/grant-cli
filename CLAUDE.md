@@ -74,7 +74,7 @@ Custom `SCAAccessService` follows SDK conventions:
 - `grant list` — list eligible targets and groups without triggering elevation; supports `--provider`, `--groups`, `--refresh`, `--output json`; used by LLMs to discover available targets programmatically
 - `grant revoke` — revoke sessions: direct (`grant revoke <id>`), `--all`, or interactive multi-select; `--yes` skips confirmation
 - `grant request` — manage access requests through approval workflow; subcommands: `submit`, `list`, `get`, `cancel`, `approve`, `reject`
-- `grant request submit` — submit access request; reuses SCA eligibility for target selection; flags: `--target`, `--role`, `--provider`, `--reason`, `--priority`, `--date`, `--timezone`, `--from`, `--to`
+- `grant request submit` — submit access request; reuses SCA eligibility for target selection; shows summary + confirmation before submitting; partial `--target` or `--role` filters the selector; flags: `--target`, `--role`, `--provider`, `--reason`, `--priority`, `--date`, `--timezone`, `--from`, `--to`, `--yes`
 - `grant request list` — list access requests; flags: `--state`, `--result`, `--priority`, `--role` (CREATOR/APPROVER), `--search`, `--sort`, `--desc`
 - `grant request get <id>` — get full request details
 - `grant request cancel <id>` — cancel an open request; optional `--reason`

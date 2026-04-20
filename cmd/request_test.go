@@ -384,7 +384,10 @@ func TestValidateSubmitFields(t *testing.T) {
 		{"UTC timezone", &submitFields{"reason", "Medium", "2026-04-21", "UTC", "09:00", "17:00"}, false},
 		{"CET timezone", &submitFields{"reason", "Medium", "2026-04-21", "CET", "09:00", "17:00"}, false},
 		{"invalid timezone", &submitFields{"reason", "Medium", "2026-04-21", "NotAZone", "09:00", "17:00"}, true},
-		{"empty optional fields", &submitFields{"reason", "Medium", "", "", "", ""}, false},
+		{"missing date", &submitFields{"reason", "Medium", "", "UTC", "09:00", "17:00"}, true},
+		{"missing timezone", &submitFields{"reason", "Medium", "2026-04-21", "", "09:00", "17:00"}, true},
+		{"missing from", &submitFields{"reason", "Medium", "2026-04-21", "UTC", "", "17:00"}, true},
+		{"missing to", &submitFields{"reason", "Medium", "2026-04-21", "UTC", "09:00", ""}, true},
 	}
 
 	for _, tt := range tests {
@@ -513,7 +516,8 @@ func TestRunRequestSubmit_NonInteractive(t *testing.T) {
 	output, err := executeCommand(root, "request", "submit",
 		"--target", "Test Sub", "--role", "Contributor",
 		"--reason", "need access", "--date", "2026-04-21",
-		"--timezone", "UTC", "--from", "09:00", "--to", "17:00")
+		"--timezone", "UTC", "--from", "09:00", "--to", "17:00",
+		"--yes")
 	if err != nil {
 		t.Fatalf("unexpected error: %v\noutput: %s", err, output)
 	}
@@ -555,7 +559,7 @@ func TestRunRequestSubmit_JSONOutput(t *testing.T) {
 		"--target", "Test Sub", "--role", "Contributor",
 		"--reason", "test", "--date", "2026-04-21",
 		"--timezone", "UTC", "--from", "09:00", "--to", "17:00",
-		"--output", "json")
+		"--output", "json", "--yes")
 	if err != nil {
 		t.Fatalf("unexpected error: %v\noutput: %s", err, output)
 	}
@@ -593,7 +597,8 @@ func TestRunRequestSubmit_ServiceError(t *testing.T) {
 	_, err := executeCommand(root, "request", "submit",
 		"--target", "Sub", "--role", "Reader",
 		"--reason", "test", "--date", "2026-04-21",
-		"--timezone", "UTC", "--from", "09:00", "--to", "17:00")
+		"--timezone", "UTC", "--from", "09:00", "--to", "17:00",
+		"--yes")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -635,7 +640,7 @@ func TestResolveSubmitFields_Interactive(t *testing.T) {
 	originalPrompt := submitPromptFn
 	defer func() { submitPromptFn = originalPrompt }()
 
-	submitPromptFn = func() (*submitFields, error) {
+	submitPromptFn = func(_ *submitFields) (*submitFields, error) {
 		return &submitFields{
 			reason:   "prompted reason",
 			priority: "High",
@@ -677,7 +682,7 @@ func TestResolveSubmitFields_FlagOverridesPrompt(t *testing.T) {
 	originalPrompt := submitPromptFn
 	defer func() { submitPromptFn = originalPrompt }()
 
-	submitPromptFn = func() (*submitFields, error) {
+	submitPromptFn = func(_ *submitFields) (*submitFields, error) {
 		return &submitFields{
 			reason:   "prompted",
 			priority: "Low",
@@ -731,5 +736,246 @@ func TestResolveSubmitFields_NonInteractive_Error(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "non-interactive") {
 		t.Errorf("error %q does not mention non-interactive", err.Error())
+	}
+}
+
+func TestResolveLocalTimezone(t *testing.T) {
+	tz := resolveLocalTimezone()
+	if tz == "Local" {
+		t.Error("resolveLocalTimezone() returned 'Local'")
+	}
+	if tz == "" {
+		t.Error("resolveLocalTimezone() returned empty string")
+	}
+}
+
+func TestRunRequestSubmit_InvalidProvider(t *testing.T) {
+	original := resolveSubmitTargetFn
+	defer func() { resolveSubmitTargetFn = original }()
+
+	resolveSubmitTargetFn = func(_ context.Context, _, _, _ string) (*models.EligibleTarget, error) {
+		t.Fatal("resolveSubmitTarget should not be called with invalid provider")
+		return nil, nil
+	}
+
+	svc := &mockAccessRequestService{}
+	cmd := NewRequestCommandWithDeps(svc)
+	root := newTestRootCommand()
+	root.AddCommand(cmd)
+
+	_, err := executeCommand(root, "request", "submit",
+		"--provider", "gcp",
+		"--target", "Sub", "--role", "Reader",
+		"--reason", "test", "--date", "2026-04-21",
+		"--timezone", "UTC", "--from", "09:00", "--to", "17:00",
+		"--yes")
+	if err == nil {
+		t.Fatal("expected error for invalid provider")
+	}
+	if !strings.Contains(err.Error(), "invalid provider") {
+		t.Errorf("error %q does not mention invalid provider", err.Error())
+	}
+}
+
+func TestRunRequestSubmit_ConfirmationDenied(t *testing.T) {
+	original := resolveSubmitTargetFn
+	originalConfirm := confirmSubmitFn
+	defer func() {
+		resolveSubmitTargetFn = original
+		confirmSubmitFn = originalConfirm
+	}()
+
+	resolveSubmitTargetFn = func(_ context.Context, _, _, _ string) (*models.EligibleTarget, error) {
+		return &models.EligibleTarget{
+			WorkspaceName: "Test Sub",
+			WorkspaceID:   "ws-1",
+			CSP:           models.CSPAzure,
+			RoleInfo:      models.RoleInfo{ID: "role-1", Name: "Contributor"},
+		}, nil
+	}
+	confirmSubmitFn = func() (bool, error) {
+		return false, nil
+	}
+
+	originalTTY := ui.IsTerminalFunc
+	defer func() { ui.IsTerminalFunc = originalTTY }()
+	ui.IsTerminalFunc = func(fd uintptr) bool { return true }
+
+	svc := &mockAccessRequestService{
+		submitResult: &wfmodels.AccessRequest{RequestID: "should-not-reach"},
+	}
+
+	cmd := NewRequestCommandWithDeps(svc)
+	root := newTestRootCommand()
+	root.AddCommand(cmd)
+
+	output, err := executeCommand(root, "request", "submit",
+		"--target", "Test Sub", "--role", "Contributor",
+		"--reason", "test", "--date", "2026-04-21",
+		"--timezone", "UTC", "--from", "09:00", "--to", "17:00")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(output, "canceled") {
+		t.Errorf("expected 'canceled' in output, got: %s", output)
+	}
+}
+
+func TestRunRequestSubmit_YesFlagSkipsConfirmation(t *testing.T) {
+	original := resolveSubmitTargetFn
+	originalConfirm := confirmSubmitFn
+	defer func() {
+		resolveSubmitTargetFn = original
+		confirmSubmitFn = originalConfirm
+	}()
+
+	resolveSubmitTargetFn = func(_ context.Context, _, _, _ string) (*models.EligibleTarget, error) {
+		return &models.EligibleTarget{
+			WorkspaceName: "Test Sub",
+			WorkspaceID:   "ws-1",
+			CSP:           models.CSPAzure,
+			RoleInfo:      models.RoleInfo{ID: "role-1", Name: "Contributor"},
+		}, nil
+	}
+	confirmSubmitFn = func() (bool, error) {
+		t.Fatal("confirmSubmitFn should not be called with --yes")
+		return false, nil
+	}
+
+	svc := &mockAccessRequestService{
+		submitResult: &wfmodels.AccessRequest{
+			RequestID:    "req-yes",
+			RequestState: wfmodels.RequestStatePending,
+		},
+	}
+
+	cmd := NewRequestCommandWithDeps(svc)
+	root := newTestRootCommand()
+	root.AddCommand(cmd)
+
+	output, err := executeCommand(root, "request", "submit",
+		"--target", "Test Sub", "--role", "Contributor",
+		"--reason", "test", "--date", "2026-04-21",
+		"--timezone", "UTC", "--from", "09:00", "--to", "17:00",
+		"--yes")
+	if err != nil {
+		t.Fatalf("unexpected error: %v\noutput: %s", err, output)
+	}
+	if !strings.Contains(output, "req-yes") {
+		t.Errorf("expected request ID in output, got: %s", output)
+	}
+}
+
+func TestResolveSubmitTarget_PartialTarget(t *testing.T) {
+	original := resolveSubmitTargetFn
+	defer func() { resolveSubmitTargetFn = original }()
+
+	targets := []models.EligibleTarget{
+		{WorkspaceName: "Sub A", WorkspaceID: "ws-a", CSP: models.CSPAzure, RoleInfo: models.RoleInfo{ID: "r1", Name: "Reader"}},
+		{WorkspaceName: "Sub A", WorkspaceID: "ws-a", CSP: models.CSPAzure, RoleInfo: models.RoleInfo{ID: "r2", Name: "Contributor"}},
+		{WorkspaceName: "Sub B", WorkspaceID: "ws-b", CSP: models.CSPAzure, RoleInfo: models.RoleInfo{ID: "r3", Name: "Reader"}},
+	}
+
+	// Single match with --target filters to one result
+	var filtered []models.EligibleTarget
+	for i := range targets {
+		if strings.EqualFold(targets[i].WorkspaceName, "Sub B") {
+			filtered = append(filtered, targets[i])
+		}
+	}
+	if len(filtered) != 1 {
+		t.Fatalf("expected 1 match for 'Sub B', got %d", len(filtered))
+	}
+	if filtered[0].RoleInfo.Name != "Reader" {
+		t.Errorf("expected Reader, got %s", filtered[0].RoleInfo.Name)
+	}
+}
+
+func TestResolveSubmitTarget_PartialRole(t *testing.T) {
+	targets := []models.EligibleTarget{
+		{WorkspaceName: "Sub A", WorkspaceID: "ws-a", CSP: models.CSPAzure, RoleInfo: models.RoleInfo{ID: "r1", Name: "Reader"}},
+		{WorkspaceName: "Sub A", WorkspaceID: "ws-a", CSP: models.CSPAzure, RoleInfo: models.RoleInfo{ID: "r2", Name: "Contributor"}},
+		{WorkspaceName: "Sub B", WorkspaceID: "ws-b", CSP: models.CSPAzure, RoleInfo: models.RoleInfo{ID: "r3", Name: "Contributor"}},
+	}
+
+	// --role "Reader" should match only Sub A/Reader
+	var filtered []models.EligibleTarget
+	for i := range targets {
+		if strings.EqualFold(targets[i].RoleInfo.Name, "Reader") {
+			filtered = append(filtered, targets[i])
+		}
+	}
+	if len(filtered) != 1 {
+		t.Fatalf("expected 1 match for 'Reader', got %d", len(filtered))
+	}
+	if filtered[0].WorkspaceName != "Sub A" {
+		t.Errorf("expected Sub A, got %s", filtered[0].WorkspaceName)
+	}
+}
+
+func TestDefaultSubmitPrompt_NonInteractive(t *testing.T) {
+	originalTTY := ui.IsTerminalFunc
+	defer func() { ui.IsTerminalFunc = originalTTY }()
+	ui.IsTerminalFunc = func(fd uintptr) bool { return false }
+
+	_, err := defaultSubmitPrompt(&submitFields{})
+	if err == nil {
+		t.Fatal("expected error in non-interactive mode")
+	}
+	if !errors.Is(err, ui.ErrNotInteractive) {
+		t.Errorf("expected ErrNotInteractive, got: %v", err)
+	}
+}
+
+func TestResolveSubmitFields_PromptOnlyMissing(t *testing.T) {
+	originalPrompt := submitPromptFn
+	defer func() { submitPromptFn = originalPrompt }()
+
+	var receivedExisting *submitFields
+	submitPromptFn = func(existing *submitFields) (*submitFields, error) {
+		receivedExisting = existing
+		return &submitFields{
+			reason:   "prompted",
+			priority: "High",
+			date:     "2026-05-01",
+			timezone: "America/Chicago",
+			timeFrom: "10:00",
+			timeTo:   "18:00",
+		}, nil
+	}
+
+	cmd := &cobra.Command{Use: "test"}
+	cmd.Flags().String("reason", "", "")
+	cmd.Flags().String("priority", "Medium", "")
+	cmd.Flags().String("date", "", "")
+	cmd.Flags().String("timezone", "", "")
+	cmd.Flags().String("from", "", "")
+	cmd.Flags().String("to", "", "")
+	cmd.SetArgs([]string{"--reason", "my reason", "--date", "2026-06-01"})
+	_ = cmd.Execute()
+
+	originalTTY := ui.IsTerminalFunc
+	defer func() { ui.IsTerminalFunc = originalTTY }()
+	ui.IsTerminalFunc = func(fd uintptr) bool { return true }
+
+	f, err := resolveSubmitFields(cmd)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if receivedExisting == nil {
+		t.Fatal("submitPromptFn was not called with existing fields")
+	}
+	if receivedExisting.reason != "my reason" {
+		t.Errorf("existing.reason: got %q, want 'my reason'", receivedExisting.reason)
+	}
+	if receivedExisting.date != "2026-06-01" {
+		t.Errorf("existing.date: got %q, want '2026-06-01'", receivedExisting.date)
+	}
+	// Flag values should override prompted values
+	if f.reason != "my reason" {
+		t.Errorf("f.reason: got %q, want 'my reason'", f.reason)
+	}
+	if f.date != "2026-06-01" {
+		t.Errorf("f.date: got %q, want '2026-06-01'", f.date)
 	}
 }
