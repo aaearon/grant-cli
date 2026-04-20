@@ -19,6 +19,8 @@ type mockHTTPClient struct {
 	postError    error
 	// getFunc, when set, overrides getResponse/getError for dynamic responses.
 	getFunc func(ctx context.Context, route string, params interface{}) (*http.Response, error)
+	// postFunc, when set, overrides postResponse/postError for dynamic responses.
+	postFunc func(ctx context.Context, route string, body interface{}) (*http.Response, error)
 }
 
 func (m *mockHTTPClient) Get(ctx context.Context, route string, params interface{}) (*http.Response, error) {
@@ -32,6 +34,9 @@ func (m *mockHTTPClient) Get(ctx context.Context, route string, params interface
 }
 
 func (m *mockHTTPClient) Post(ctx context.Context, route string, body interface{}) (*http.Response, error) {
+	if m.postFunc != nil {
+		return m.postFunc(ctx, route, body)
+	}
 	if m.postError != nil {
 		return nil, m.postError
 	}
@@ -872,6 +877,181 @@ func TestListEligibility_PaginationMaxPagesExceeded(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "pagination exceeded maximum page limit") {
 		t.Errorf("expected max page limit error, got: %v", err)
+	}
+}
+
+func TestListOnDemandResources_AzureAD(t *testing.T) {
+	var capturedParams interface{}
+	var capturedRoute string
+
+	roles := []models.OnDemandResource{
+		{ResourceID: "role-1", ResourceName: "Global Administrator", Provider: "azure_ad", Custom: false},
+	}
+	body, _ := json.Marshal(roles)
+
+	mock := &mockHTTPClient{
+		getFunc: func(_ context.Context, route string, params interface{}) (*http.Response, error) {
+			capturedRoute = route
+			capturedParams = params
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(string(body))),
+			}, nil
+		},
+	}
+
+	svc := &SCAAccessService{httpClient: mock}
+	result, err := svc.ListOnDemandResources(t.Context(), models.OnDemandRequest{
+		WorkspaceID:  "dir-123",
+		PlatformName: "azure_ad",
+		OrgID:        "dir-123",
+	})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result) != 1 {
+		t.Errorf("expected 1 role, got %d", len(result))
+	}
+	if capturedRoute != "/api/cloud/resources/ondemand" {
+		t.Errorf("route: got %q", capturedRoute)
+	}
+	p, ok := capturedParams.(map[string]string)
+	if !ok {
+		t.Fatalf("expected map[string]string params, got %T", capturedParams)
+	}
+	if !strings.Contains(p["search"], `"platformName":"azure_ad"`) {
+		t.Errorf("search param missing platformName=azure_ad: %s", p["search"])
+	}
+	if !strings.Contains(p["search"], `"workspaceId":"dir-123"`) {
+		t.Errorf("search param missing workspaceId: %s", p["search"])
+	}
+}
+
+func TestListOnDemandResources_AWS(t *testing.T) {
+	roles := []models.OnDemandResource{
+		{ResourceID: "arn:aws:iam::123:role/Admin", ResourceName: "Admin", Provider: "aws"},
+	}
+	body, _ := json.Marshal(roles)
+
+	mock := &mockHTTPClient{
+		getResponse: &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(string(body))),
+		},
+	}
+
+	svc := &SCAAccessService{httpClient: mock}
+	result, err := svc.ListOnDemandResources(t.Context(), models.OnDemandRequest{
+		WorkspaceID:  "123",
+		PlatformName: "aws",
+		OrgID:        "123",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result) != 1 || result[0].ResourceID != "arn:aws:iam::123:role/Admin" {
+		t.Errorf("unexpected result: %+v", result)
+	}
+}
+
+func TestListOnDemandResources_AzureResource_POST(t *testing.T) {
+	var capturedRoute string
+	var capturedBody interface{}
+
+	roles := []models.OnDemandResource{
+		{ResourceID: "/providers/Microsoft.Authorization/roleDefinitions/abc", ResourceName: "Contributor", Provider: "azure_resource"},
+	}
+	body, _ := json.Marshal(roles)
+
+	mock := &mockHTTPClient{
+		postFunc: func(_ context.Context, route string, b interface{}) (*http.Response, error) {
+			capturedRoute = route
+			capturedBody = b
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(strings.NewReader(string(body))),
+			}, nil
+		},
+	}
+
+	svc := &SCAAccessService{httpClient: mock}
+	result, err := svc.ListOnDemandResources(t.Context(), models.OnDemandRequest{
+		WorkspaceID:  "providers/Microsoft.Management/managementGroups/root",
+		PlatformName: "azure_resource",
+		OrgID:        "dir-456",
+		ResourceType: "management_group",
+		Ancestors:    []string{"/dir-456", "/providers/Microsoft.Management/managementGroups/root"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result) != 1 {
+		t.Errorf("expected 1 role, got %d", len(result))
+	}
+	if capturedRoute != "/api/cloud/cloud-roles/ondemand" {
+		t.Errorf("route: got %q", capturedRoute)
+	}
+	bm, ok := capturedBody.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected map body, got %T", capturedBody)
+	}
+	if bm["resourceType"] != "management_group" {
+		t.Errorf("resourceType: got %v", bm["resourceType"])
+	}
+	anc, ok := bm["ancestors"].([]string)
+	if !ok || len(anc) != 2 {
+		t.Errorf("ancestors: got %v", bm["ancestors"])
+	}
+}
+
+func TestListOnDemandResources_UnknownPlatform(t *testing.T) {
+	mock := &mockHTTPClient{}
+	svc := &SCAAccessService{httpClient: mock}
+	_, err := svc.ListOnDemandResources(t.Context(), models.OnDemandRequest{PlatformName: "gcp"})
+	if err == nil {
+		t.Fatal("expected error for unknown platform")
+	}
+	if !strings.Contains(err.Error(), "unsupported platform") {
+		t.Errorf("got: %v", err)
+	}
+}
+
+func TestListOnDemandResources_Unauthorized(t *testing.T) {
+	mock := &mockHTTPClient{
+		getResponse: &http.Response{
+			StatusCode: http.StatusUnauthorized,
+			Body:       io.NopCloser(strings.NewReader(`{"error":"unauthorized"}`)),
+		},
+	}
+	svc := &SCAAccessService{httpClient: mock}
+	_, err := svc.ListOnDemandResources(t.Context(), models.OnDemandRequest{
+		WorkspaceID: "w", PlatformName: "azure_ad", OrgID: "o",
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "401") {
+		t.Errorf("got: %v", err)
+	}
+}
+
+func TestListOnDemandResources_EmptyArray(t *testing.T) {
+	mock := &mockHTTPClient{
+		getResponse: &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader("[]")),
+		},
+	}
+	svc := &SCAAccessService{httpClient: mock}
+	result, err := svc.ListOnDemandResources(t.Context(), models.OnDemandRequest{
+		WorkspaceID: "w", PlatformName: "aws", OrgID: "o",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result) != 0 {
+		t.Errorf("expected empty slice, got %d", len(result))
 	}
 }
 

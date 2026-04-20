@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `grant request` command group for managing access requests through the approval workflow
+  - `grant request submit` — submit a new access request with target selection from eligibility, reason, priority, date/time scheduling
+  - `grant request list` — list access requests with filtering (state, result, priority, role), sorting, and free-text search
+  - `grant request get <id>` — view full details of a specific access request
+  - `grant request cancel <id>` — cancel an open request with optional reason
+  - `grant request approve <id>` — approve a pending request with optional reason
+  - `grant request reject <id>` — reject a pending request with optional reason
+- All `grant request` subcommands support `--output json` for machine-readable output
+- New `internal/workflows/` package implementing the CyberArk Access Requests API client (`/api/workflows/requests`)
+- Interactive role selector for `grant request submit`: after workspace selection, fuzzy-filterable list of requestable roles is fetched from the SCA on-demand role discovery endpoints (`/api/cloud/resources/ondemand`, `/api/cloud/cloud-roles/ondemand`)
+  - Supported workspace types: `DIRECTORY` (azure_ad), `ACCOUNT` (aws), `MANAGEMENT_GROUP` (azure_resource)
+  - Other Azure-resource scopes (subscription, resource group, resource) still require `--role-id` until validated
+  - Roles cached in `~/.grant/cache/ondemand_roles_<platform>_<sha256(workspaceID)>.json` (4h TTL)
+- Interactive request picker for `grant request cancel`, `approve`, `reject`, and `get` — omit the `<requestId>` positional argument in a terminal to pick from a scoped, fuzzy-filterable list (cancel: open requests you created; approve/reject: pending requests assigned to you; get: any request). Non-TTY invocation still requires the positional argument.
+
 ## [0.6.1] - 2026-04-08
 
 ### Fixed

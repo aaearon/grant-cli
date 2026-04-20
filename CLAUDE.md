@@ -44,6 +44,22 @@ Custom `SCAAccessService` follows SDK conventions:
   - `POST /api/access/elevate/groups` — request group membership elevation (response wrapped in `response` key, same as cloud elevation)
 - **Headers:** `Authorization: Bearer {jwt}`, `X-API-Version: 2.0`, `Content-Type: application/json`
 
+## Access Requests API (Workflows)
+- **Base URL:** `https://{subdomain}.uar.{platform_domain}/api`
+- **Package:** `internal/workflows/` — `AccessRequestService` (mirrors SCA service pattern with ISP client for "uar" service)
+- **Models:** `internal/workflows/models/` — `AccessRequest`, `RequestState`, `RequestResult`, `SubmitAccessRequest`, `CancelAccessRequest`, `FinalizeAccessRequest`, `RequestFormResponse`
+- **Endpoints:**
+  - `GET /api/workflows/request-forms` — get form structure for target category + request type
+  - `GET /api/workflows/requests` — list access requests (offset/limit pagination, filter/sort/freeText)
+  - `GET /api/workflows/requests/{requestId}` — get single request details
+  - `POST /api/workflows/requests` — submit new access request
+  - `POST /api/workflows/requests/{requestId}/cancel` — cancel an open request
+  - `POST /api/workflows/requests/{requestId}/finalize` — approve or reject a request
+- **Pagination:** offset/limit (not nextToken); `ListRequests` fetches all pages automatically
+- **DI interfaces:** `accessRequestService` in `cmd/interfaces.go`
+- **Target category:** `CLOUD_CONSOLE` (hardcoded for v1)
+- **Headers:** `Authorization: Bearer {jwt}`, `Content-Type: application/json`
+
 ## Testing
 - TDD: write `_test.go` before `.go` for every package
 - Table-driven tests
@@ -57,6 +73,15 @@ Custom `SCAAccessService` follows SDK conventions:
 - `grant env` — performs elevation, outputs only `export` statements (no human text); usage: `eval $(grant env --provider aws)`; supports `--refresh`
 - `grant list` — list eligible targets and groups without triggering elevation; supports `--provider`, `--groups`, `--refresh`, `--output json`; used by LLMs to discover available targets programmatically
 - `grant revoke` — revoke sessions: direct (`grant revoke <id>`), `--all`, or interactive multi-select; `--yes` skips confirmation
+- `grant request` — manage access requests through approval workflow; subcommands: `submit`, `list`, `get`, `cancel`, `approve`, `reject`
+- `grant request submit` — submit on-demand access request; workspace selector uses SCA eligibility (deduplicated to unique workspaces); after workspace selection, interactive role selector fetches roles via SCA on-demand endpoints (GET `/api/cloud/resources/ondemand` for `azure_ad`/`aws`, POST `/api/cloud/cloud-roles/ondemand` for `azure_resource`); shows summary + confirmation before submitting; flags: `--target`, `--role-id`, `--role`, `--provider`, `--reason`, `--priority`, `--date`, `--timezone`, `--from`, `--to`, `--yes`
+  - Interactive role selection supports `DIRECTORY`, `ACCOUNT` (AWS), and `MANAGEMENT_GROUP` workspaces; other Azure-resource scopes (subscription, resource group, resource) require `--role-id`
+  - On-demand role cache: `~/.grant/cache/ondemand_roles_<platform>_<sha256(workspaceID)>.json` (4h TTL); no `--refresh` flag — delete manually to invalidate
+- `grant request list` — list access requests; flags: `--state`, `--result`, `--priority`, `--role` (CREATOR/APPROVER), `--search`, `--sort`, `--desc`
+- `grant request get [id]` — get full request details; omitting `<id>` in a TTY opens a fuzzy-filterable picker of all your requests
+- `grant request cancel [id]` — cancel an open request; optional `--reason`. Omitting `<id>` in a TTY opens a picker scoped to STARTING/RUNNING/PENDING requests you created (role=CREATOR)
+- `grant request approve [id]` / `grant request reject [id]` — finalize a request; optional `--reason`. Omitting `<id>` in a TTY opens a picker scoped to PENDING requests assigned to you (role=APPROVER)
+- Request picker: `internal/ui/request_selector.go` mirrors the role-selector Format/Build/Select quartet; `resolveRequestIDFn` in `cmd/request_picker.go` is injectable for tests. Non-TTY invocation without `<id>` returns `ErrNotInteractive` with a hint to run `grant request list`
 - `grant update` — self-update binary via GitHub Releases (`rhysd/go-github-selfupdate`); guards against dev builds
 - `--groups` flag on root command shows only Entra ID groups in the interactive selector
 - `--group` / `-g` flag on root command for direct group membership elevation (`grant --group "Cloud Admins"`)
@@ -75,8 +100,8 @@ Custom `SCAAccessService` follows SDK conventions:
 - `--output` / `-o` persistent flag on root command: `text` (default) or `json`
 - Validated in `PersistentPreRunE`; JSON mode forces `IsTerminalFunc` to return false (non-interactive)
 - `cmd/output.go` — `outputFormat` var, `isJSONOutput()`, `writeJSON(w, data)`
-- `cmd/output_types.go` — JSON structs: `cloudElevationOutput`, `groupElevationJSON`, `sessionOutput`, `statusOutput`, `revocationOutput`, `favoriteOutput`, `awsCredentialOutput`
-- All commands support JSON: root elevation, `env`, `status`, `revoke`, `favorites list`
+- `cmd/output_types.go` — JSON structs: `cloudElevationOutput`, `groupElevationJSON`, `sessionOutput`, `statusOutput`, `revocationOutput`, `favoriteOutput`, `awsCredentialOutput`, `accessRequestOutput`, `accessRequestListOutput`
+- All commands support JSON: root elevation, `env`, `status`, `revoke`, `favorites list`, `request list`, `request get`, `request submit`, `request cancel`, `request approve`, `request reject`
 - `config.Favorite` has both `yaml:"..."` and `json:"..."` struct tags
 
 ## Cache
