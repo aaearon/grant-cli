@@ -101,9 +101,6 @@ Examples:
 			if outputFormat != "text" && outputFormat != "json" {
 				return fmt.Errorf("invalid output format %q: must be one of: text, json", outputFormat)
 			}
-			if isJSONOutput() {
-				ui.IsTerminalFunc = func(fd uintptr) bool { return false }
-			}
 			return nil
 		},
 		RunE: runFn,

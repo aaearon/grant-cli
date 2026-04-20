@@ -98,7 +98,7 @@ Custom `SCAAccessService` follows SDK conventions:
 
 ## JSON Output
 - `--output` / `-o` persistent flag on root command: `text` (default) or `json`
-- Validated in `PersistentPreRunE`; JSON mode forces `IsTerminalFunc` to return false (non-interactive)
+- Validated in `PersistentPreRunE`. `--output json` is a pure serialisation flag; it does not affect interactivity — interactive prompts still run in a TTY and write to stderr while JSON goes to stdout
 - `cmd/output.go` — `outputFormat` var, `isJSONOutput()`, `writeJSON(w, data)`
 - `cmd/output_types.go` — JSON structs: `cloudElevationOutput`, `groupElevationJSON`, `sessionOutput`, `statusOutput`, `revocationOutput`, `favoriteOutput`, `awsCredentialOutput`, `accessRequestOutput`, `accessRequestListOutput`
 - All commands support JSON: root elevation, `env`, `status`, `revoke`, `favorites list`, `request list`, `request get`, `request submit`, `request cancel`, `request approve`, `request reject`

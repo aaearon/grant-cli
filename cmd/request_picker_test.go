@@ -45,28 +45,6 @@ func TestResolveRequestIDInteractive_NonInteractive(t *testing.T) {
 	}
 }
 
-func TestResolveRequestIDInteractive_JSONMode(t *testing.T) {
-	withInteractiveTTY(t, false)
-	orig := outputFormat
-	outputFormat = "json"
-	t.Cleanup(func() { outputFormat = orig })
-
-	svc := &capturingMockAccessRequestService{}
-	_, err := resolveRequestIDInteractive(t.Context(), svc, pickerScope{emptyMsg: "access requests"})
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if errors.Is(err, ui.ErrNotInteractive) {
-		t.Errorf("JSON mode error should not wrap ErrNotInteractive")
-	}
-	if !strings.Contains(err.Error(), "--output json") {
-		t.Errorf("expected --output json hint, got %v", err)
-	}
-	if strings.Contains(err.Error(), "requires a terminal") {
-		t.Errorf("JSON mode error should not mention terminal: %v", err)
-	}
-}
-
 func TestResolveRequestIDInteractive_EmptyList(t *testing.T) {
 	withInteractiveTTY(t, true)
 
