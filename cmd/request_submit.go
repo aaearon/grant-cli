@@ -414,15 +414,19 @@ func formatWorkspaceOption(ws submitWorkspace) string {
 }
 
 func workspaceTypeLabel(wt models.WorkspaceType) string {
-	switch wt {
-	case models.WorkspaceTypeSubscription:
+	switch strings.ToUpper(string(wt)) {
+	case "SUBSCRIPTION":
 		return "Subscription"
-	case models.WorkspaceTypeManagementGroup:
+	case "MANAGEMENT_GROUP":
 		return "Management Group"
-	case models.WorkspaceTypeDirectory:
+	case "DIRECTORY":
 		return "Directory"
-	case models.WorkspaceTypeAccount:
+	case "ACCOUNT":
 		return "Account"
+	case "RESOURCE_GROUP":
+		return "Resource Group"
+	case "RESOURCE":
+		return "Resource"
 	default:
 		return string(wt)
 	}
