@@ -645,6 +645,122 @@ func TestRunRequestSubmit_MissingFlags_NonInteractive(t *testing.T) {
 	}
 }
 
+func TestBuildOnDemandRequest_UnsupportedType(t *testing.T) {
+	tests := []struct {
+		name string
+		wt   models.WorkspaceType
+	}{
+		{"subscription", models.WorkspaceTypeSubscription},
+		{"resource_group", models.WorkspaceType("RESOURCE_GROUP")},
+		{"resource", models.WorkspaceType("RESOURCE")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := buildOnDemandRequest(&submitWorkspace{
+				WorkspaceID:    "ws-1",
+				WorkspaceType:  tt.wt,
+				OrganizationID: "org-1",
+			})
+			if err == nil {
+				t.Fatalf("expected error for %s", tt.name)
+			}
+			if !strings.Contains(err.Error(), "not supported") {
+				t.Errorf("error should mention not supported: %v", err)
+			}
+			if !strings.Contains(err.Error(), "--role-id") {
+				t.Errorf("error should point to --role-id: %v", err)
+			}
+		})
+	}
+}
+
+func TestBuildOnDemandRequest_SupportedTypes(t *testing.T) {
+	tests := []struct {
+		name         string
+		wt           models.WorkspaceType
+		wsID         string
+		orgID        string
+		wantPlatform string
+		wantAnces    int
+	}{
+		{"directory", models.WorkspaceType("DIRECTORY"), "dir-1", "dir-1", "azure_ad", 0},
+		{"account", models.WorkspaceType("ACCOUNT"), "123", "123", "aws", 0},
+		{"management_group", models.WorkspaceType("MANAGEMENT_GROUP"), "providers/Microsoft.Management/managementGroups/root", "dir-456", "azure_resource", 2},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req, err := buildOnDemandRequest(&submitWorkspace{
+				WorkspaceID:    tt.wsID,
+				WorkspaceType:  tt.wt,
+				OrganizationID: tt.orgID,
+			})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if req.PlatformName != tt.wantPlatform {
+				t.Errorf("platform: got %q want %q", req.PlatformName, tt.wantPlatform)
+			}
+			if len(req.Ancestors) != tt.wantAnces {
+				t.Errorf("ancestors: got %d want %d", len(req.Ancestors), tt.wantAnces)
+			}
+		})
+	}
+}
+
+func TestRunRequestSubmit_InteractiveRoleSelection(t *testing.T) {
+	origTarget := resolveSubmitTargetFn
+	origRole := resolveRoleFn
+	origTTY := ui.IsTerminalFunc
+	defer func() {
+		resolveSubmitTargetFn = origTarget
+		resolveRoleFn = origRole
+		ui.IsTerminalFunc = origTTY
+	}()
+	ui.IsTerminalFunc = func(fd uintptr) bool { return true }
+
+	resolveSubmitTargetFn = func(_ context.Context, _, _ string) (*submitWorkspace, error) {
+		return &submitWorkspace{
+			WorkspaceName:  "Dir",
+			WorkspaceID:    "dir-1",
+			WorkspaceType:  models.WorkspaceType("DIRECTORY"),
+			CSP:            models.CSPAzure,
+			OrganizationID: "dir-1",
+		}, nil
+	}
+	resolveRoleFn = func(_ context.Context, ws *submitWorkspace) (string, string, error) {
+		if ws.WorkspaceID != "dir-1" {
+			t.Errorf("expected ws dir-1, got %s", ws.WorkspaceID)
+		}
+		return "arn:aws:iam::1:role/Admin", "Admin", nil
+	}
+
+	svc := &mockAccessRequestService{
+		submitResult: &wfmodels.AccessRequest{RequestID: "req-x", RequestState: wfmodels.RequestStatePending},
+	}
+	cmd := NewRequestCommandWithDeps(svc)
+	root := newTestRootCommand()
+	root.AddCommand(cmd)
+
+	output, err := executeCommand(root, "request", "submit",
+		"--reason", "test", "--date", "2026-04-21",
+		"--timezone", "UTC", "--from", "09:00", "--to", "17:00",
+		"--yes")
+	if err != nil {
+		t.Fatalf("unexpected error: %v\noutput: %s", err, output)
+	}
+
+	submitted := svc.submitRequest
+	if submitted == nil {
+		t.Fatal("expected a submitted request")
+	}
+	if submitted.RequestDetails["roleId"] != "arn:aws:iam::1:role/Admin" {
+		t.Errorf("roleId: got %v", submitted.RequestDetails["roleId"])
+	}
+	if submitted.RequestDetails["roleName"] != "Admin" {
+		t.Errorf("roleName: got %v", submitted.RequestDetails["roleName"])
+	}
+}
+
 func TestResolveSubmitFields_Interactive(t *testing.T) {
 	originalPrompt := submitPromptFn
 	defer func() { submitPromptFn = originalPrompt }()

@@ -293,6 +293,81 @@ func (s *SCAAccessService) ListGroupsEligibility(ctx context.Context, csp models
 	return &models.GroupsEligibilityResponse{Response: items, Total: total}, nil
 }
 
+// ListOnDemandResources fetches the list of roles available for on-demand access for the given workspace.
+// Dispatches on PlatformName: azure_ad and aws use GET /api/cloud/resources/ondemand,
+// azure_resource uses POST /api/cloud/cloud-roles/ondemand with a body including resourceType and ancestors.
+func (s *SCAAccessService) ListOnDemandResources(ctx context.Context, req models.OnDemandRequest) ([]models.OnDemandResource, error) {
+	switch req.PlatformName {
+	case "azure_ad", "aws":
+		return s.getOnDemandResources(ctx, req)
+	case "azure_resource":
+		return s.postOnDemandResources(ctx, req)
+	default:
+		return nil, fmt.Errorf("unsupported platform: %s", req.PlatformName)
+	}
+}
+
+func (s *SCAAccessService) getOnDemandResources(ctx context.Context, req models.OnDemandRequest) ([]models.OnDemandResource, error) {
+	searchObj := map[string]interface{}{
+		"workspaceId":     req.WorkspaceID,
+		"pageNumber":      -1,
+		"pageSize":        -1,
+		"platformName":    req.PlatformName,
+		"org_id":          req.OrgID,
+		"target_category": "cloud_console",
+	}
+	searchJSON, err := json.Marshal(searchObj)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode on-demand search params: %w", err)
+	}
+	params := map[string]string{"search": string(searchJSON)}
+
+	resp, err := s.httpClient.Get(ctx, "/api/cloud/resources/ondemand", params)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list on-demand resources: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if err := checkResponse(resp, "on-demand resources request"); err != nil {
+		return nil, err
+	}
+
+	var result []models.OnDemandResource
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode on-demand resources response: %w", err)
+	}
+	return result, nil
+}
+
+func (s *SCAAccessService) postOnDemandResources(ctx context.Context, req models.OnDemandRequest) ([]models.OnDemandResource, error) {
+	body := map[string]interface{}{
+		"workspaceId":     req.WorkspaceID,
+		"resourceType":    req.ResourceType,
+		"pageNumber":      -1,
+		"pageSize":        -1,
+		"platformName":    req.PlatformName,
+		"org_id":          req.OrgID,
+		"ancestors":       req.Ancestors,
+		"target_category": "cloud_console",
+	}
+
+	resp, err := s.httpClient.Post(ctx, "/api/cloud/cloud-roles/ondemand", body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list on-demand cloud-roles: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if err := checkResponse(resp, "on-demand cloud-roles request"); err != nil {
+		return nil, err
+	}
+
+	var result []models.OnDemandResource
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode on-demand cloud-roles response: %w", err)
+	}
+	return result, nil
+}
+
 // ElevateGroups requests JIT elevation for the specified Entra ID groups.
 // POST /api/access/elevate/groups
 func (s *SCAAccessService) ElevateGroups(ctx context.Context, req *models.GroupsElevateRequest) (*models.GroupsElevateResponse, error) {

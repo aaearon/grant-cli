@@ -249,6 +249,7 @@ type mockAccessRequestService struct {
 	getErr         error
 	submitResult   *wfmodels.AccessRequest
 	submitErr      error
+	submitRequest  *wfmodels.SubmitAccessRequest
 	cancelResult   *wfmodels.AccessRequest
 	cancelErr      error
 	finalizeResult *wfmodels.AccessRequest
@@ -263,7 +264,8 @@ func (m *mockAccessRequestService) GetRequest(_ context.Context, _ string) (*wfm
 	return m.getResult, m.getErr
 }
 
-func (m *mockAccessRequestService) SubmitRequest(_ context.Context, _ *wfmodels.SubmitAccessRequest) (*wfmodels.AccessRequest, error) {
+func (m *mockAccessRequestService) SubmitRequest(_ context.Context, req *wfmodels.SubmitAccessRequest) (*wfmodels.AccessRequest, error) {
+	m.submitRequest = req
 	return m.submitResult, m.submitErr
 }
 

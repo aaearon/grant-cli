@@ -15,6 +15,10 @@ All notable changes to this project will be documented in this file.
   - `grant request reject <id>` — reject a pending request with optional reason
 - All `grant request` subcommands support `--output json` for machine-readable output
 - New `internal/workflows/` package implementing the CyberArk Access Requests API client (`/api/workflows/requests`)
+- Interactive role selector for `grant request submit`: after workspace selection, fuzzy-filterable list of requestable roles is fetched from the SCA on-demand role discovery endpoints (`/api/cloud/resources/ondemand`, `/api/cloud/cloud-roles/ondemand`)
+  - Supported workspace types: `DIRECTORY` (azure_ad), `ACCOUNT` (aws), `MANAGEMENT_GROUP` (azure_resource)
+  - Other Azure-resource scopes (subscription, resource group, resource) still require `--role-id` until validated
+  - Roles cached in `~/.grant/cache/ondemand_roles_<platform>_<sha256(workspaceID)>.json` (4h TTL)
 
 ## [0.6.1] - 2026-04-08
 

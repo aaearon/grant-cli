@@ -9,10 +9,12 @@ import (
 	"time"
 
 	survey "github.com/Iilun/survey/v2"
+	"github.com/aaearon/grant-cli/internal/cache"
 	"github.com/aaearon/grant-cli/internal/config"
 	"github.com/aaearon/grant-cli/internal/sca/models"
 	"github.com/aaearon/grant-cli/internal/ui"
 	wfmodels "github.com/aaearon/grant-cli/internal/workflows/models"
+	"github.com/cyberark/idsec-sdk-golang/pkg/common"
 	"github.com/spf13/cobra"
 )
 
@@ -59,6 +61,9 @@ var resolveSubmitTargetFn = resolveSubmitTarget
 
 // submitWorkspaceSelectorFn is injectable for testing workspace selection.
 var submitWorkspaceSelectorFn = selectSubmitWorkspace
+
+// resolveRoleFn is injectable for testing role resolution.
+var resolveRoleFn = resolveSubmitRole
 
 type submitFields struct {
 	reason   string
@@ -215,15 +220,6 @@ func runRequestSubmit(cmd *cobra.Command, svc accessRequestService) error {
 		}
 	}
 
-	fields, err := resolveSubmitFields(cmd)
-	if err != nil {
-		return err
-	}
-
-	if err := validateSubmitFields(fields); err != nil {
-		return err
-	}
-
 	targetName, _ := cmd.Flags().GetString("target")
 	roleID, _ := cmd.Flags().GetString("role-id")
 	roleName, _ := cmd.Flags().GetString("role")
@@ -231,26 +227,39 @@ func runRequestSubmit(cmd *cobra.Command, svc accessRequestService) error {
 	ctx, cancel := context.WithTimeout(cmd.Context(), apiTimeout)
 	defer cancel()
 
+	// 1. Workspace
 	workspace, err := resolveSubmitTargetFn(ctx, provider, targetName)
 	if err != nil {
 		return err
 	}
 
-	// Resolve role ID
+	// 2. Role
 	if roleID == "" {
 		if !ui.IsInteractive() {
 			return errors.New("non-interactive mode requires --role-id")
 		}
-		stdio := survey.WithStdio(os.Stdin, os.Stderr, os.Stderr)
-		if err := survey.AskOne(&survey.Input{Message: "Role ID:"}, &roleID,
-			survey.WithValidator(survey.Required), stdio); err != nil {
-			return err
+		resolvedID, resolvedName, err := resolveRoleFn(ctx, workspace)
+		if err != nil {
+			return fmt.Errorf("%w; retry with --role-id to bypass interactive role selection", err)
+		}
+		roleID = resolvedID
+		if roleName == "" {
+			roleName = resolvedName
 		}
 	}
 
-	// Resolve role name (optional, defaults to role ID if not provided)
 	if roleName == "" {
 		roleName = roleID
+	}
+
+	// 3–8. Reason, priority, timezone, date, start time, end time
+	fields, err := resolveSubmitFields(cmd)
+	if err != nil {
+		return err
+	}
+
+	if err := validateSubmitFields(fields); err != nil {
+		return err
 	}
 
 	// Summary before submission
@@ -473,6 +482,86 @@ func buildRequestDetails(ws *submitWorkspace, roleID, roleName string, f *submit
 		"timezone":      f.timezone,
 		"timeFrom":      f.timeFrom,
 		"timeTo":        f.timeTo,
+	}
+}
+
+// resolveSubmitRole fetches on-demand roles for the selected workspace and
+// prompts the user to choose one. Returns the role's resource_id and resource_name.
+func resolveSubmitRole(ctx context.Context, ws *submitWorkspace) (roleID, roleName string, _ error) {
+	req, err := buildOnDemandRequest(ws)
+	if err != nil {
+		return "", "", err
+	}
+
+	_, scaSvc, _, err := bootstrapSCAService()
+	if err != nil {
+		return "", "", fmt.Errorf("failed to bootstrap SCA service: %w", err)
+	}
+
+	cfg, _, _ := config.LoadDefaultWithPath()
+	if cfg == nil {
+		cfg = config.DefaultConfig()
+	}
+
+	var lister cache.OnDemandRolesLister = scaSvc
+	cacheDir, cacheErr := cache.CacheDir()
+	if cacheErr == nil {
+		ttl := config.ParseCacheTTL(cfg)
+		store := cache.NewStore(cacheDir, ttl)
+		lister = cache.NewCachedRolesLister(scaSvc, store, common.GetLogger("grant", -1))
+	}
+
+	fetchCtx, cancel := context.WithTimeout(ctx, apiTimeout)
+	defer cancel()
+
+	roles, err := lister.ListOnDemandResources(fetchCtx, req)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to fetch on-demand roles: %w", err)
+	}
+
+	selected, err := ui.SelectRole(roles)
+	if err != nil {
+		return "", "", err
+	}
+	return selected.ResourceID, selected.ResourceName, nil
+}
+
+// buildOnDemandRequest maps a workspace into the on-demand discovery request.
+// Only directory / AWS account / management-group workspaces are supported in v1.
+func buildOnDemandRequest(ws *submitWorkspace) (models.OnDemandRequest, error) {
+	wt := strings.ToUpper(string(ws.WorkspaceType))
+	switch wt {
+	case "DIRECTORY":
+		return models.OnDemandRequest{
+			WorkspaceID:  ws.WorkspaceID,
+			PlatformName: "azure_ad",
+			OrgID:        ws.OrganizationID,
+		}, nil
+	case "ACCOUNT":
+		return models.OnDemandRequest{
+			WorkspaceID:  ws.WorkspaceID,
+			PlatformName: "aws",
+			OrgID:        ws.OrganizationID,
+		}, nil
+	case "MANAGEMENT_GROUP":
+		return models.OnDemandRequest{
+			WorkspaceID:  ws.WorkspaceID,
+			PlatformName: "azure_resource",
+			OrgID:        ws.OrganizationID,
+			ResourceType: "management_group",
+			Ancestors: []string{
+				"/" + ws.OrganizationID,
+				"/" + ws.WorkspaceID,
+			},
+		}, nil
+	case "SUBSCRIPTION", "RESOURCE_GROUP", "RESOURCE":
+		return models.OnDemandRequest{}, fmt.Errorf(
+			"interactive role selection not supported for %s workspaces yet; use --role-id (see docs/handoff-ondemand-roles-poc.md)",
+			strings.ToLower(wt))
+	default:
+		return models.OnDemandRequest{}, fmt.Errorf(
+			"interactive role selection not supported for workspace type %q; use --role-id",
+			ws.WorkspaceType)
 	}
 }
 
