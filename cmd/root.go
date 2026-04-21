@@ -132,7 +132,7 @@ var rootCmd = newRootCommand(runElevateProduction)
 // bootstrap memoization state — shared auth/profile across all service
 // bootstraps within a single process invocation so we authenticate exactly once.
 var (
-	bootstrapOnce        sync.Once
+	bootstrapOnce        = new(sync.Once)
 	bootstrapISPAuthVal  auth.IdsecAuth
 	bootstrapProfileVal  *sdkmodels.IdsecProfile
 	errBootstrap         error
@@ -164,8 +164,9 @@ func bootstrapISPAuth() (auth.IdsecAuth, *sdkmodels.IdsecProfile, error) {
 }
 
 // resetBootstrapCache clears the memoized auth state. Intended for tests.
+// Uses pointer reassignment to avoid copying the sync.Once value.
 func resetBootstrapCache() {
-	bootstrapOnce = sync.Once{}
+	bootstrapOnce = new(sync.Once)
 	bootstrapISPAuthVal = nil
 	bootstrapProfileVal = nil
 	errBootstrap = nil

@@ -14,7 +14,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func TestBootstrapISPAuth_MemoizesAcrossServiceBootstraps(t *testing.T) {
+func TestBootstrapISPAuth_MemoizesRepeatCalls(t *testing.T) {
 	resetBootstrapCache()
 	t.Cleanup(resetBootstrapCache)
 
@@ -22,7 +22,7 @@ func TestBootstrapISPAuth_MemoizesAcrossServiceBootstraps(t *testing.T) {
 	t.Cleanup(func() { bootstrapImpl = origImpl })
 
 	calls := 0
-	stubAuth := sdkauth.NewIdsecISPAuth(true) // never Authenticate'd — used only for identity
+	stubAuth := sdkauth.NewIdsecISPAuth(false) // non-caching stub; Authenticate never called
 	stubProfile := &sdkmodels.IdsecProfile{}
 	bootstrapImpl = func() (sdkauth.IdsecAuth, *sdkmodels.IdsecProfile, error) {
 		calls++
