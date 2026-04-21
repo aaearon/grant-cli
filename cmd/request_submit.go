@@ -46,6 +46,7 @@ func newRequestSubmitCommand(svc accessRequestService) *cobra.Command {
 	cmd.Flags().String("from", "", "Start time (HH:MM)")
 	cmd.Flags().String("to", "", "End time (HH:MM)")
 	cmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
+	cmd.Flags().Bool("refresh", false, "Bypass on-demand role and eligibility caches")
 
 	return cmd
 }
@@ -223,12 +224,13 @@ func runRequestSubmit(cmd *cobra.Command, svc accessRequestService) error {
 	targetName, _ := cmd.Flags().GetString("target")
 	roleID, _ := cmd.Flags().GetString("role-id")
 	roleName, _ := cmd.Flags().GetString("role")
+	refresh, _ := cmd.Flags().GetBool("refresh")
 
 	ctx, cancel := context.WithTimeout(cmd.Context(), apiTimeout)
 	defer cancel()
 
 	// 1. Workspace
-	workspace, err := resolveSubmitTargetFn(ctx, provider, targetName)
+	workspace, err := resolveSubmitTargetFn(ctx, provider, targetName, refresh)
 	if err != nil {
 		return err
 	}
@@ -238,7 +240,7 @@ func runRequestSubmit(cmd *cobra.Command, svc accessRequestService) error {
 		if !ui.IsInteractive() {
 			return errors.New("non-interactive mode requires --role-id")
 		}
-		resolvedID, resolvedName, err := resolveRoleFn(ctx, workspace)
+		resolvedID, resolvedName, err := resolveRoleFn(ctx, workspace, refresh)
 		if err != nil {
 			return fmt.Errorf("%w; retry with --role-id to bypass interactive role selection", err)
 		}
@@ -352,7 +354,7 @@ func resolveSubmitFields(cmd *cobra.Command) (*submitFields, error) {
 	return f, nil
 }
 
-func resolveSubmitTarget(ctx context.Context, provider, targetName string) (*submitWorkspace, error) {
+func resolveSubmitTarget(ctx context.Context, provider, targetName string, refresh bool) (*submitWorkspace, error) {
 	_, scaSvc, _, err := bootstrapSCAService()
 	if err != nil {
 		return nil, fmt.Errorf("failed to bootstrap SCA service: %w", err)
@@ -362,7 +364,7 @@ func resolveSubmitTarget(ctx context.Context, provider, targetName string) (*sub
 	if cfg == nil {
 		cfg = config.DefaultConfig()
 	}
-	cachedLister := buildCachedLister(cfg, false, scaSvc, nil)
+	cachedLister := buildCachedLister(cfg, refresh, scaSvc, nil)
 
 	fetchCtx, fetchCancel := context.WithTimeout(ctx, apiTimeout)
 	defer fetchCancel()
@@ -487,7 +489,7 @@ func buildRequestDetails(ws *submitWorkspace, roleID, roleName string, f *submit
 
 // resolveSubmitRole fetches on-demand roles for the selected workspace and
 // prompts the user to choose one. Returns the role's resource_id and resource_name.
-func resolveSubmitRole(ctx context.Context, ws *submitWorkspace) (roleID, roleName string, _ error) {
+func resolveSubmitRole(ctx context.Context, ws *submitWorkspace, refresh bool) (roleID, roleName string, _ error) {
 	req, err := buildOnDemandRequest(ws)
 	if err != nil {
 		return "", "", err
@@ -508,7 +510,7 @@ func resolveSubmitRole(ctx context.Context, ws *submitWorkspace) (roleID, roleNa
 	if cacheErr == nil {
 		ttl := config.ParseCacheTTL(cfg)
 		store := cache.NewStore(cacheDir, ttl)
-		lister = cache.NewCachedRolesLister(scaSvc, store, common.GetLogger("grant", -1))
+		lister = cache.NewCachedRolesLister(scaSvc, store, refresh, common.GetLogger("grant", -1))
 	}
 
 	fetchCtx, cancel := context.WithTimeout(ctx, apiTimeout)
@@ -527,7 +529,12 @@ func resolveSubmitRole(ctx context.Context, ws *submitWorkspace) (roleID, roleNa
 }
 
 // buildOnDemandRequest maps a workspace into the on-demand discovery request.
-// Only directory / AWS account / management-group workspaces are supported in v1.
+// ensureLeadingSlash returns s with exactly one leading slash.
+func ensureLeadingSlash(s string) string {
+	return "/" + strings.TrimLeft(s, "/")
+}
+
+// buildOnDemandRequest maps a workspace into the on-demand discovery request.
 func buildOnDemandRequest(ws *submitWorkspace) (models.OnDemandRequest, error) {
 	wt := strings.ToUpper(string(ws.WorkspaceType))
 	switch wt {
@@ -550,14 +557,26 @@ func buildOnDemandRequest(ws *submitWorkspace) (models.OnDemandRequest, error) {
 			OrgID:        ws.OrganizationID,
 			ResourceType: "management_group",
 			Ancestors: []string{
-				"/" + ws.OrganizationID,
-				"/" + ws.WorkspaceID,
+				ensureLeadingSlash(ws.OrganizationID),
+				ensureLeadingSlash(ws.WorkspaceID),
 			},
 		}, nil
 	case "SUBSCRIPTION", "RESOURCE_GROUP", "RESOURCE":
-		return models.OnDemandRequest{}, fmt.Errorf(
-			"interactive role selection not supported for %s workspaces yet; use --role-id (see docs/handoff-ondemand-roles-poc.md)",
-			strings.ToLower(wt))
+		resourceType := map[string]string{
+			"SUBSCRIPTION":   "subscription",
+			"RESOURCE_GROUP": "resource_group",
+			"RESOURCE":       "resource",
+		}[wt]
+		return models.OnDemandRequest{
+			WorkspaceID:  ws.WorkspaceID,
+			PlatformName: "azure_resource",
+			OrgID:        ws.OrganizationID,
+			ResourceType: resourceType,
+			Ancestors: []string{
+				ensureLeadingSlash(ws.OrganizationID),
+				ensureLeadingSlash(ws.WorkspaceID),
+			},
+		}, nil
 	default:
 		return models.OnDemandRequest{}, fmt.Errorf(
 			"interactive role selection not supported for workspace type %q; use --role-id",

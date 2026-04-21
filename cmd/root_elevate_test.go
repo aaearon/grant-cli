@@ -75,6 +75,7 @@ func TestRootElevate_InteractiveMode(t *testing.T) {
 						WorkspaceID:    "sub-456",
 						WorkspaceName:  "Prod-EastUS",
 						WorkspaceType:  models.WorkspaceTypeSubscription,
+						CSP:            models.CSPAzure,
 						RoleInfo: models.RoleInfo{
 							ID:   "role-789",
 							Name: "Contributor",
