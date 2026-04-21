@@ -8,9 +8,6 @@ import (
 
 	"github.com/aaearon/grant-cli/internal/workflows"
 	"github.com/aaearon/grant-cli/internal/workflows/models"
-	"github.com/cyberark/idsec-sdk-golang/pkg/auth"
-	authmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
-	"github.com/cyberark/idsec-sdk-golang/pkg/profiles"
 	"github.com/spf13/cobra"
 )
 
@@ -54,18 +51,12 @@ func NewRequestCommandWithDeps(reqSvc accessRequestService) *cobra.Command {
 }
 
 // bootstrapWorkflowsService creates an authenticated AccessRequestService.
+// Reuses the memoized ISP auth from bootstrapISPAuth so repeated bootstraps in
+// a single invocation (e.g. `grant request submit`) share one auth cycle.
 func bootstrapWorkflowsService() (*workflows.AccessRequestService, error) {
-	loader := profiles.DefaultProfilesLoader()
-	profile, err := (*loader).LoadProfile("grant")
+	ispAuth, _, err := bootstrapISPAuth()
 	if err != nil {
-		return nil, fmt.Errorf("failed to load profile: %w", err)
-	}
-
-	ispAuth := auth.NewIdsecISPAuth(true)
-
-	_, err = ispAuth.Authenticate(profile, nil, &authmodels.IdsecSecret{Secret: ""}, false, true)
-	if err != nil {
-		return nil, fmt.Errorf("authentication failed: %w", err)
+		return nil, err
 	}
 
 	svc, err := workflows.NewAccessRequestService(ispAuth)

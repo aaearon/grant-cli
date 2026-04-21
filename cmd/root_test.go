@@ -8,9 +8,56 @@ import (
 
 	"github.com/aaearon/grant-cli/internal/sca/models"
 	"github.com/aaearon/grant-cli/internal/ui"
+	sdkauth "github.com/cyberark/idsec-sdk-golang/pkg/auth"
 	"github.com/cyberark/idsec-sdk-golang/pkg/config"
+	sdkmodels "github.com/cyberark/idsec-sdk-golang/pkg/models"
 	"github.com/spf13/cobra"
 )
+
+func TestBootstrapISPAuth_MemoizesRepeatCalls(t *testing.T) {
+	resetBootstrapCache()
+	t.Cleanup(resetBootstrapCache)
+
+	origImpl := bootstrapImpl
+	t.Cleanup(func() { bootstrapImpl = origImpl })
+
+	calls := 0
+	stubAuth := sdkauth.NewIdsecISPAuth(false) // non-caching stub; Authenticate never called
+	stubProfile := &sdkmodels.IdsecProfile{}
+	bootstrapImpl = func() (sdkauth.IdsecAuth, *sdkmodels.IdsecProfile, error) {
+		calls++
+		return stubAuth, stubProfile, nil
+	}
+
+	ispAuth1, profile1, err := bootstrapISPAuth()
+	if err != nil {
+		t.Fatalf("bootstrapISPAuth #1: %v", err)
+	}
+	ispAuth2, profile2, err := bootstrapISPAuth()
+	if err != nil {
+		t.Fatalf("bootstrapISPAuth #2: %v", err)
+	}
+	ispAuth3, profile3, err := bootstrapISPAuth()
+	if err != nil {
+		t.Fatalf("bootstrapISPAuth #3: %v", err)
+	}
+
+	if calls != 1 {
+		t.Errorf("expected bootstrapImpl to be invoked exactly once across 3 calls, got %d", calls)
+	}
+	if ispAuth1 != ispAuth2 || ispAuth2 != ispAuth3 {
+		t.Error("expected ispAuth to be the same instance across all bootstrap calls")
+	}
+	if profile1 != profile2 || profile2 != profile3 {
+		t.Error("expected profile to be the same instance across all bootstrap calls")
+	}
+	if ispAuth1 != stubAuth {
+		t.Error("expected returned auth to match stub")
+	}
+	if profile1 != stubProfile {
+		t.Error("expected returned profile to match stub")
+	}
+}
 
 func TestNewRootCommand_SilenceFlags(t *testing.T) {
 	cmd := newRootCommand(nil)

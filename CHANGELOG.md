@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 
 - `--output json` is now a pure serialisation flag; it no longer forces non-interactive mode. Interactive pickers and prompts (e.g. `grant request get -o json` with no ID, `grant request submit -o json` without `--target`/`--role`) work in a TTY, writing prompts to stderr and JSON to stdout.
 
+### Fixed
+
+- `grant request submit` no longer performs 2–3 back-to-back ISP authentication cycles. Profile load + `Authenticate` is now memoized per-invocation and shared by `bootstrapSCAService` / `bootstrapWorkflowsService`. `Authenticate` is also called with `refreshAuth=false` so cached, unexpired keyring tokens short-circuit the network round-trip. Keyring ops drop from ~18× to ~6× per invocation.
+
 ### Added
 
 - `grant request` command group for managing access requests through the approval workflow
