@@ -529,7 +529,12 @@ func resolveSubmitRole(ctx context.Context, ws *submitWorkspace, refresh bool) (
 }
 
 // buildOnDemandRequest maps a workspace into the on-demand discovery request.
-// Only directory / AWS account / management-group workspaces are supported in v1.
+// ensureLeadingSlash returns s with exactly one leading slash.
+func ensureLeadingSlash(s string) string {
+	return "/" + strings.TrimLeft(s, "/")
+}
+
+// buildOnDemandRequest maps a workspace into the on-demand discovery request.
 func buildOnDemandRequest(ws *submitWorkspace) (models.OnDemandRequest, error) {
 	wt := strings.ToUpper(string(ws.WorkspaceType))
 	switch wt {
@@ -552,8 +557,8 @@ func buildOnDemandRequest(ws *submitWorkspace) (models.OnDemandRequest, error) {
 			OrgID:        ws.OrganizationID,
 			ResourceType: "management_group",
 			Ancestors: []string{
-				"/" + ws.OrganizationID,
-				"/" + ws.WorkspaceID,
+				ensureLeadingSlash(ws.OrganizationID),
+				ensureLeadingSlash(ws.WorkspaceID),
 			},
 		}, nil
 	case "SUBSCRIPTION", "RESOURCE_GROUP", "RESOURCE":
@@ -568,8 +573,8 @@ func buildOnDemandRequest(ws *submitWorkspace) (models.OnDemandRequest, error) {
 			OrgID:        ws.OrganizationID,
 			ResourceType: resourceType,
 			Ancestors: []string{
-				"/" + ws.OrganizationID,
-				"/" + ws.WorkspaceID,
+				ensureLeadingSlash(ws.OrganizationID),
+				ensureLeadingSlash(ws.WorkspaceID),
 			},
 		}, nil
 	default:

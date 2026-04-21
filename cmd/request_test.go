@@ -661,19 +661,23 @@ func TestBuildOnDemandRequest_UnsupportedType(t *testing.T) {
 
 func TestBuildOnDemandRequest_SupportedTypes(t *testing.T) {
 	tests := []struct {
-		name         string
-		wt           models.WorkspaceType
-		wsID         string
-		orgID        string
-		wantPlatform string
-		wantAnces    int
+		name             string
+		wt               models.WorkspaceType
+		wsID             string
+		orgID            string
+		wantPlatform     string
+		wantResourceType string
+		wantAnces        int
 	}{
-		{"directory", models.WorkspaceType("DIRECTORY"), "dir-1", "dir-1", "azure_ad", 0},
-		{"account", models.WorkspaceType("ACCOUNT"), "123", "123", "aws", 0},
-		{"management_group", models.WorkspaceType("MANAGEMENT_GROUP"), "providers/Microsoft.Management/managementGroups/root", "dir-456", "azure_resource", 2},
-		{"subscription", models.WorkspaceType("SUBSCRIPTION"), "sub-1", "dir-456", "azure_resource", 2},
-		{"resource_group", models.WorkspaceType("RESOURCE_GROUP"), "rg-1", "dir-456", "azure_resource", 2},
-		{"resource", models.WorkspaceType("RESOURCE"), "res-1", "dir-456", "azure_resource", 2},
+		{"directory", models.WorkspaceType("DIRECTORY"), "dir-1", "dir-1", "azure_ad", "", 0},
+		{"account", models.WorkspaceType("ACCOUNT"), "123", "123", "aws", "", 0},
+		// Real IDs have no leading slash for management groups.
+		{"management_group", models.WorkspaceType("MANAGEMENT_GROUP"), "providers/Microsoft.Management/managementGroups/root", "dir-456", "azure_resource", "management_group", 2},
+		// Real subscription/RG/resource IDs include a leading slash (e.g. /subscriptions/...).
+		{"subscription_noslash", models.WorkspaceType("SUBSCRIPTION"), "subscriptions/abc-123", "dir-456", "azure_resource", "subscription", 2},
+		{"subscription_slash", models.WorkspaceType("SUBSCRIPTION"), "/subscriptions/abc-123", "dir-456", "azure_resource", "subscription", 2},
+		{"resource_group", models.WorkspaceType("RESOURCE_GROUP"), "/subscriptions/abc/resourceGroups/rg1", "dir-456", "azure_resource", "resource_group", 2},
+		{"resource", models.WorkspaceType("RESOURCE"), "/subscriptions/abc/resourceGroups/rg1/providers/Microsoft.Compute/virtualMachines/vm1", "dir-456", "azure_resource", "resource", 2},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -688,8 +692,16 @@ func TestBuildOnDemandRequest_SupportedTypes(t *testing.T) {
 			if req.PlatformName != tt.wantPlatform {
 				t.Errorf("platform: got %q want %q", req.PlatformName, tt.wantPlatform)
 			}
+			if tt.wantResourceType != "" && req.ResourceType != tt.wantResourceType {
+				t.Errorf("resourceType: got %q want %q", req.ResourceType, tt.wantResourceType)
+			}
 			if len(req.Ancestors) != tt.wantAnces {
 				t.Errorf("ancestors: got %d want %d", len(req.Ancestors), tt.wantAnces)
+			}
+			for _, a := range req.Ancestors {
+				if strings.HasPrefix(a, "//") {
+					t.Errorf("ancestor has double slash: %q", a)
+				}
 			}
 		})
 	}
