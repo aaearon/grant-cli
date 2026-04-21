@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-04-21
+
 ### Changed
 
 - Upgraded `github.com/cyberark/idsec-sdk-golang` from v0.1.14 to v0.2.3. `isp.FromISPAuth` now takes a retry-strategy argument; we pass `nil` to preserve v0.1.14 behavior (which itself defaulted to nil internally). No new direct Go module dependencies; indirect dep set is smaller
