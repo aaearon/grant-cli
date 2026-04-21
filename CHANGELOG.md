@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Upgraded `github.com/cyberark/idsec-sdk-golang` from v0.1.14 to v0.2.3. `isp.FromISPAuth` now takes a retry-strategy argument; we pass `nil` to preserve v0.1.14 behavior (which itself defaulted to nil internally). No new direct Go module dependencies; indirect dep set is smaller
 - `--output json` is now a pure serialisation flag; it no longer forces non-interactive mode. Interactive pickers and prompts (e.g. `grant request get -o json` with no ID, `grant request submit -o json` without `--target`/`--role`) work in a TTY, writing prompts to stderr and JSON to stdout.
 
 ### Added

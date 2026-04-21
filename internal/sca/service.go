@@ -56,7 +56,7 @@ func NewSCAAccessService(authenticators ...auth.IdsecAuth) (*SCAAccessService, e
 	svc.ispAuth = ispAuth
 
 	// Create ISP client
-	client, err := isp.FromISPAuth(ispAuth, "sca", ".", "", svc.refreshAuth)
+	client, err := isp.FromISPAuth(ispAuth, "sca", ".", "", svc.refreshAuth, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ISP client: %w", err)
 	}

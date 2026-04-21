@@ -52,7 +52,7 @@ func NewAccessRequestService(authenticators ...auth.IdsecAuth) (*AccessRequestSe
 	}
 	svc.ispAuth = ispAuth
 
-	client, err := isp.FromISPAuth(ispAuth, "uar", ".", "", svc.refreshAuth)
+	client, err := isp.FromISPAuth(ispAuth, "uar", ".", "", svc.refreshAuth, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ISP client: %w", err)
 	}
