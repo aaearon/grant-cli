@@ -49,6 +49,17 @@ grant status
 grant revoke                        # interactive multi-select
 grant revoke <session-id>           # direct by ID
 grant revoke --all                  # revoke all
+
+# Access request workflow
+grant request submit                # interactive: pick workspace, role, fill details
+grant request submit --provider azure --target "Prod" --role "Contributor" --reason "Incident"
+grant request list                  # list your requests
+grant request list --state PENDING --role APPROVER
+grant request get                   # fuzzy-pick a request (TTY) or pass <id>
+grant request get <request-id>
+grant request cancel <request-id>   # cancel an open request
+grant request approve <request-id>  # approve a pending request (approvers only)
+grant request reject <request-id>   # reject a pending request (approvers only)
 ```
 
 ![grant env demo](demo/demo-env-status.gif)
@@ -102,8 +113,20 @@ Running `grant` with no subcommand elevates cloud permissions (the core behavior
 | `status` | Show auth state and active sessions |
 | `favorites` | Manage saved role favorites (`add`/`list`/`remove`) |
 | `revoke` | Revoke sessions (interactive, by ID, or `--all`) |
+| `request` | Manage access requests through an approval workflow (see subcommands below) |
 | `update` | Self-update to the latest release from GitHub |
 | `version` | Print version information |
+
+### `grant request` subcommands
+
+| Subcommand | Description |
+|------------|-------------|
+| `submit` | Submit an on-demand access request (interactive workspace + role picker, or direct with flags) |
+| `list` | List access requests (`--state`, `--result`, `--priority`, `--role CREATOR\|APPROVER`, `--search`, `--sort`, `--desc`) |
+| `get [id]` | Show full request details; omit `<id>` in a TTY to open a fuzzy picker |
+| `cancel [id]` | Cancel an open request; omit `<id>` in a TTY to pick from your open requests |
+| `approve [id]` | Approve a pending request (approvers only); omit `<id>` in a TTY to pick from pending requests |
+| `reject [id]` | Reject a pending request (approvers only); omit `<id>` in a TTY to pick from pending requests |
 
 ### Flags
 
@@ -111,6 +134,9 @@ Running `grant` with no subcommand elevates cloud permissions (the core behavior
 
 **Elevation** (`grant`, `env`, `favorites add`):
 `--provider, -p` | `--target, -t` | `--role, -r` | `--favorite, -f` | `--group, -g` | `--groups` | `--refresh`
+
+**`grant request submit`:**
+`--provider, -p` | `--target, -t` | `--role` | `--role-id` | `--reason` | `--priority` | `--date` | `--timezone` | `--from` | `--to` | `--yes` | `--refresh`
 
 Target matching is case-insensitive and supports partial match; interactive mode provides fuzzy search.
 
