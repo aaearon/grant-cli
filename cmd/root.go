@@ -129,19 +129,54 @@ Examples:
 
 var rootCmd = newRootCommand(runElevateProduction)
 
-// bootstrapSCAService loads the profile, authenticates, and creates the SCA service.
-func bootstrapSCAService() (auth.IdsecAuth, *sca.SCAAccessService, *sdkmodels.IdsecProfile, error) {
+// bootstrap memoization state — shared auth/profile across all service
+// bootstraps within a single process invocation so we authenticate exactly once.
+var (
+	bootstrapOnce        sync.Once
+	bootstrapISPAuthVal  auth.IdsecAuth
+	bootstrapProfileVal  *sdkmodels.IdsecProfile
+	errBootstrap         error
+)
+
+// bootstrapImpl is the function that performs the profile load + authentication.
+// Overridable for tests. refreshAuth=false lets the SDK reuse cached keyring
+// tokens while still valid; a full re-auth only happens on token expiry.
+var bootstrapImpl = func() (auth.IdsecAuth, *sdkmodels.IdsecProfile, error) {
 	loader := profiles.DefaultProfilesLoader()
 	profile, err := (*loader).LoadProfile("grant")
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to load profile: %w", err)
+		return nil, nil, fmt.Errorf("failed to load profile: %w", err)
 	}
-
 	ispAuth := auth.NewIdsecISPAuth(true)
+	if _, err := ispAuth.Authenticate(profile, nil, &authmodels.IdsecSecret{Secret: ""}, false, false); err != nil {
+		return nil, nil, fmt.Errorf("authentication failed: %w", err)
+	}
+	return ispAuth, profile, nil
+}
 
-	_, err = ispAuth.Authenticate(profile, nil, &authmodels.IdsecSecret{Secret: ""}, false, true)
+// bootstrapISPAuth returns a process-wide memoized auth.IdsecAuth and profile so
+// repeated service bootstraps in one invocation share a single auth cycle.
+func bootstrapISPAuth() (auth.IdsecAuth, *sdkmodels.IdsecProfile, error) {
+	bootstrapOnce.Do(func() {
+		bootstrapISPAuthVal, bootstrapProfileVal, errBootstrap = bootstrapImpl()
+	})
+	return bootstrapISPAuthVal, bootstrapProfileVal, errBootstrap
+}
+
+// resetBootstrapCache clears the memoized auth state. Intended for tests.
+func resetBootstrapCache() {
+	bootstrapOnce = sync.Once{}
+	bootstrapISPAuthVal = nil
+	bootstrapProfileVal = nil
+	errBootstrap = nil
+}
+
+// bootstrapSCAService loads the profile, authenticates, and creates the SCA service.
+// The underlying auth is memoized across calls within a single invocation.
+func bootstrapSCAService() (auth.IdsecAuth, *sca.SCAAccessService, *sdkmodels.IdsecProfile, error) {
+	ispAuth, profile, err := bootstrapISPAuth()
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("authentication failed: %w", err)
+		return nil, nil, nil, err
 	}
 
 	svc, err := sca.NewSCAAccessService(ispAuth)
