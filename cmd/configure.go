@@ -20,8 +20,8 @@ import (
 func NewConfigureCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "configure",
-		Short: "Configure grant with CyberArk Identity credentials",
-		Long: `Configure grant by providing your CyberArk username and optional Identity URL.
+		Short: "Configure grant with Idira Identity credentials",
+		Long: `Configure grant by providing your Idira username and optional Identity URL.
 
 This command creates two configuration files:
 - SDK profile at ~/.idsec_profiles/grant
@@ -46,8 +46,8 @@ MFA method selection is handled interactively during login.`,
 func NewConfigureCommandWithDeps(saver profileSaver, tenantURL, username string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "configure",
-		Short: "Configure grant with CyberArk tenant credentials",
-		Long:  "Configure grant by providing your CyberArk tenant URL and username.",
+		Short: "Configure grant with Idira tenant credentials",
+		Long:  "Configure grant by providing your Idira tenant URL and username.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runConfigure(cmd, saver, tenantURL, username)
 		},
@@ -63,13 +63,13 @@ func runConfigure(cmd *cobra.Command, saver profileSaver, tenantURL, username st
 	if promptNeeded {
 		if err := survey.AskOne(&survey.Input{
 			Message: "Username:",
-			Help:    "Your CyberArk username or email",
+			Help:    "Your Idira username or email",
 		}, &username, survey.WithValidator(survey.Required)); err != nil {
 			return fmt.Errorf("failed to read username: %w", err)
 		}
 
 		if err := survey.AskOne(&survey.Input{
-			Message: "CyberArk Identity URL (optional):",
+			Message: "Idira Identity URL (optional):",
 			Help:    "Leave blank to auto-detect from username (e.g., https://abc1234.id.cyberark.cloud)",
 		}, &tenantURL); err != nil {
 			return fmt.Errorf("failed to read tenant URL: %w", err)
