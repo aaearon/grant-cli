@@ -1,12 +1,12 @@
 # grant
 
-A CLI tool for elevating cloud permissions (Azure, AWS) via CyberArk Secure Cloud Access (SCA) — without leaving the terminal.
+A CLI tool for elevating cloud permissions (Azure, AWS) via Idira (formerly CyberArk) Secure Cloud Access (SCA) — without leaving the terminal.
 
 ![grant demo](demo/demo.gif)
 
 ## Overview
 
-`grant` enables terminal-based cloud permission elevation (Azure, AWS) through CyberArk SCA. It wraps the `idsec-sdk-golang` SDK for authentication and builds a custom SCA Access API client for JIT role elevation.
+`grant` enables terminal-based cloud permission elevation (Azure, AWS) through Idira SCA. It wraps the `idsec-sdk-golang` SDK for authentication and builds a custom SCA Access API client for JIT role elevation.
 
 - **Azure:** SCA creates a JIT RBAC role assignment — your existing `az` CLI session picks up the elevated permissions automatically.
 - **AWS:** SCA returns temporary credentials. Use `grant env` to export them: `eval $(grant env --provider aws)`
@@ -108,7 +108,7 @@ Running `grant` with no subcommand elevates cloud permissions (the core behavior
 | `configure` | Configure Identity URL and username (optional — `login` auto-configures) |
 | `env` | Elevate and output AWS credential export statements for `eval $(grant env)` |
 | `list` | List eligible targets and groups without elevation (`--provider`, `--groups`, `--output json`) |
-| `login` | Authenticate to CyberArk Identity (MFA handled interactively) |
+| `login` | Authenticate to Idira Identity (MFA handled interactively) |
 | `logout` | Clear cached tokens from keyring |
 | `status` | Show auth state and active sessions |
 | `favorites` | Manage saved role favorites (`add`/`list`/`remove`) |
@@ -174,7 +174,7 @@ favorites:
 | Problem | Solution |
 |---------|----------|
 | Azure CLI doesn't see new role after elevation | Refresh token: `az account get-access-token --output none` (or `az account clear && az login`) |
-| "No eligible targets found" | Verify SCA policies with your CyberArk admin; try without `--provider` to see all targets |
+| "No eligible targets found" | Verify SCA policies with your Idira admin; try without `--provider` to see all targets |
 | "Failed to elevate" | Check `grant status` for active sessions; verify target/role names |
 | `grant env` errors for Azure | `env` is AWS-only — Azure doesn't return credentials, use `grant` directly |
 | Permission denied accessing keyring (Linux) | Install and start `gnome-keyring` or `kwalletmanager` |

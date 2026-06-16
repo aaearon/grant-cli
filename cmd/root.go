@@ -56,7 +56,7 @@ func newRootCommand(runFn func(*cobra.Command, []string) error) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "grant",
 		Short: "Request temporary elevated cloud permissions",
-		Long: `Grant temporary elevated cloud permissions via CyberArk Secure Cloud Access (SCA).
+		Long: `Grant temporary elevated cloud permissions via Idira Secure Cloud Access (SCA).
 
 Running grant with no subcommand requests access elevation. The interactive
 selector shows both cloud roles and Entra ID groups in a unified list.

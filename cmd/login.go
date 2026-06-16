@@ -15,8 +15,8 @@ import (
 func NewLoginCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "login",
-		Short: "Authenticate to CyberArk SCA",
-		Long: `Authenticate to CyberArk Secure Cloud Access (SCA) and cache the authentication token.
+		Short: "Authenticate to Idira SCA",
+		Long: `Authenticate to Idira Secure Cloud Access (SCA) and cache the authentication token.
 
 If this is your first time using grant, you will be prompted to configure your tenant URL and username.
 The MFA method will be selected interactively during authentication.`,
@@ -31,8 +31,8 @@ The MFA method will be selected interactively during authentication.`,
 func NewLoginCommandWithAuth(auth authenticator) *cobra.Command {
 	return &cobra.Command{
 		Use:   "login",
-		Short: "Authenticate to CyberArk SCA",
-		Long:  "Authenticate to CyberArk Secure Cloud Access (SCA) and cache the authentication token.",
+		Short: "Authenticate to Idira SCA",
+		Long:  "Authenticate to Idira Secure Cloud Access (SCA) and cache the authentication token.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runLogin(cmd, auth)
 		},
