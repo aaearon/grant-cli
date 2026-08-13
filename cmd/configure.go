@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -24,7 +23,7 @@ func NewConfigureCommand() *cobra.Command {
 		Long: `Configure grant by providing your Idira username and optional Identity URL.
 
 This command creates two configuration files:
-- SDK profile at ~/.idsec_profiles/grant
+- SDK profile at ~/.idsec/profiles/grant (override with IDSEC_PROFILES_FOLDER)
 - App config at ~/.grant/config.yaml
 
 The Identity URL is optional — the SDK can auto-discover it from your username.
@@ -110,12 +109,9 @@ func runConfigure(cmd *cobra.Command, saver profileSaver, tenantURL, username st
 		return fmt.Errorf("failed to save profile: %w", err)
 	}
 
-	// Get profile directory for success message
-	profileDir := os.Getenv("IDSEC_PROFILES_FOLDER")
-	if profileDir == "" {
-		home, _ := os.UserHomeDir()
-		profileDir = filepath.Join(home, ".idsec_profiles")
-	}
+	// Get profile directory for success message. Must use the SDK's own resolver
+	// so the printed path matches what the profile loader will later read.
+	profileDir := profiles.GetProfilesFolder()
 	profilePath := filepath.Join(profileDir, "grant")
 
 	// Create app config

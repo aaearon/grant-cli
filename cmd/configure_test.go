@@ -9,6 +9,7 @@ import (
 	"github.com/aaearon/grant-cli/internal/config"
 	"github.com/cyberark/idsec-sdk-golang/pkg/models"
 	authmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
+	"github.com/cyberark/idsec-sdk-golang/pkg/profiles"
 )
 
 func TestConfigureCommand(t *testing.T) {
@@ -371,5 +372,137 @@ func TestValidateTenantURL(t *testing.T) {
 				t.Errorf("validateTenantURL() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+// How the IDSEC_PROFILES_FOLDER override is set up for a test case. The SDK
+// only honors the override when it is set AND non-empty, so "unset" and
+// "empty" must be distinguishable.
+const (
+	folderUnset  = "unset"
+	folderEmpty  = "empty"
+	folderCustom = "custom"
+)
+
+// TestRunConfigurePrintsProfilePath verifies the success message reports the
+// same directory the SDK profile loader actually uses (profiles.GetProfilesFolder).
+//
+// These cases deliberately mirror the SDK's own resolution — including its use
+// of os.Getenv("HOME") rather than os.UserHomeDir(), which yields a relative
+// path when HOME is empty (the common Windows case). configure must print
+// whatever the loader will later read, warts included.
+//
+// Not parallel: t.Setenv mutates process-global state.
+func TestRunConfigurePrintsProfilePath(t *testing.T) {
+	tests := []struct {
+		name           string
+		homeTempDir    bool   // use t.TempDir() as HOME
+		home           string // literal HOME value when homeTempDir is false
+		folderMode     string
+		wantContainsFn func(profilesFolder, home string) string
+	}{
+		{
+			name:        "honors IDSEC_PROFILES_FOLDER",
+			homeTempDir: true,
+			folderMode:  folderCustom,
+			wantContainsFn: func(profilesFolder, home string) string {
+				return filepath.Join(profilesFolder, "grant")
+			},
+		},
+		{
+			name:        "default under HOME when override unset",
+			homeTempDir: true,
+			folderMode:  folderUnset,
+			wantContainsFn: func(profilesFolder, home string) string {
+				return filepath.Join(home, ".idsec", "profiles", "grant")
+			},
+		},
+		{
+			name:        "empty IDSEC_PROFILES_FOLDER falls back to HOME",
+			homeTempDir: true,
+			folderMode:  folderEmpty,
+			wantContainsFn: func(profilesFolder, home string) string {
+				return filepath.Join(home, ".idsec", "profiles", "grant")
+			},
+		},
+		{
+			name:       "empty HOME yields a relative path",
+			home:       "",
+			folderMode: folderUnset,
+			wantContainsFn: func(profilesFolder, home string) string {
+				return filepath.Join(".idsec", "profiles", "grant")
+			},
+		},
+		{
+			name:       "relative HOME is preserved",
+			home:       filepath.Join("relative", "home"),
+			folderMode: folderUnset,
+			wantContainsFn: func(profilesFolder, home string) string {
+				return filepath.Join(home, ".idsec", "profiles", "grant")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			home := tt.home
+			if tt.homeTempDir {
+				home = t.TempDir()
+			}
+			t.Setenv("HOME", home)
+
+			// t.Setenv always restores the original value on cleanup, so the
+			// unset case is safe to express as Setenv followed by Unsetenv.
+			t.Setenv("IDSEC_PROFILES_FOLDER", "")
+			profilesFolder := ""
+			switch tt.folderMode {
+			case folderCustom:
+				profilesFolder = t.TempDir()
+				t.Setenv("IDSEC_PROFILES_FOLDER", profilesFolder)
+			case folderEmpty:
+				// already set to "" above
+			case folderUnset:
+				if err := os.Unsetenv("IDSEC_PROFILES_FOLDER"); err != nil {
+					t.Fatalf("failed to unset IDSEC_PROFILES_FOLDER: %v", err)
+				}
+			default:
+				t.Fatalf("unknown folderMode %q", tt.folderMode)
+			}
+
+			cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+			t.Setenv("GRANT_CONFIG", cfgPath)
+
+			saver := &mockProfileSaver{
+				saveFunc: func(p *models.IdsecProfile) error { return nil },
+			}
+			cmd := NewConfigureCommandWithDeps(saver, "https://example.cyberark.cloud", "test.user@example.com")
+
+			output, err := executeCommand(cmd)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			// The printed path must equal what the SDK loader resolves, so the
+			// path configure reports is the path login will later read.
+			wantDir := profiles.GetProfilesFolder()
+			if !strings.Contains(output, filepath.Join(wantDir, "grant")) {
+				t.Errorf("output does not match profiles.GetProfilesFolder() %q\ngot:\n%s", wantDir, output)
+			}
+
+			want := tt.wantContainsFn(profilesFolder, home)
+			if !strings.Contains(output, want) {
+				t.Errorf("output missing %q\ngot:\n%s", want, output)
+			}
+			if strings.Contains(output, ".idsec_profiles") {
+				t.Errorf("output contains legacy path %q\ngot:\n%s", ".idsec_profiles", output)
+			}
+		})
+	}
+}
+
+func TestConfigureLongHelpHasNoLegacyPath(t *testing.T) {
+	long := NewConfigureCommand().Long
+	if strings.Contains(long, ".idsec_profiles") {
+		t.Errorf("configure Long help still mentions legacy path .idsec_profiles:\n%s", long)
 	}
 }
