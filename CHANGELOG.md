@@ -8,10 +8,15 @@ All notable changes to this project will be documented in this file.
 
 - Rebranded user-facing references from CyberArk to Idira (formerly CyberArk) in the README and CLI help/prompt text, following the Palo Alto Networks rebrand. No functional or API changes; SDK import paths (`github.com/cyberark/idsec-sdk-golang`), `*.cyberark.cloud` URLs, and environment variables are unchanged.
 
+### Fixed
+
+- `grant configure` no longer reports a stale SDK profile location. The help text and the "Profile saved to" success message printed `~/.idsec_profiles/grant`, which has been wrong since the SDK upgrade in v0.7.0. The path is now resolved with the SDK's own `profiles.GetProfilesFolder()`, so it always matches the directory the profile loader reads (`~/.idsec/profiles/grant` by default, or `IDSEC_PROFILES_FOLDER` when set).
+
 ## [0.7.0] - 2026-04-21
 
 ### Changed
 
+- **Profile location moved.** As a side effect of the SDK upgrade, the SDK profile directory changed from `~/.idsec_profiles/` to `~/.idsec/profiles/` (override with `IDSEC_PROFILES_FOLDER`). Users upgrading from v0.6.x or earlier must either re-run `grant configure` (recommended) or move the old file into place. If a profile already exists at the new location it is the current one and must win, so use the no-clobber form (`-n` is supported by both GNU and BSD/macOS `mv`): `mkdir -p ~/.idsec/profiles && mv -n ~/.idsec_profiles/grant ~/.idsec/profiles/grant`.
 - Upgraded `github.com/cyberark/idsec-sdk-golang` from v0.1.14 to v0.2.3. `isp.FromISPAuth` now takes a retry-strategy argument; we pass `nil` to preserve v0.1.14 behavior (which itself defaulted to nil internally). No new direct Go module dependencies; indirect dep set is smaller
 - `--output json` is now a pure serialisation flag; it no longer forces non-interactive mode. Interactive pickers and prompts (e.g. `grant request get -o json` with no ID, `grant request submit -o json` without `--target`/`--role`) work in a TTY, writing prompts to stderr and JSON to stdout.
 

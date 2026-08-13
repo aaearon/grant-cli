@@ -130,7 +130,8 @@ Custom `SCAAccessService` follows SDK conventions:
 
 ## Config
 - App config: `~/.grant/config.yaml`
-- SDK profile: `~/.idsec_profiles/grant`
+- SDK profile: `~/.idsec/profiles/grant` (default; override via `IDSEC_PROFILES_FOLDER`)
+- Always resolve the profile directory with `profiles.GetProfilesFolder()` (SDK) — never hand-roll it. The SDK reads `os.Getenv("HOME")`, not `os.UserHomeDir()`; on Windows `HOME` is frequently unset, so it resolves to a **relative** `.idsec/profiles` under the process CWD. Any code that prints or computes the profile path must agree with the loader, so reproduce the SDK's behavior rather than "correcting" it
 
 ## Authentication
 - Use the `/grant-login` skill when you need to authenticate to the grant CLI (e.g., before manual testing)
