@@ -3,6 +3,7 @@ package k8s
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -383,6 +384,13 @@ func writeTempFile(tmp *os.File, data []byte, perm os.FileMode) error {
 // existing narrower mode is preserved, and an existing group/world-accessible
 // mode is tightened with a warning.
 func targetFileMode(path string) (perm os.FileMode, warnings []string) {
+	// Windows synthesizes permission bits from a read-only attribute (every
+	// ordinary file reads as 0666), so a POSIX 0077 check there would warn on
+	// every run and mean nothing.
+	if !posixPermissions {
+		return 0o600, nil
+	}
+
 	fi, err := os.Stat(path)
 	if err != nil {
 		return 0o600, nil
@@ -405,18 +413,30 @@ func targetFileMode(path string) (perm os.FileMode, warnings []string) {
 // each other's copy, and the source must be a regular file — a symlinked or
 // special kubeconfig is refused rather than dereferenced into a new file.
 func BackupOnce(path string) (bool, error) {
-	fi, err := os.Lstat(path)
+	// Open first, then validate through the descriptor, so the file that is
+	// checked is the file that is read. A path-based Lstat followed by a read
+	// would let the path be swapped in between, and unlike the credential cache
+	// this directory has no privacy guarantee to lean on.
+	src, err := os.OpenFile(path, os.O_RDONLY|openNoFollowFlag, 0) //nolint:gosec // path is the user's chosen kubeconfig
 	if err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
 		}
+		// O_NOFOLLOW surfaces a symlinked target as an open error rather than
+		// silently dereferencing it.
+		return false, fmt.Errorf("failed to open %s for backup (it must be a regular file, not a symlink): %w", path, err)
+	}
+	defer func() { _ = src.Close() }()
+
+	fi, err := src.Stat()
+	if err != nil {
 		return false, fmt.Errorf("failed to inspect %s: %w", path, err)
 	}
 	if !fi.Mode().IsRegular() {
 		return false, fmt.Errorf("refusing to back up %s: not a regular file", path)
 	}
 
-	data, err := os.ReadFile(path) //nolint:gosec // path is the user's chosen kubeconfig
+	data, err := io.ReadAll(src)
 	if err != nil {
 		return false, fmt.Errorf("failed to read %s for backup: %w", path, err)
 	}

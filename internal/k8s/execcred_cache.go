@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,11 +42,23 @@ type CredentialKey struct {
 type CredentialCache struct {
 	dir string
 	now func() time.Time
+
+	// Warn, when set, receives a message whenever an entry is rejected for a
+	// security reason. A rejection silently degrades into a fresh login, so the
+	// user deserves to know why. Ordinary misses and expiries are not reported.
+	Warn func(msg string)
 }
 
 // NewCredentialCache creates a credential cache rooted at dir.
 func NewCredentialCache(dir string) *CredentialCache {
 	return &CredentialCache{dir: dir, now: time.Now}
+}
+
+func (c *CredentialCache) warn(format string, args ...any) {
+	if c.Warn == nil {
+		return
+	}
+	c.Warn(fmt.Sprintf(format, args...))
 }
 
 // pathFor returns the on-disk path for a key.
@@ -67,21 +80,15 @@ func (c *CredentialCache) Get(key CredentialKey) (*k8smodels.IdsecSCAK8sExecCred
 	path := c.pathFor(key)
 
 	if err := c.checkDirSecure(); err != nil {
+		c.warn("ignoring the credential cache: %s is not usable (%v); re-authenticating instead", c.dir, err)
 		return nil, false
 	}
 
-	// Lstat, not Stat: a symlink here must be rejected, not followed.
-	fi, err := os.Lstat(path)
+	data, err := c.readEntry(path)
 	if err != nil {
-		return nil, false
-	}
-	if err := checkCredentialFileSecure(fi); err != nil {
-		_ = os.Remove(path)
-		return nil, false
-	}
-
-	data, err := os.ReadFile(path) //nolint:gosec // path is derived from a hashed key inside the cache dir
-	if err != nil {
+		if !os.IsNotExist(err) {
+			c.warn("ignoring cached credential %s (%v); re-authenticating instead", path, err)
+		}
 		return nil, false
 	}
 
@@ -123,9 +130,12 @@ func (c *CredentialCache) Put(key CredentialKey, cred *k8smodels.IdsecSCAK8sExec
 		return fmt.Errorf("failed to create credential cache directory: %w", err)
 	}
 	// Tighten a pre-existing cache directory rather than writing secrets into a
-	// world-readable one.
-	if err := os.Chmod(c.dir, 0o700); err != nil {
-		return fmt.Errorf("failed to secure credential cache directory: %w", err)
+	// world-readable one. Skipped on Windows, where Chmod only toggles the
+	// read-only attribute and would make the directory unwritable.
+	if posixPermissions {
+		if err := os.Chmod(c.dir, 0o700); err != nil {
+			return fmt.Errorf("failed to secure credential cache directory: %w", err)
+		}
 	}
 
 	data, err := json.Marshal(cred)
@@ -174,6 +184,43 @@ func writeAndSecure(f *os.File, data []byte) error {
 	return nil
 }
 
+// readEntry opens the entry and validates it through the resulting file
+// descriptor, so the file that is checked is exactly the file that is read.
+// A path-based Lstat followed by a read would leave a window for the entry to
+// be swapped for a symlink in between.
+//
+// Entries that fail validation are removed. os.Remove on a symlink removes the
+// link, never its target.
+func (c *CredentialCache) readEntry(path string) ([]byte, error) {
+	f, err := os.OpenFile(path, os.O_RDONLY|openNoFollowFlag, 0) //nolint:gosec // path is a hashed key inside the cache dir
+	if err != nil {
+		// O_NOFOLLOW turns a symlink into ELOOP rather than opening the target.
+		if !os.IsNotExist(err) {
+			_ = os.Remove(path)
+			return nil, errors.New("it is not a regular file, or is a symlink")
+		}
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !fi.Mode().IsRegular() {
+		_ = os.Remove(path)
+		return nil, errors.New("it is not a regular file")
+	}
+	if posixPermissions {
+		if err := checkPrivateToCurrentUser(fi); err != nil {
+			_ = os.Remove(path)
+			return nil, err
+		}
+	}
+
+	return io.ReadAll(f)
+}
+
 // checkDirSecure rejects a cache directory that is a symlink, is not a
 // directory, or is accessible beyond the owner.
 func (c *CredentialCache) checkDirSecure() error {
@@ -181,31 +228,16 @@ func (c *CredentialCache) checkDirSecure() error {
 	if err != nil {
 		return err
 	}
+	if fi.Mode()&os.ModeSymlink != 0 {
+		return errors.New("it is a symlink")
+	}
 	if !fi.IsDir() {
-		return errors.New("credential cache path is not a directory")
+		return errors.New("it is not a directory")
 	}
-	if fi.Mode()&os.ModeSymlink != 0 {
-		return errors.New("credential cache directory is a symlink")
+	if !posixPermissions {
+		return nil
 	}
-	if fi.Mode().Perm()&0o077 != 0 {
-		return errors.New("credential cache directory is accessible beyond its owner")
-	}
-	return checkOwnedByCurrentUser(fi)
-}
-
-// checkCredentialFileSecure rejects anything that is not a private regular file
-// owned by the current user.
-func checkCredentialFileSecure(fi os.FileInfo) error {
-	if fi.Mode()&os.ModeSymlink != 0 {
-		return errors.New("credential cache entry is a symlink")
-	}
-	if !fi.Mode().IsRegular() {
-		return errors.New("credential cache entry is not a regular file")
-	}
-	if fi.Mode().Perm()&0o077 != 0 {
-		return errors.New("credential cache entry is accessible beyond its owner")
-	}
-	return checkOwnedByCurrentUser(fi)
+	return checkPrivateToCurrentUser(fi)
 }
 
 // isUsableCredential rejects a decoded credential that carries no actual

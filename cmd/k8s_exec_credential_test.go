@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/aaearon/grant-cli/internal/k8s"
 	"github.com/cyberark/idsec-sdk-golang/pkg/common"
+	sdkconfig "github.com/cyberark/idsec-sdk-golang/pkg/config"
 	"github.com/spf13/cobra"
 )
 
@@ -116,11 +118,25 @@ func TestExecCredentialStdoutIsOnlyJSON(t *testing.T) {
 	// runs. Every SDK logger re-reads it on each call, so this is the value that
 	// decides whether SDK log lines hit stdout mid-protocol.
 	var levelDuringFlow string
+	var stdoutReservedDuringFlow bool
 	provider := &mockCredentialProvider{cred: sampleCredential(time.Now().Add(time.Hour))}
 	resolveDeps := func(bool) (*execCredentialDeps, error) {
 		levelDuringFlow = os.Getenv("IDSEC_LOG_LEVEL")
+		stdoutReservedDuringFlow = sdkconfig.IsStdoutReservedForData()
+
 		// Anything the SDK or grant logs at this point must not reach stdout.
 		log.Info("this line must never appear on stdout")
+
+		// Reproduce the exact branch the SDK takes when it prints the browser
+		// redirect message during interactive authentication
+		// (pkg/auth/identity/idsec_identity.go:546-556). This is reachable from
+		// here: a cache miss with spec.interactive:true can call Authenticate.
+		promptOut := io.Writer(os.Stdout)
+		if sdkconfig.IsStdoutReservedForData() {
+			promptOut = os.Stderr
+		}
+		fmt.Fprintf(promptOut, "\nYou are now being redirected from your browser...\n")
+
 		return &execCredentialDeps{provider: provider, elevateToken: "isp-jwt"}, nil
 	}
 
@@ -154,9 +170,17 @@ func TestExecCredentialStdoutIsOnlyJSON(t *testing.T) {
 	if levelDuringFlow != "CRITICAL" {
 		t.Errorf("IDSEC_LOG_LEVEL during the credential flow = %q, want CRITICAL so no SDK logger writes to stdout", levelDuringFlow)
 	}
-	// The caller's setting is restored once the command is done.
+	if !stdoutReservedDuringFlow {
+		t.Error("config.IsStdoutReservedForData() was false during the credential flow; " +
+			"the SDK would print its browser-redirect message to stdout and corrupt the protocol")
+	}
+
+	// Both process-global switches are restored once the command is done.
 	if got := os.Getenv("IDSEC_LOG_LEVEL"); got != "INFO" {
 		t.Errorf("IDSEC_LOG_LEVEL = %q after the command, want it restored to INFO", got)
+	}
+	if sdkconfig.IsStdoutReservedForData() {
+		t.Error("the stdout reservation leaked past the command")
 	}
 
 	trimmed := strings.TrimSpace(stdout)

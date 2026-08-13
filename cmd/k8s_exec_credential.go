@@ -107,18 +107,36 @@ func defaultCredentialCache() *k8s.CredentialCache {
 	return k8s.NewCredentialCache(dir)
 }
 
-// reserveStdoutForProtocol silences every logger that writes to os.Stdout for the
-// duration of this command.
+// reserveStdoutForProtocol keeps everything except the ExecCredential JSON off
+// os.Stdout for the duration of this command. There are two independent writers
+// to shut up, and both must be handled:
 //
-// The SDK's logger is constructed with log.New(os.Stdout, ...) and its Info level
-// is resolved from IDSEC_LOG_LEVEL on every call, so `grant --verbose k8s
-// exec-credential` would otherwise interleave log lines with the credential JSON
-// and break kubectl. Forcing the level to CRITICAL suppresses all of them at the
-// source. When the user asked for verbose output we instead switch on the SDK's
-// kubectl-login diagnostics channel, which writes to stderr by design.
+//  1. Loggers. The SDK logger is constructed with log.New(os.Stdout, ...) and
+//     resolves its level from IDSEC_LOG_LEVEL on every call, so
+//     `grant --verbose k8s exec-credential` would interleave log lines with the
+//     credential JSON. Forcing CRITICAL silences every such logger at the source.
+//  2. Interactive auth prompts. On a cache miss with stdin available we can reach
+//     Authenticate, and the SDK prints its browser-redirect message to os.Stdout
+//     unless config.IsStdoutReservedForData() is true — see
+//     pkg/auth/identity/idsec_identity.go:546-556. ReserveStdoutForData exists
+//     for exactly this case and flips that message to stderr.
+//
+// When the user asked for verbose output we switch on the SDK's kubectl-login
+// diagnostics channel instead, which writes to stderr by design.
+//
+// Concurrency note: IDSEC_LOG_LEVEL, IDSEC_KUBELOGIN_LOG_LEVEL and the SDK's
+// stdout reservation are all process-global. That is safe here because the CLI
+// runs a single command per process (same assumption as the `verbose` var in
+// root.go). One caveat survives it: a goroutine abandoned by
+// k8s.runWithContext can outlive this restore and log late, after the level has
+// gone back to INFO. That would land on stdout — but only after the command has
+// already written its JSON and returned, so kubectl has its response either way.
 func reserveStdoutForProtocol(wantDiagnostics bool) func() {
 	prevLevel, hadLevel := os.LookupEnv(sdkconfig.IdsecLogLevelEnvVar)
 	sdkconfig.DisableVerboseLogging()
+
+	// Route the SDK's interactive browser/IdP prompts to stderr.
+	sdkconfig.ReserveStdoutForData()
 
 	prevKube, hadKube := os.LookupEnv(sdkk8s.KubectlLoginLogLevelEnvVar)
 	if wantDiagnostics {
@@ -126,6 +144,7 @@ func reserveStdoutForProtocol(wantDiagnostics bool) func() {
 	}
 
 	return func() {
+		sdkconfig.ReleaseStdoutForData()
 		restoreEnv(sdkconfig.IdsecLogLevelEnvVar, prevLevel, hadLevel)
 		if wantDiagnostics {
 			restoreEnv(sdkk8s.KubectlLoginLogLevelEnvVar, prevKube, hadKube)
@@ -178,6 +197,10 @@ func runK8sExecCredential(
 
 	// Cache first, before any authentication.
 	if credCache != nil {
+		// Rejecting an entry degrades into a fresh login; say why, on stderr.
+		credCache.Warn = func(msg string) {
+			fmt.Fprintf(cmd.ErrOrStderr(), "Warning: %s\n", msg)
+		}
 		if cred, ok := credCache.Get(key); ok {
 			execDiag(cmd, "reusing cached cluster credential for %s", flags.fqdn)
 			return writeExecCredential(cmd, cred, info.APIVersion)
@@ -240,7 +263,10 @@ func defaultExecCredentialDeps(interactive bool) (*execCredentialDeps, error) {
 	ispAuth := auth.NewIdsecISPAuth(true)
 
 	// LoadAuthentication reads the keyring and may refresh over the network, but
-	// never prompts. It reports a missing/expired token as (nil, nil).
+	// never prompts. It signals "no usable session" in more than one way: an
+	// absent auth profile yields (nil, nil) (pkg/auth/idsec_auth.go:326), while
+	// unusable refresh state yields an error (pkg/auth/idsec_isp_auth.go:144).
+	// Both, plus an empty token string, mean the same thing here.
 	token, err := ispAuth.LoadAuthentication(profile, true)
 	if err != nil || token == nil || strings.TrimSpace(token.Token) == "" {
 		if !interactive {

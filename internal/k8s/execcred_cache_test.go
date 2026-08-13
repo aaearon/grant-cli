@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -390,6 +391,87 @@ func TestCredentialCacheKeyIncludesOrganization(t *testing.T) {
 
 	if c.pathFor(a) == c.pathFor(b) {
 		t.Error("cache key collides across organizations")
+	}
+}
+
+// Failing safe is right; failing silently into a login prompt is not.
+func TestCredentialCacheWarnsWhenRejectingAnEntry(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX file modes are not meaningful on Windows")
+	}
+
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	c := NewCredentialCache(dir)
+
+	var warnings []string
+	c.Warn = func(msg string) { warnings = append(warnings, msg) }
+
+	if err := c.Put(testKey(), credWithExpiry(time.Now().Add(time.Hour))); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	path := c.pathFor(testKey())
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ok := c.Get(testKey()); ok {
+		t.Fatal("expected a miss for a world-readable entry")
+	}
+	if len(warnings) != 1 {
+		t.Fatalf("got %d warnings, want 1: %v", len(warnings), warnings)
+	}
+	if !strings.Contains(warnings[0], path) {
+		t.Errorf("warning should name the rejected path: %q", warnings[0])
+	}
+	if !strings.Contains(warnings[0], "re-authenticating") {
+		t.Errorf("warning should say what happens next: %q", warnings[0])
+	}
+}
+
+func TestCredentialCacheWarnsWhenDirectoryIsRejected(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX file modes are not meaningful on Windows")
+	}
+
+	dir := t.TempDir()
+	c := NewCredentialCache(dir)
+	if err := c.Put(testKey(), credWithExpiry(time.Now().Add(time.Hour))); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var warnings []string
+	c.Warn = func(msg string) { warnings = append(warnings, msg) }
+
+	if _, ok := c.Get(testKey()); ok {
+		t.Fatal("expected a miss")
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], dir) {
+		t.Errorf("expected one warning naming %s, got %v", dir, warnings)
+	}
+}
+
+// An ordinary miss is not a security event and must stay quiet.
+func TestCredentialCacheDoesNotWarnOnOrdinaryMiss(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	c := NewCredentialCache(dir)
+
+	var warnings []string
+	c.Warn = func(msg string) { warnings = append(warnings, msg) }
+
+	if _, ok := c.Get(testKey()); ok {
+		t.Fatal("expected a miss")
+	}
+	if len(warnings) != 0 {
+		t.Errorf("an absent entry must not warn, got %v", warnings)
 	}
 }
 
