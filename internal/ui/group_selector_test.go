@@ -199,8 +199,8 @@ func TestFindGroupByDisplay(t *testing.T) {
 	}
 }
 
+// Not parallel: mutates the package-global IsTerminalFunc.
 func TestSelectGroup_NonTTY(t *testing.T) {
-	t.Parallel()
 	original := IsTerminalFunc
 	defer func() { IsTerminalFunc = original }()
 	IsTerminalFunc = func(fd uintptr) bool { return false }

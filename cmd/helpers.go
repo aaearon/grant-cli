@@ -14,8 +14,8 @@ import (
 type statusData struct {
 	sessions     *scamodels.SessionsResponse
 	nameMap      map[string]string
-	groupNameMap map[string]string         // groupID -> groupName
-	remainingMap map[string]time.Duration  // sessionID -> remaining time
+	groupNameMap map[string]string        // groupID -> groupName
+	remainingMap map[string]time.Duration // sessionID -> remaining time
 }
 
 // fetchStatusData fires sessions and all-CSP eligibility calls concurrently,

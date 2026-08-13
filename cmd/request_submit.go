@@ -77,10 +77,10 @@ type submitFields struct {
 
 // submitWorkspace holds deduplicated workspace info derived from eligibility.
 type submitWorkspace struct {
-	WorkspaceID   string
-	WorkspaceName string
-	WorkspaceType models.WorkspaceType
-	CSP           models.CSP
+	WorkspaceID    string
+	WorkspaceName  string
+	WorkspaceType  models.WorkspaceType
+	CSP            models.CSP
 	OrganizationID string
 }
 

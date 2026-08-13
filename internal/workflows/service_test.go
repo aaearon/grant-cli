@@ -149,7 +149,6 @@ func TestListRequests_MaxPagesExceeded(t *testing.T) {
 	}
 }
 
-
 func TestListRequests_WithFilters(t *testing.T) {
 	mock := &mockHTTPClient{
 		getFn: func(_ context.Context, _ string, params interface{}) (*http.Response, error) {
@@ -191,13 +190,13 @@ func TestListRequests_WithFilters(t *testing.T) {
 
 func TestGetRequest(t *testing.T) {
 	expected := models.AccessRequest{
-		RequestID:    "8a45155d-0273-4bc8-8d45-9fe3f4d4de6d",
-		RequestState: models.RequestStateFinished,
+		RequestID:     "8a45155d-0273-4bc8-8d45-9fe3f4d4de6d",
+		RequestState:  models.RequestStateFinished,
 		RequestResult: models.RequestResultApproved,
-		CreatedBy:    "user@test",
-		CreatedAt:    "2025-08-12T09:41:00",
-		UpdatedBy:    "SYSTEM",
-		UpdatedAt:    "2025-08-12T09:42:31",
+		CreatedBy:     "user@test",
+		CreatedAt:     "2025-08-12T09:41:00",
+		UpdatedBy:     "SYSTEM",
+		UpdatedAt:     "2025-08-12T09:42:31",
 	}
 
 	mock := &mockHTTPClient{
@@ -233,13 +232,13 @@ func TestSubmitRequest(t *testing.T) {
 				t.Errorf("targetCategory: got %q", req.TargetCategory)
 			}
 			return jsonResponse(200, models.AccessRequest{
-				RequestID:    "new-id",
-				RequestState: models.RequestStateStarting,
+				RequestID:     "new-id",
+				RequestState:  models.RequestStateStarting,
 				RequestResult: models.RequestResultUnknown,
-				CreatedBy:    "user@test",
-				CreatedAt:    "2025-08-12T09:41:00",
-				UpdatedBy:    "SYSTEM",
-				UpdatedAt:    "2025-08-12T09:41:00",
+				CreatedBy:     "user@test",
+				CreatedAt:     "2025-08-12T09:41:00",
+				UpdatedBy:     "SYSTEM",
+				UpdatedAt:     "2025-08-12T09:41:00",
 			}), nil
 		},
 	}

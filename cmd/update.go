@@ -1,20 +1,24 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
-	"github.com/blang/semver"
-	"github.com/rhysd/go-github-selfupdate/selfupdate"
+	"github.com/aaearon/grant-cli/internal/selfupdate"
 	"github.com/spf13/cobra"
 )
 
 const updateSlug = "aaearon/grant-cli"
 
+// updateTimeout bounds the whole update: release lookup plus two downloads.
+var updateTimeout = 5 * time.Minute
+
 // NewUpdateCommand creates the update command with production dependencies
 func NewUpdateCommand() *cobra.Command {
-	return NewUpdateCommandWithDeps(selfupdate.DefaultUpdater())
+	return NewUpdateCommandWithDeps(selfupdate.New(updateSlug, version))
 }
 
 // NewUpdateCommandWithDeps creates the update command with injected dependencies
@@ -22,7 +26,7 @@ func NewUpdateCommandWithDeps(updater selfUpdater) *cobra.Command {
 	return &cobra.Command{
 		Use:   "update",
 		Short: "Update grant to the latest version",
-		Long:  "Check GitHub Releases for a newer version of grant and replace the current binary in-place.",
+		Long:  "Check GitHub Releases for a newer version of grant, verify its SHA-256 checksum against checksums.txt, and replace the current binary in-place.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runUpdate(cmd, updater)
 		},
@@ -37,28 +41,32 @@ func runUpdate(cmd *cobra.Command, updater selfUpdater) error {
 
 	log.Info("Current version: %s", v)
 
-	current, err := semver.Parse(strings.TrimPrefix(v, "v"))
-	if err != nil {
-		return fmt.Errorf("failed to parse current version %q: %w", v, err)
-	}
+	current := strings.TrimPrefix(v, "v")
 
 	log.Info("Checking for updates from %s", updateSlug)
 
-	rel, err := updater.UpdateSelf(current, updateSlug)
+	parent := cmd.Context()
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(parent, updateTimeout)
+	defer cancel()
+
+	latest, updated, err := updater.UpdateSelf(ctx, current)
 	if err != nil {
 		return fmt.Errorf("update failed: %w", err)
 	}
-	if rel == nil {
+	if latest == "" {
 		return errors.New("update check returned no release information")
 	}
 
-	log.Info("Latest release: %s", rel.Version)
+	log.Info("Latest release: %s", latest)
 
-	if current.Equals(rel.Version) {
+	if !updated {
 		fmt.Fprintf(cmd.OutOrStdout(), "grant %s is already up to date.\n", current)
 		return nil
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "Updated grant from %s to %s.\n", current, rel.Version)
+	fmt.Fprintf(cmd.OutOrStdout(), "Updated grant from %s to %s.\n", current, latest)
 	return nil
 }

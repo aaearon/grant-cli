@@ -1,12 +1,10 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
-
-	"github.com/blang/semver"
-	"github.com/rhysd/go-github-selfupdate/selfupdate"
 )
 
 func TestUpdateCommand(t *testing.T) {
@@ -38,11 +36,7 @@ func TestUpdateCommand(t *testing.T) {
 		{
 			name:    "already up to date",
 			version: "1.0.0",
-			updater: &mockSelfUpdater{
-				release: &selfupdate.Release{
-					Version: semver.MustParse("1.0.0"),
-				},
-			},
+			updater: &mockSelfUpdater{newVersion: "1.0.0", updated: false},
 			wantErr: false,
 			wantContain: []string{
 				"already up to date",
@@ -52,11 +46,7 @@ func TestUpdateCommand(t *testing.T) {
 		{
 			name:    "successful update",
 			version: "1.0.0",
-			updater: &mockSelfUpdater{
-				release: &selfupdate.Release{
-					Version: semver.MustParse("1.1.0"),
-				},
-			},
+			updater: &mockSelfUpdater{newVersion: "1.1.0", updated: true},
 			wantErr: false,
 			wantContain: []string{
 				"1.0.0",
@@ -66,9 +56,7 @@ func TestUpdateCommand(t *testing.T) {
 		{
 			name:    "api error propagated",
 			version: "1.0.0",
-			updater: &mockSelfUpdater{
-				updateErr: errors.New("rate limit exceeded"),
-			},
+			updater: &mockSelfUpdater{updateErr: errors.New("rate limit exceeded")},
 			wantErr: true,
 			wantContain: []string{
 				"update failed",
@@ -76,7 +64,7 @@ func TestUpdateCommand(t *testing.T) {
 			},
 		},
 		{
-			name:    "nil release without error",
+			name:    "empty version without error",
 			version: "1.0.0",
 			updater: &mockSelfUpdater{},
 			wantErr: true,
@@ -87,11 +75,7 @@ func TestUpdateCommand(t *testing.T) {
 		{
 			name:    "version with v prefix",
 			version: "v2.0.0",
-			updater: &mockSelfUpdater{
-				release: &selfupdate.Release{
-					Version: semver.MustParse("2.0.0"),
-				},
-			},
+			updater: &mockSelfUpdater{newVersion: "2.0.0", updated: false},
 			wantErr: false,
 			wantContain: []string{
 				"already up to date",
@@ -125,27 +109,59 @@ func TestUpdateCommand(t *testing.T) {
 	}
 }
 
-func TestUpdateCommandPassesSlug(t *testing.T) {
+func TestUpdateCommandPassesNormalisedVersion(t *testing.T) {
+	oldVersion := version
+	version = "v1.0.0"
+	defer func() { version = oldVersion }()
+
+	updater := &mockSelfUpdater{newVersion: "1.0.0"}
+
+	cmd := NewUpdateCommandWithDeps(updater)
+	if _, err := executeCommand(cmd); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if updater.gotCurrent != "1.0.0" {
+		t.Errorf("updater received current version %q, want %q", updater.gotCurrent, "1.0.0")
+	}
+}
+
+func TestUpdateCommandPassesContextWithDeadline(t *testing.T) {
 	oldVersion := version
 	version = "1.0.0"
 	defer func() { version = oldVersion }()
 
-	var gotSlug string
+	var gotCtx context.Context
 	updater := &mockSelfUpdater{
-		updateSelfFn: func(v semver.Version, slug string) (*selfupdate.Release, error) {
-			gotSlug = slug
-			return &selfupdate.Release{Version: v}, nil
+		updateSelfFn: func(ctx context.Context, current string) (string, bool, error) {
+			gotCtx = ctx
+			return current, false, nil
 		},
 	}
 
 	cmd := NewUpdateCommandWithDeps(updater)
-	_, err := executeCommand(cmd)
-	if err != nil {
+	if _, err := executeCommand(cmd); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if gotSlug != "aaearon/grant-cli" {
-		t.Errorf("expected slug %q, got %q", "aaearon/grant-cli", gotSlug)
+	if gotCtx == nil {
+		t.Fatal("updater received a nil context")
+	}
+	if _, ok := gotCtx.Deadline(); !ok {
+		t.Error("expected the update context to carry a deadline")
+	}
+}
+
+func TestNewUpdateCommandUsesProductionUpdater(t *testing.T) {
+	cmd := NewUpdateCommand()
+	if cmd == nil {
+		t.Fatal("NewUpdateCommand returned nil")
+	}
+	if cmd.Use != "update" {
+		t.Errorf("Use = %q, want %q", cmd.Use, "update")
+	}
+	if updateSlug != "aaearon/grant-cli" {
+		t.Errorf("updateSlug = %q, want %q", updateSlug, "aaearon/grant-cli")
 	}
 }
 
@@ -159,11 +175,7 @@ func TestUpdateCommand_VerboseLogs(t *testing.T) {
 	version = "1.0.0"
 	defer func() { version = oldVersion }()
 
-	updater := &mockSelfUpdater{
-		release: &selfupdate.Release{
-			Version: semver.MustParse("1.1.0"),
-		},
-	}
+	updater := &mockSelfUpdater{newVersion: "1.1.0", updated: true}
 
 	cmd := NewUpdateCommandWithDeps(updater)
 	_, err := executeCommand(cmd)
@@ -175,6 +187,7 @@ func TestUpdateCommand_VerboseLogs(t *testing.T) {
 		"Current version: 1.0.0",
 		"Checking for updates",
 		updateSlug,
+		"Latest release: 1.1.0",
 	}
 
 	for _, want := range wantMessages {
@@ -193,11 +206,7 @@ func TestUpdateCommand_VerboseLogs(t *testing.T) {
 
 func TestUpdateCommandIntegration(t *testing.T) {
 	rootCmd := newTestRootCommand()
-	updateCmd := NewUpdateCommandWithDeps(&mockSelfUpdater{
-		release: &selfupdate.Release{
-			Version: semver.MustParse("0.0.1"),
-		},
-	})
+	updateCmd := NewUpdateCommandWithDeps(&mockSelfUpdater{newVersion: "0.0.1"})
 	rootCmd.AddCommand(updateCmd)
 
 	oldVersion := version

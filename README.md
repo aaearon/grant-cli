@@ -84,6 +84,10 @@ sudo mv grant /usr/local/bin/
 grant update
 ```
 
+`grant update` checks GitHub Releases for a newer version, verifies the downloaded archive's SHA-256 against the release's `checksums.txt`, and replaces the running binary in place. It refuses to run on dev builds — install a release build or download from the releases page. Because `checksums.txt` is published alongside the archive, verification protects against corrupted or tampered downloads, not against a compromised release pipeline.
+
+The replacement stages the new binary next to the old one, flushes it to disk, then swaps it in. Each step is atomic on its own, so you never end up running a half-written binary, and a failed swap rolls back automatically. In the rare case that grant is killed mid-swap, the binary path is left empty with `.grant.old` beside it; grant prints the exact `mv` command to restore it (`mv /path/to/.grant.old /path/to/grant`).
+
 **Windows:** Download `grant-cli_<version>_windows_<arch>.zip` from [releases](https://github.com/aaearon/grant-cli/releases) and extract to a directory in your PATH.
 
 ### Go Install

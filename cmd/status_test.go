@@ -19,14 +19,14 @@ func TestStatusCommand(t *testing.T) {
 	expiresIn := commonmodels.IdsecRFC3339Time(now.Add(1 * time.Hour))
 
 	tests := []struct {
-		name              string
-		setupAuth         func() *mockAuthLoader
-		setupSvc          func() *mockSessionLister
-		setupEligibility  func() *mockEligibilityLister
-		provider          string
-		wantContain       []string
-		wantNotContain    []string
-		wantErr           bool
+		name             string
+		setupAuth        func() *mockAuthLoader
+		setupSvc         func() *mockSessionLister
+		setupEligibility func() *mockEligibilityLister
+		provider         string
+		wantContain      []string
+		wantNotContain   []string
+		wantErr          bool
 	}{
 		{
 			name: "not authenticated",
@@ -657,7 +657,6 @@ func TestStatusCommandIntegration(t *testing.T) {
 		t.Error("expected -p shorthand for provider flag")
 	}
 }
-
 
 func TestParseProvider(t *testing.T) {
 	tests := []struct {

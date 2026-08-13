@@ -259,8 +259,8 @@ func TestIntegration_InvalidCommand(t *testing.T) {
 
 	// Should show an error or help message
 	if !strings.Contains(outputStr, "unknown command") &&
-	   !strings.Contains(outputStr, "Error:") &&
-	   !strings.Contains(outputStr, "Usage:") {
+		!strings.Contains(outputStr, "Error:") &&
+		!strings.Contains(outputStr, "Usage:") {
 		t.Errorf("Expected error for invalid command, got:\n%s", outputStr)
 	}
 }
