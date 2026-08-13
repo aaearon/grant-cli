@@ -170,6 +170,109 @@ func TestEligibleTarget_JSONUnmarshal_RoleFieldFallback(t *testing.T) {
 	}
 }
 
+// TestEligibleTarget_GCPUnmarshal covers the GCPEligibleTarget schema
+// (allOf: {organizationId, workspaceType} + CommonEligibleTarget).
+func TestEligibleTarget_GCPUnmarshal(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name            string
+		jsonInput       string
+		wantOrgID       string
+		wantWorkspaceID string
+		wantName        string
+		wantType        WorkspaceType
+		wantRoleID      string
+		wantRoleName    string
+	}{
+		{
+			name: "GCP project with roleInfo field",
+			jsonInput: `{
+				"organizationId": "123456789012",
+				"workspaceId": "my-gcp-project",
+				"workspaceName": "My GCP Project",
+				"workspaceType": "PROJECT",
+				"roleInfo": {
+					"id": "roles/viewer",
+					"name": "Viewer"
+				}
+			}`,
+			wantOrgID:       "123456789012",
+			wantWorkspaceID: "my-gcp-project",
+			wantName:        "My GCP Project",
+			wantType:        WorkspaceTypeProject,
+			wantRoleID:      "roles/viewer",
+			wantRoleName:    "Viewer",
+		},
+		{
+			name: "GCP folder with role field fallback",
+			jsonInput: `{
+				"organizationId": "123456789012",
+				"workspaceId": "folders/987654321",
+				"workspaceName": "Engineering",
+				"workspaceType": "FOLDER",
+				"role": {
+					"id": "roles/editor",
+					"name": "Editor"
+				}
+			}`,
+			wantOrgID:       "123456789012",
+			wantWorkspaceID: "folders/987654321",
+			wantName:        "Engineering",
+			wantType:        WorkspaceTypeFolder,
+			wantRoleID:      "roles/editor",
+			wantRoleName:    "Editor",
+		},
+		{
+			name: "GCP organization workspace type",
+			jsonInput: `{
+				"organizationId": "123456789012",
+				"workspaceId": "organizations/123456789012",
+				"workspaceName": "acme.example",
+				"workspaceType": "GCP_ORGANIZATION",
+				"role": {
+					"id": "roles/resourcemanager.organizationAdmin",
+					"name": "Organization Administrator"
+				}
+			}`,
+			wantOrgID:       "123456789012",
+			wantWorkspaceID: "organizations/123456789012",
+			wantName:        "acme.example",
+			wantType:        WorkspaceTypeGCPOrganization,
+			wantRoleID:      "roles/resourcemanager.organizationAdmin",
+			wantRoleName:    "Organization Administrator",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var target EligibleTarget
+			if err := json.Unmarshal([]byte(tt.jsonInput), &target); err != nil {
+				t.Fatalf("unexpected unmarshal error: %v", err)
+			}
+
+			if target.OrganizationID != tt.wantOrgID {
+				t.Errorf("OrganizationID = %q, want %q", target.OrganizationID, tt.wantOrgID)
+			}
+			if target.WorkspaceID != tt.wantWorkspaceID {
+				t.Errorf("WorkspaceID = %q, want %q", target.WorkspaceID, tt.wantWorkspaceID)
+			}
+			if target.WorkspaceName != tt.wantName {
+				t.Errorf("WorkspaceName = %q, want %q", target.WorkspaceName, tt.wantName)
+			}
+			if target.WorkspaceType != tt.wantType {
+				t.Errorf("WorkspaceType = %q, want %q", target.WorkspaceType, tt.wantType)
+			}
+			if target.RoleInfo.ID != tt.wantRoleID {
+				t.Errorf("RoleInfo.ID = %q, want %q", target.RoleInfo.ID, tt.wantRoleID)
+			}
+			if target.RoleInfo.Name != tt.wantRoleName {
+				t.Errorf("RoleInfo.Name = %q, want %q", target.RoleInfo.Name, tt.wantRoleName)
+			}
+		})
+	}
+}
+
 func TestEligibilityResponse_Pagination(t *testing.T) {
 	t.Parallel()
 	jsonInput := `{

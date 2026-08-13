@@ -34,10 +34,15 @@ linters:
     - unconvert     # unnecessary type conversions
     # --- Testing ---
     - usetesting    # modern test helpers (t.Context, etc.)
+    # --- Formatting ---
+    - gofmt         # canonical gofmt formatting (applies to test files too)
 
 linters-settings:
   gocognit:
     min-complexity: 40
+
+  gofmt:
+    simplify: true
 
   gocritic:
     enabled-tags:

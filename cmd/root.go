@@ -86,6 +86,7 @@ Examples:
   # Specify provider explicitly (cloud targets only)
   grant --provider azure
   grant --provider aws
+  grant --provider gcp
 
   # Bypass eligibility cache and fetch fresh data
   grant --refresh`,
@@ -108,7 +109,7 @@ Examples:
 
 	cmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "enable verbose output")
 	cmd.PersistentFlags().StringVarP(&outputFormat, "output", "o", "text", "Output format: text, json")
-	cmd.Flags().StringP("provider", "p", "", "Cloud provider: azure, aws (omit to show all)")
+	cmd.Flags().StringP("provider", "p", "", "Cloud provider: azure, aws, gcp (omit to show all)")
 	cmd.Flags().StringP("target", "t", "", "Target name (subscription, resource group, etc.)")
 	cmd.Flags().StringP("role", "r", "", "Role name")
 	cmd.Flags().StringP("favorite", "f", "", "Use a saved favorite (see 'grant favorites list')")
@@ -132,10 +133,10 @@ var rootCmd = newRootCommand(runElevateProduction)
 // bootstrap memoization state — shared auth/profile across all service
 // bootstraps within a single process invocation so we authenticate exactly once.
 var (
-	bootstrapOnce        = new(sync.Once)
-	bootstrapISPAuthVal  auth.IdsecAuth
-	bootstrapProfileVal  *sdkmodels.IdsecProfile
-	errBootstrap         error
+	bootstrapOnce       = new(sync.Once)
+	bootstrapISPAuthVal auth.IdsecAuth
+	bootstrapProfileVal *sdkmodels.IdsecProfile
+	errBootstrap        error
 )
 
 // bootstrapImpl is the function that performs the profile load + authentication.
@@ -263,7 +264,7 @@ func Execute() {
 }
 
 // supportedCSPs lists the cloud providers supported for elevation.
-var supportedCSPs = []models.CSP{models.CSPAzure, models.CSPAWS}
+var supportedCSPs = []models.CSP{models.CSPAzure, models.CSPAWS, models.CSPGCP}
 
 // fetchEligibility retrieves eligible targets. When provider is empty, all
 // supported CSPs are queried and results merged. When set, only that CSP is queried.
@@ -329,6 +330,11 @@ func fetchEligibility(ctx context.Context, eligLister eligibilityLister, provide
 	}
 	targets := make([]models.EligibleTarget, len(resp.Response))
 	copy(targets, resp.Response)
+	// CSP is json:"-" and is not re-resolved downstream (e.g. grant list -o
+	// json), so stamp it here exactly as the multi-CSP branch does.
+	for i := range targets {
+		targets[i].CSP = csp
+	}
 	return targets, nil
 }
 
@@ -358,8 +364,12 @@ type elevationResult struct {
 }
 
 // resolveAndElevate performs the full elevation flow: auth check, flag resolution,
-// eligibility fetch, target selection, and elevation request. It is shared by
-// the root command and the env command.
+// eligibility fetch, target selection, and elevation request.
+//
+// preElevate, when non-nil, is called with the resolved target immediately
+// before the elevation request is issued. Returning an error aborts the flow
+// without creating a session — used by 'grant env' to reject non-AWS targets
+// before burning a real elevation.
 func resolveAndElevate(
 	flags *elevateFlags,
 	profile *sdkmodels.IdsecProfile,
@@ -368,6 +378,7 @@ func resolveAndElevate(
 	elevateService elevateService,
 	selector targetSelector,
 	cfg *config.Config,
+	preElevate func(*models.EligibleTarget) error,
 ) (*elevationResult, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
 	defer cancel()
@@ -442,6 +453,13 @@ func resolveAndElevate(
 
 	// Ensure CSP is set on selected target
 	resolveTargetCSP(selectedTarget, allTargets, provider)
+
+	// Pre-flight validation — must run before any elevation is issued.
+	if preElevate != nil {
+		if err := preElevate(selectedTarget); err != nil {
+			return nil, err
+		}
+	}
 
 	// Build elevation request
 	req := &models.ElevateRequest{
@@ -860,6 +878,8 @@ func runElevateWithDeps(
 		}
 	case models.CSPAzure:
 		fmt.Fprintf(cmd.OutOrStdout(), "\n  Your az CLI session now has the elevated permissions.\n")
+	case models.CSPGCP:
+		fmt.Fprintf(cmd.OutOrStdout(), "\n  The elevated permissions now apply to your GCP session.\n")
 	}
 
 	return nil
@@ -893,9 +913,9 @@ func writeElevationJSON(cmd *cobra.Command, cloudRes *elevationResult, groupRes 
 			return fmt.Errorf("failed to parse access credentials: %w", err)
 		}
 		out.Credentials = &awsCredentialOutput{
-			AccessKeyID:    awsCreds.AccessKeyID,
+			AccessKeyID:     awsCreds.AccessKeyID,
 			SecretAccessKey: awsCreds.SecretAccessKey,
-			SessionToken:   awsCreds.SessionToken,
+			SessionToken:    awsCreds.SessionToken,
 		}
 	}
 

@@ -89,6 +89,34 @@ func TestFormatTargetOption(t *testing.T) {
 			},
 			want: "Account: Dev Account / Role: ReadOnly (aws)",
 		},
+		{
+			name: "GCP project with CSP tag",
+			target: models.EligibleTarget{
+				CSP:           models.CSPGCP,
+				WorkspaceName: "My GCP Project",
+				WorkspaceType: models.WorkspaceTypeProject,
+				RoleInfo:      models.RoleInfo{ID: "9", Name: "Viewer"},
+			},
+			want: "Project: My GCP Project / Role: Viewer (gcp)",
+		},
+		{
+			name: "GCP folder",
+			target: models.EligibleTarget{
+				WorkspaceName: "Engineering",
+				WorkspaceType: models.WorkspaceTypeFolder,
+				RoleInfo:      models.RoleInfo{ID: "10", Name: "Editor"},
+			},
+			want: "Folder: Engineering / Role: Editor",
+		},
+		{
+			name: "GCP organization",
+			target: models.EligibleTarget{
+				WorkspaceName: "acme.example",
+				WorkspaceType: models.WorkspaceTypeGCPOrganization,
+				RoleInfo:      models.RoleInfo{ID: "11", Name: "Organization Administrator"},
+			},
+			want: "GCP Organization: acme.example / Role: Organization Administrator",
+		},
 	}
 
 	for _, tt := range tests {
@@ -187,8 +215,8 @@ func TestBuildOptions(t *testing.T) {
 	}
 }
 
+// Not parallel: mutates the package-global IsTerminalFunc.
 func TestSelectTarget_NonTTY(t *testing.T) {
-	t.Parallel()
 	original := IsTerminalFunc
 	defer func() { IsTerminalFunc = original }()
 	IsTerminalFunc = func(fd uintptr) bool { return false }

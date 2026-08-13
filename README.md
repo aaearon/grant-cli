@@ -1,15 +1,16 @@
 # grant
 
-A CLI tool for elevating cloud permissions (Azure, AWS) via Idira (formerly CyberArk) Secure Cloud Access (SCA) — without leaving the terminal.
+A CLI tool for elevating cloud permissions (Azure, AWS, GCP) via Idira (formerly CyberArk) Secure Cloud Access (SCA) — without leaving the terminal.
 
 ![grant demo](demo/demo.gif)
 
 ## Overview
 
-`grant` enables terminal-based cloud permission elevation (Azure, AWS) through Idira SCA. It wraps the `idsec-sdk-golang` SDK for authentication and builds a custom SCA Access API client for JIT role elevation.
+`grant` enables terminal-based cloud permission elevation (Azure, AWS, GCP) through Idira SCA. It wraps the `idsec-sdk-golang` SDK for authentication and builds a custom SCA Access API client for JIT role elevation.
 
 - **Azure:** SCA creates a JIT RBAC role assignment — your existing `az` CLI session picks up the elevated permissions automatically.
-- **AWS:** SCA returns temporary credentials. Use `grant env` to export them: `eval $(grant env --provider aws)`
+- **AWS:** SCA returns temporary credentials. Use `grant env` to export them: `eval $(grant env --provider aws)` — `grant env` is AWS-only, since Azure and GCP elevations return no credentials.
+- **GCP:** SCA grants the role on the project, folder or organization — your existing `gcloud` CLI session picks it up. **Untested against a live GCP tenant.**
 
 ## Usage
 
@@ -23,6 +24,7 @@ grant
 # Elevate for a specific provider
 grant --provider azure
 grant --provider aws
+grant --provider gcp
 
 # Direct elevation with target and role
 grant --provider azure --target "Prod-EastUS" --role "Contributor"
@@ -82,6 +84,10 @@ sudo mv grant /usr/local/bin/
 grant update
 ```
 
+`grant update` checks GitHub Releases for a newer version, verifies the downloaded archive's SHA-256 against the release's `checksums.txt`, and replaces the running binary in place. It refuses to run on dev builds — install a release build or download from the releases page. Because `checksums.txt` is published alongside the archive, verification protects against corrupted or tampered downloads, not against a compromised release pipeline.
+
+The replacement stages the new binary next to the old one, flushes it to disk, then swaps it in. Each step is atomic on its own, so you never end up running a half-written binary, and a failed swap rolls back automatically. In the rare case that grant is killed mid-swap, the binary path is left empty with `.grant.old` beside it; grant prints the exact `mv` command to restore it (`mv /path/to/.grant.old /path/to/grant`).
+
 **Windows:** Download `grant-cli_<version>_windows_<arch>.zip` from [releases](https://github.com/aaearon/grant-cli/releases) and extract to a directory in your PATH.
 
 ### Go Install
@@ -106,7 +112,7 @@ Running `grant` with no subcommand elevates cloud permissions (the core behavior
 |---------|-------------|
 | `grant` | Elevate cloud permissions (interactive, direct with `--target`/`--role`, or `--favorite`) |
 | `configure` | Configure Identity URL and username (optional — `login` auto-configures) |
-| `env` | Elevate and output AWS credential export statements for `eval $(grant env)` |
+| `env` | Elevate and output AWS credential export statements for `eval $(grant env)` (AWS only) |
 | `list` | List eligible targets and groups without elevation (`--provider`, `--groups`, `--output json`) |
 | `login` | Authenticate to Idira Identity (MFA handled interactively) |
 | `logout` | Clear cached tokens from keyring |
@@ -176,7 +182,7 @@ favorites:
 | Azure CLI doesn't see new role after elevation | Refresh token: `az account get-access-token --output none` (or `az account clear && az login`) |
 | "No eligible targets found" | Verify SCA policies with your Idira admin; try without `--provider` to see all targets |
 | "Failed to elevate" | Check `grant status` for active sessions; verify target/role names |
-| `grant env` errors for Azure | `env` is AWS-only — Azure doesn't return credentials, use `grant` directly |
+| `grant env` errors for Azure/GCP | `env` is AWS-only — Azure and GCP return no credentials, use `grant` directly |
 | Permission denied accessing keyring (Linux) | Install and start `gnome-keyring` or `kwalletmanager` |
 
 ## Development

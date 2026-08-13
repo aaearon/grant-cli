@@ -250,8 +250,8 @@ func TestFindSessionByDisplay(t *testing.T) {
 	})
 }
 
+// Not parallel: mutates the package-global IsTerminalFunc.
 func TestSelectSessions_NonTTY(t *testing.T) {
-	t.Parallel()
 	original := IsTerminalFunc
 	defer func() { IsTerminalFunc = original }()
 	IsTerminalFunc = func(fd uintptr) bool { return false }
@@ -272,8 +272,8 @@ func TestSelectSessions_NonTTY(t *testing.T) {
 	}
 }
 
+// Not parallel: mutates the package-global IsTerminalFunc.
 func TestConfirmRevocation_NonTTY(t *testing.T) {
-	t.Parallel()
 	original := IsTerminalFunc
 	defer func() { IsTerminalFunc = original }()
 	IsTerminalFunc = func(fd uintptr) bool { return false }

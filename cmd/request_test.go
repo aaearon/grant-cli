@@ -26,8 +26,8 @@ func TestRequestListCommand(t *testing.T) {
 			svc: &mockAccessRequestService{
 				listItems: []wfmodels.AccessRequest{
 					{
-						RequestID:    "req-1",
-						RequestState: wfmodels.RequestStatePending,
+						RequestID:     "req-1",
+						RequestState:  wfmodels.RequestStatePending,
 						RequestResult: wfmodels.RequestResultUnknown,
 						RequestDetails: map[string]interface{}{
 							"workspaceName": "Azure Subscription",
@@ -48,13 +48,13 @@ func TestRequestListCommand(t *testing.T) {
 			svc: &mockAccessRequestService{
 				listItems: []wfmodels.AccessRequest{
 					{
-						RequestID:    "req-1",
-						RequestState: wfmodels.RequestStatePending,
+						RequestID:     "req-1",
+						RequestState:  wfmodels.RequestStatePending,
 						RequestResult: wfmodels.RequestResultUnknown,
-						CreatedBy:    "user@test.com",
-						CreatedAt:    "t",
-						UpdatedBy:    "SYSTEM",
-						UpdatedAt:    "t",
+						CreatedBy:     "user@test.com",
+						CreatedAt:     "t",
+						UpdatedBy:     "SYSTEM",
+						UpdatedAt:     "t",
 					},
 				},
 				listTotalCount: 1,
@@ -112,9 +112,9 @@ func TestRequestGetCommand(t *testing.T) {
 			name: "get request text",
 			svc: &mockAccessRequestService{
 				getResult: &wfmodels.AccessRequest{
-					RequestID:    "req-1",
-					RequestState: wfmodels.RequestStateFinished,
-					RequestResult: wfmodels.RequestResultApproved,
+					RequestID:      "req-1",
+					RequestState:   wfmodels.RequestStateFinished,
+					RequestResult:  wfmodels.RequestResultApproved,
 					TargetCategory: "CLOUD_CONSOLE",
 					RequestDetails: map[string]interface{}{
 						"workspaceName": "Azure Sub",
@@ -136,13 +136,13 @@ func TestRequestGetCommand(t *testing.T) {
 			name: "get request JSON",
 			svc: &mockAccessRequestService{
 				getResult: &wfmodels.AccessRequest{
-					RequestID:    "req-1",
-					RequestState: wfmodels.RequestStateFinished,
+					RequestID:     "req-1",
+					RequestState:  wfmodels.RequestStateFinished,
 					RequestResult: wfmodels.RequestResultApproved,
-					CreatedBy:    "user@test.com",
-					CreatedAt:    "t",
-					UpdatedBy:    "SYSTEM",
-					UpdatedAt:    "t",
+					CreatedBy:     "user@test.com",
+					CreatedAt:     "t",
+					UpdatedBy:     "SYSTEM",
+					UpdatedAt:     "t",
 				},
 			},
 			args:        []string{"get", "req-1", "--output", "json"},
@@ -328,8 +328,8 @@ func TestRequestListJSON(t *testing.T) {
 	svc := &mockAccessRequestService{
 		listItems: []wfmodels.AccessRequest{
 			{
-				RequestID:    "req-1",
-				RequestState: wfmodels.RequestStatePending,
+				RequestID:     "req-1",
+				RequestState:  wfmodels.RequestStatePending,
 				RequestResult: wfmodels.RequestResultUnknown,
 				RequestDetails: map[string]interface{}{
 					"priority": "High",
@@ -370,8 +370,8 @@ func TestRequestListJSON(t *testing.T) {
 
 func TestValidateSubmitFields(t *testing.T) {
 	tests := []struct {
-		name   string
-		fields *submitFields
+		name    string
+		fields  *submitFields
 		wantErr bool
 	}{
 		{"valid", &submitFields{"need access", "High", "2026-04-21", "America/New_York", "09:00", "17:00"}, false},
@@ -659,6 +659,24 @@ func TestBuildOnDemandRequest_UnsupportedType(t *testing.T) {
 	}
 }
 
+func TestBuildOnDemandRequest_GCPUnsupported(t *testing.T) {
+	for _, wt := range []string{"PROJECT", "FOLDER", "GCP_ORGANIZATION"} {
+		t.Run(wt, func(t *testing.T) {
+			_, err := buildOnDemandRequest(&submitWorkspace{
+				WorkspaceID:    "ws-1",
+				WorkspaceType:  models.WorkspaceType(wt),
+				OrganizationID: "org-1",
+			})
+			if err == nil {
+				t.Fatalf("expected error for GCP workspace type %q", wt)
+			}
+			if !strings.Contains(err.Error(), "GCP") {
+				t.Errorf("error should name GCP, got: %v", err)
+			}
+		})
+	}
+}
+
 func TestBuildOnDemandRequest_SupportedTypes(t *testing.T) {
 	tests := []struct {
 		name             string
@@ -889,7 +907,7 @@ func TestRunRequestSubmit_InvalidProvider(t *testing.T) {
 	root.AddCommand(cmd)
 
 	_, err := executeCommand(root, "request", "submit",
-		"--provider", "gcp",
+		"--provider", "oracle",
 		"--target", "Sub", "--role-id", "r1",
 		"--reason", "test", "--date", "2026-04-21",
 		"--timezone", "UTC", "--from", "09:00", "--to", "17:00",
@@ -899,6 +917,110 @@ func TestRunRequestSubmit_InvalidProvider(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "invalid provider") {
 		t.Errorf("error %q does not mention invalid provider", err.Error())
+	}
+}
+
+// TestRunRequestSubmit_GCPUnsupported pins that GCP is explicitly out of scope
+// for 'grant request submit' and fails before any target resolution.
+func TestRunRequestSubmit_GCPUnsupported(t *testing.T) {
+	original := resolveSubmitTargetFn
+	defer func() { resolveSubmitTargetFn = original }()
+
+	resolveSubmitTargetFn = func(_ context.Context, _, _ string, _ bool) (*submitWorkspace, error) {
+		t.Fatal("resolveSubmitTarget should not be called for GCP")
+		return nil, nil
+	}
+
+	svc := &mockAccessRequestService{}
+	cmd := NewRequestCommandWithDeps(svc)
+	root := newTestRootCommand()
+	root.AddCommand(cmd)
+
+	_, err := executeCommand(root, "request", "submit",
+		"--provider", "gcp",
+		"--target", "Proj", "--role-id", "r1",
+		"--reason", "test", "--date", "2026-04-21",
+		"--timezone", "UTC", "--from", "09:00", "--to", "17:00",
+		"--yes")
+	if err == nil {
+		t.Fatal("expected error for GCP provider")
+	}
+	if !strings.Contains(err.Error(), "not supported for GCP") {
+		t.Errorf("error %q does not say GCP is unsupported", err.Error())
+	}
+}
+
+// TestRunRequestSubmit_GCPWorkspaceWithRoleIDRejected covers the bypass around
+// the --provider guard: no --provider, a GCP workspace picked by target
+// resolution, and --role-id supplied so interactive role discovery (and its
+// own GCP guard) never runs. The request must still be rejected, and never
+// submitted.
+func TestRunRequestSubmit_GCPWorkspaceWithRoleIDRejected(t *testing.T) {
+	tests := []struct {
+		name string
+		ws   *submitWorkspace
+	}{
+		{
+			name: "CSP tagged by multi-provider fan-out",
+			ws: &submitWorkspace{
+				WorkspaceName:  "My GCP Project",
+				WorkspaceID:    "proj-1",
+				WorkspaceType:  models.WorkspaceTypeProject,
+				CSP:            models.CSPGCP,
+				OrganizationID: "123456789012",
+			},
+		},
+		{
+			name: "CSP untagged, GCP workspace type only",
+			ws: &submitWorkspace{
+				WorkspaceName:  "Engineering",
+				WorkspaceID:    "folders/42",
+				WorkspaceType:  models.WorkspaceTypeFolder,
+				OrganizationID: "123456789012",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			originalResolve := resolveSubmitTargetFn
+			originalRole := resolveRoleFn
+			defer func() {
+				resolveSubmitTargetFn = originalResolve
+				resolveRoleFn = originalRole
+			}()
+
+			resolveSubmitTargetFn = func(_ context.Context, provider, _ string, _ bool) (*submitWorkspace, error) {
+				if provider != "" {
+					t.Errorf("expected empty provider, got %q", provider)
+				}
+				return tt.ws, nil
+			}
+			resolveRoleFn = func(_ context.Context, _ *submitWorkspace, _ bool) (string, string, error) {
+				t.Fatal("role resolution should not run for a GCP workspace")
+				return "", "", nil
+			}
+
+			svc := &mockAccessRequestService{}
+			cmd := NewRequestCommandWithDeps(svc)
+			root := newTestRootCommand()
+			root.AddCommand(cmd)
+
+			_, err := executeCommand(root, "request", "submit",
+				"--role-id", "roles/editor",
+				"--reason", "test", "--date", "2026-04-21",
+				"--timezone", "UTC", "--from", "09:00", "--to", "17:00",
+				"--yes")
+			if err == nil {
+				t.Fatal("expected error for GCP workspace")
+			}
+			if !strings.Contains(err.Error(), "not supported for GCP") {
+				t.Errorf("error %q does not say GCP is unsupported", err.Error())
+			}
+			if svc.submitRequest != nil {
+				t.Errorf("request must not be submitted, got %+v", svc.submitRequest)
+			}
+		})
 	}
 }
 

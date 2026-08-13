@@ -2,8 +2,8 @@ package ui
 
 import "testing"
 
+// Not parallel: mutates the package-global IsTerminalFunc.
 func TestIsInteractive_WhenTerminal(t *testing.T) {
-	t.Parallel()
 	original := IsTerminalFunc
 	defer func() { IsTerminalFunc = original }()
 
@@ -14,8 +14,8 @@ func TestIsInteractive_WhenTerminal(t *testing.T) {
 	}
 }
 
+// Not parallel: mutates the package-global IsTerminalFunc.
 func TestIsInteractive_WhenNotTerminal(t *testing.T) {
-	t.Parallel()
 	original := IsTerminalFunc
 	defer func() { IsTerminalFunc = original }()
 
