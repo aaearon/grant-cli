@@ -36,7 +36,7 @@ Custom `SCAAccessService` follows SDK conventions:
 ## SCA Access API
 - **Base URL:** `https://{subdomain}.sca.{platform_domain}/api`
 - **Endpoints:**
-  - `GET /api/access/{CSP}/eligibility` — list eligible targets
+  - `GET /api/access/{CSP}/eligibility` — list eligible targets (`AZURE`, `AWS`, `GCP`)
   - `POST /api/access/elevate` — request JIT elevation (AWS responses include `accessCredentials` JSON string)
   - `GET /api/access/sessions` — list active sessions
   - `POST /api/access/sessions/revoke` — revoke sessions by ID (request: `sessionIds[]`, response: `SessionRevocationInfo[]`)
@@ -84,7 +84,7 @@ Custom `SCAAccessService` follows SDK conventions:
 ## CLI
 - `spf13/cobra` for CLI framework
 - `Iilun/survey/v2` for interactive prompts
-- `grant env` — performs elevation, outputs only `export` statements (no human text); usage: `eval $(grant env --provider aws)`; supports `--refresh`
+- `grant env` — **AWS only**; performs elevation, outputs only `export` statements (no human text); usage: `eval $(grant env --provider aws)`; supports `--refresh`. Non-AWS targets are rejected by `requireAWSTarget` (passed as the `preElevate` hook to `resolveAndElevate`) *before* any elevation is issued, so no session is created. It fails closed — an unresolved CSP is rejected too; the `AccessCredentials == nil` check remains as a fallback
 - `grant list` — list eligible targets and groups without triggering elevation; supports `--provider`, `--groups`, `--refresh`, `--output json`; used by LLMs to discover available targets programmatically
 - `grant revoke` — revoke sessions: direct (`grant revoke <id>`), `--all`, or interactive multi-select; `--yes` skips confirmation
 - `grant request` — manage access requests through approval workflow; subcommands: `submit`, `list`, `get`, `cancel`, `approve`, `reject`
@@ -108,7 +108,8 @@ Custom `SCAAccessService` follows SDK conventions:
 - `--groups` flag on root command shows only Entra ID groups in the interactive selector
 - `--group` / `-g` flag on root command for direct group membership elevation (`grant --group "Cloud Admins"`)
 - Root command unified selector shows both cloud roles and Entra ID groups; groups use `/eligibility/groups` and `/elevate/groups` API endpoints
-- Multi-CSP: omitting `--provider` fetches eligibility from all supported CSPs and merges results
+- Multi-CSP: omitting `--provider` fetches eligibility from all supported CSPs (`supportedCSPs` in `cmd/root.go` — Azure, AWS, GCP) and merges results; a CSP that errors is skipped
+- GCP: `list`/elevate/`status`/`revoke` only. Workspace types `PROJECT`/`FOLDER`/`GCP_ORGANIZATION`; no `accessCredentials` in the API spec, so `grant env` stays AWS-only and `grant request submit` rejects GCP (`rejectGCPWorkspace`, applied after target resolution so `--role-id` cannot skip it). **Untested against a live GCP tenant**
 - `--refresh` bypasses eligibility cache on `grant` and `grant env`
 - `fetchEligibility()` and `resolveTargetCSP()` in `cmd/root.go` — shared by root, env, and favorites
 

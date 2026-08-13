@@ -24,7 +24,7 @@ func newStatusCommand(runFn func(*cobra.Command, []string) error) *cobra.Command
 		RunE:  runFn,
 	}
 
-	cmd.Flags().StringP("provider", "p", "", "filter sessions by provider (azure, aws)")
+	cmd.Flags().StringP("provider", "p", "", "filter sessions by provider (azure, aws, gcp)")
 
 	return cmd
 }
@@ -247,8 +247,10 @@ func parseProvider(provider string) (scamodels.CSP, error) {
 		return scamodels.CSPAzure, nil
 	case "AWS":
 		return scamodels.CSPAWS, nil
+	case "GCP":
+		return scamodels.CSPGCP, nil
 	default:
-		return "", fmt.Errorf("invalid provider %q: must be one of: azure, aws", provider)
+		return "", fmt.Errorf("invalid provider %q: must be one of: azure, aws, gcp", provider)
 	}
 }
 
@@ -279,6 +281,8 @@ func formatProviderName(provider string) string {
 		return "Azure"
 	case "AWS":
 		return "AWS"
+	case "GCP":
+		return "GCP"
 	default:
 		return provider
 	}

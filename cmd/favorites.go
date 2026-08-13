@@ -79,7 +79,7 @@ func newFavoritesAddCommandWithRunner(runFn func(*cobra.Command, []string) error
 		RunE: runFn,
 	}
 
-	cmd.Flags().StringP("provider", "p", "", "Cloud provider: azure, aws (omit to show all)")
+	cmd.Flags().StringP("provider", "p", "", "Cloud provider: azure, aws, gcp (omit to show all)")
 	cmd.Flags().StringP("target", "t", "", "Target name (subscription, resource group, etc.)")
 	cmd.Flags().StringP("role", "r", "", "Role name")
 	cmd.Flags().String("type", "", "Favorite type: cloud, groups (default: cloud)")

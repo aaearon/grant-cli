@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -853,7 +854,7 @@ func TestRootElevate_ProviderValidation(t *testing.T) {
 		wantErr     bool
 	}{
 		{
-			name: "invalid provider - gcp",
+			name: "invalid provider - oracle",
 			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *config.Config) {
 				authLoader := &mockAuthLoader{
 					token: &authmodels.IdsecToken{Token: "test-jwt"},
@@ -861,10 +862,31 @@ func TestRootElevate_ProviderValidation(t *testing.T) {
 				cfg := config.DefaultConfig()
 				return authLoader, nil, cfg
 			},
+			args: []string{"--provider", "oracle"},
+			wantContain: []string{
+				`provider "oracle" is not supported`,
+				"supported providers: azure, aws, gcp",
+			},
+			wantErr: true,
+		},
+		{
+			name: "valid provider - gcp explicit",
+			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *config.Config) {
+				authLoader := &mockAuthLoader{
+					token: &authmodels.IdsecToken{Token: "test-jwt"},
+				}
+				eligibilityLister := &mockEligibilityLister{
+					response: &models.EligibilityResponse{
+						Response: []models.EligibleTarget{},
+						Total:    0,
+					},
+				}
+				cfg := config.DefaultConfig()
+				return authLoader, eligibilityLister, cfg
+			},
 			args: []string{"--provider", "gcp"},
 			wantContain: []string{
-				`provider "gcp" is not supported`,
-				"supported providers: azure, aws",
+				"no eligible gcp targets found",
 			},
 			wantErr: true,
 		},
@@ -1136,7 +1158,10 @@ func TestRootElevate_UsageAndFlags(t *testing.T) {
 	}
 }
 
-func TestFetchEligibility_SingleProviderOmitsCSPTag(t *testing.T) {
+// TestFetchEligibility_SingleProviderSetsCSP guards the JSON "provider" field:
+// EligibleTarget.CSP is json:"-" and is never re-resolved downstream, so the
+// single-provider branch has to stamp it just like the multi-CSP branch does.
+func TestFetchEligibility_SingleProviderSetsCSP(t *testing.T) {
 	lister := &mockEligibilityLister{
 		response: &models.EligibilityResponse{
 			Response: []models.EligibleTarget{
@@ -1155,9 +1180,12 @@ func TestFetchEligibility_SingleProviderOmitsCSPTag(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
+	if len(targets) != 1 {
+		t.Fatalf("expected 1 target, got %d", len(targets))
+	}
 	for _, tgt := range targets {
-		if tgt.CSP != "" {
-			t.Errorf("expected empty CSP on single-provider fetch, got %q", tgt.CSP)
+		if tgt.CSP != models.CSPAzure {
+			t.Errorf("CSP = %q, want %q", tgt.CSP, models.CSPAzure)
 		}
 	}
 }
@@ -1211,6 +1239,161 @@ func TestFetchEligibility_ConcurrentExecution(t *testing.T) {
 	}
 	if !cspSeen[models.CSPAzure] || !cspSeen[models.CSPAWS] {
 		t.Errorf("expected both CSPs in results, got %v", cspSeen)
+	}
+}
+
+func TestFetchEligibility_GCPQueriesGCPOnly(t *testing.T) {
+	var mu sync.Mutex
+	var queried []models.CSP
+
+	lister := &mockEligibilityLister{
+		listFunc: func(ctx context.Context, csp models.CSP) (*models.EligibilityResponse, error) {
+			mu.Lock()
+			queried = append(queried, csp)
+			mu.Unlock()
+			return &models.EligibilityResponse{
+				Response: []models.EligibleTarget{
+					{
+						OrganizationID: "123456789012",
+						WorkspaceID:    "proj-1",
+						WorkspaceName:  "Project One",
+						WorkspaceType:  models.WorkspaceTypeProject,
+						RoleInfo:       models.RoleInfo{ID: "roles/viewer", Name: "Viewer"},
+					},
+				},
+				Total: 1,
+			}, nil
+		},
+	}
+
+	targets, err := fetchEligibility(t.Context(), lister, "gcp")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(queried) != 1 || queried[0] != models.CSPGCP {
+		t.Fatalf("expected only GCP to be queried, got %v", queried)
+	}
+	if len(targets) != 1 {
+		t.Fatalf("expected 1 target, got %d", len(targets))
+	}
+}
+
+func TestFetchEligibility_AllProvidersIncludesGCP(t *testing.T) {
+	lister := &mockEligibilityLister{
+		listFunc: func(ctx context.Context, csp models.CSP) (*models.EligibilityResponse, error) {
+			return &models.EligibilityResponse{
+				Response: []models.EligibleTarget{
+					{
+						WorkspaceName: string(csp) + " workspace",
+						RoleInfo:      models.RoleInfo{ID: "role-" + string(csp), Name: "Role"},
+					},
+				},
+				Total: 1,
+			}, nil
+		},
+	}
+
+	targets, err := fetchEligibility(t.Context(), lister, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(targets) != 3 {
+		t.Fatalf("expected 3 merged targets, got %d", len(targets))
+	}
+
+	seen := map[models.CSP]bool{}
+	for _, tgt := range targets {
+		seen[tgt.CSP] = true
+	}
+	for _, want := range []models.CSP{models.CSPAzure, models.CSPAWS, models.CSPGCP} {
+		if !seen[want] {
+			t.Errorf("expected merged results to include CSP %q, got %v", want, seen)
+		}
+	}
+}
+
+func TestFetchEligibility_SkipsFailingGCP(t *testing.T) {
+	lister := &mockEligibilityLister{
+		listFunc: func(ctx context.Context, csp models.CSP) (*models.EligibilityResponse, error) {
+			if csp == models.CSPGCP {
+				return nil, errors.New("gcp not enabled for this tenant")
+			}
+			return &models.EligibilityResponse{
+				Response: []models.EligibleTarget{
+					{
+						WorkspaceName: string(csp) + " workspace",
+						RoleInfo:      models.RoleInfo{ID: "role-" + string(csp), Name: "Role"},
+					},
+				},
+				Total: 1,
+			}, nil
+		},
+	}
+
+	targets, err := fetchEligibility(t.Context(), lister, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(targets) != 2 {
+		t.Fatalf("expected 2 targets after skipping GCP failure, got %d", len(targets))
+	}
+	for _, tgt := range targets {
+		if tgt.CSP == models.CSPGCP {
+			t.Errorf("did not expect GCP targets, got %+v", tgt)
+		}
+	}
+}
+
+func TestRootElevate_GCPGuidance(t *testing.T) {
+	authLoader := &mockAuthLoader{
+		token: &authmodels.IdsecToken{Token: "test-jwt"},
+	}
+	eligibilityLister := &mockEligibilityLister{
+		response: &models.EligibilityResponse{
+			Response: []models.EligibleTarget{
+				{
+					OrganizationID: "123456789012",
+					WorkspaceID:    "proj-1",
+					WorkspaceName:  "My GCP Project",
+					WorkspaceType:  models.WorkspaceTypeProject,
+					RoleInfo:       models.RoleInfo{ID: "roles/editor", Name: "Editor"},
+				},
+			},
+			Total: 1,
+		},
+	}
+	elevateService := &mockElevateService{
+		response: &models.ElevateResponse{
+			Response: models.ElevateAccessResult{
+				CSP:            models.CSPGCP,
+				OrganizationID: "123456789012",
+				Results: []models.ElevateTargetResult{
+					{
+						WorkspaceID: "proj-1",
+						RoleID:      "roles/editor",
+						SessionID:   "session-gcp-1",
+					},
+				},
+			},
+		},
+	}
+
+	cfg := config.DefaultConfig()
+	cmd := NewRootCommandWithDeps(nil, authLoader, eligibilityLister, elevateService, nil, nil, nil, cfg)
+
+	output, err := executeCommand(cmd, "--provider", "gcp", "--target", "My GCP Project", "--role", "Editor")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, want := range []string{
+		"Elevated to Editor on My GCP Project",
+		"Session ID: session-gcp-1",
+		"GCP session",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("output missing %q\ngot:\n%s", want, output)
+		}
 	}
 }
 

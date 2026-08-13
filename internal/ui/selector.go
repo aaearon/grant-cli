@@ -28,6 +28,12 @@ func FormatTargetOption(target models.EligibleTarget) string {
 		prefix = "Resource"
 	case "account":
 		prefix = "Account"
+	case "project":
+		prefix = "Project"
+	case "folder":
+		prefix = "Folder"
+	case "gcp_organization":
+		prefix = "GCP Organization"
 	default:
 		prefix = string(target.WorkspaceType)
 	}

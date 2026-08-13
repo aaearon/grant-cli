@@ -3,6 +3,7 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/aaearon/grant-cli/internal/config"
 	"github.com/aaearon/grant-cli/internal/sca/models"
@@ -14,11 +15,14 @@ import (
 func newEnvCommand(runFn func(*cobra.Command, []string) error) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "env",
-		Short: "Output AWS credential export statements",
-		Long: `Perform elevation and output AWS credential export statements.
+		Short: "Output AWS credential export statements (AWS only)",
+		Long: `Perform an AWS elevation and output credential export statements.
 
 Runs the full elevation flow, then prints only shell export statements
 suitable for eval. No human-readable messages are printed to stdout.
+
+Only AWS is supported: Azure and GCP elevations return no credentials —
+they apply to your existing az/gcloud CLI session, so use 'grant' instead.
 
 Usage:
   eval $(grant env --provider aws --target "Account" --role "AdminAccess")
@@ -29,7 +33,7 @@ Usage:
 		RunE:          runFn,
 	}
 
-	cmd.Flags().StringP("provider", "p", "", "Cloud provider: azure, aws (omit to show all)")
+	cmd.Flags().StringP("provider", "p", "", "Cloud provider (aws only)")
 	cmd.Flags().StringP("target", "t", "", "Target name (account, subscription, etc.)")
 	cmd.Flags().StringP("role", "r", "", "Role name")
 	cmd.Flags().StringP("favorite", "f", "", "Use a saved favorite (see 'grant favorites list')")
@@ -77,6 +81,37 @@ func NewEnvCommandWithDeps(
 	})
 }
 
+// requireAWSTarget rejects any target that is not known to be AWS before an
+// elevation is performed. It fails closed: an unresolved CSP is rejected rather
+// than elevated speculatively, since the whole point of the pre-flight check is
+// to avoid creating a session we cannot use.
+func requireAWSTarget(target *models.EligibleTarget) error {
+	switch target.CSP {
+	case models.CSPAWS:
+		return nil
+	case "":
+		return fmt.Errorf(
+			"could not determine the cloud provider for target %q; grant env is only supported for AWS — run 'grant --provider aws' or pass --provider",
+			target.WorkspaceName)
+	}
+	provider := strings.ToLower(string(target.CSP))
+	return fmt.Errorf(
+		"grant env is only supported for AWS; %s elevations return no credentials — run 'grant --provider %s' instead and use your existing %s CLI session",
+		provider, provider, cliForCSP(target.CSP))
+}
+
+// cliForCSP names the native CLI whose session a non-AWS elevation applies to.
+func cliForCSP(csp models.CSP) string {
+	switch csp {
+	case models.CSPAzure:
+		return "az"
+	case models.CSPGCP:
+		return "gcloud"
+	default:
+		return "cloud provider"
+	}
+}
+
 func runEnvWithDeps(
 	cmd *cobra.Command,
 	flags *elevateFlags,
@@ -87,7 +122,7 @@ func runEnvWithDeps(
 	selector targetSelector,
 	cfg *config.Config,
 ) error {
-	res, err := resolveAndElevate(flags, profile, authLoader, eligibilityLister, elevateService, selector, cfg)
+	res, err := resolveAndElevate(flags, profile, authLoader, eligibilityLister, elevateService, selector, cfg, requireAWSTarget)
 	if err != nil {
 		return err
 	}
@@ -95,6 +130,7 @@ func runEnvWithDeps(
 	// Record session timestamp for remaining-time tracking (best-effort)
 	recordSessionTimestamp(res.result.SessionID)
 
+	// Defense in depth: AWS itself returning no credentials.
 	if res.result.AccessCredentials == nil {
 		return errors.New("no credentials returned; grant env is only supported for AWS elevations")
 	}

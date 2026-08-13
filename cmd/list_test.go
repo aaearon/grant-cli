@@ -269,3 +269,45 @@ func TestListCommand_MutualExclusivity(t *testing.T) {
 		t.Fatal("expected error for --groups + --provider")
 	}
 }
+
+// TestListCommand_JSONOutputSingleProvider guards the regression where
+// `grant list --provider aws -o json` emitted an empty "provider" field.
+func TestListCommand_JSONOutputSingleProvider(t *testing.T) {
+	auth := &mockAuthLoader{token: &authmodels.IdsecToken{Token: "jwt"}}
+	eligLister := &mockEligibilityLister{
+		listFunc: func(ctx context.Context, csp models.CSP) (*models.EligibilityResponse, error) {
+			if csp != models.CSPAWS {
+				t.Errorf("unexpected CSP queried: %q", csp)
+			}
+			return &models.EligibilityResponse{
+				Response: []models.EligibleTarget{{
+					WorkspaceID: "123456789012", WorkspaceName: "Sandbox",
+					WorkspaceType: models.WorkspaceTypeAccount,
+					RoleInfo:      models.RoleInfo{ID: "r-aws", Name: "ReadOnly"},
+				}},
+				Total: 1,
+			}, nil
+		},
+	}
+	groupsElig := &mockGroupsEligibilityLister{response: &models.GroupsEligibilityResponse{}}
+
+	cmd := NewListCommandWithDeps(auth, eligLister, groupsElig)
+	root := newTestRootCommand()
+	root.AddCommand(cmd)
+
+	output, err := executeCommand(root, "list", "--provider", "aws", "--output", "json")
+	if err != nil {
+		t.Fatalf("unexpected error: %v\noutput: %s", err, output)
+	}
+
+	var parsed listOutput
+	if err := json.Unmarshal([]byte(output), &parsed); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, output)
+	}
+	if len(parsed.Cloud) != 1 {
+		t.Fatalf("expected 1 cloud target, got %d", len(parsed.Cloud))
+	}
+	if parsed.Cloud[0].Provider != "aws" {
+		t.Errorf("provider = %q, want aws", parsed.Cloud[0].Provider)
+	}
+}

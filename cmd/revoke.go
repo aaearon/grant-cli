@@ -46,7 +46,7 @@ Use 'grant status' to view session IDs.`,
 
 	cmd.Flags().BoolP("all", "a", false, "revoke all active sessions")
 	cmd.Flags().BoolP("yes", "y", false, "skip confirmation prompt")
-	cmd.Flags().StringP("provider", "p", "", "filter sessions by provider (azure, aws)")
+	cmd.Flags().StringP("provider", "p", "", "filter sessions by provider (azure, aws, gcp)")
 
 	return cmd
 }
