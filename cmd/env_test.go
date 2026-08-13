@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -82,57 +84,156 @@ func TestEnvCommand_AWSSuccess(t *testing.T) {
 	}
 }
 
-func TestEnvCommand_AzureError(t *testing.T) {
-	authLoader := &mockAuthLoader{
-		token: &authmodels.IdsecToken{Token: "test-jwt"},
+// TestEnvDoesNotElevateForNonAWSProvider pins Bug 4a: grant env must reject
+// non-AWS providers BEFORE performing an elevation, so no live session is
+// created and no session timestamp is recorded.
+func TestEnvDoesNotElevateForNonAWSProvider(t *testing.T) {
+	tests := []struct {
+		name     string
+		provider string
+	}{
+		{name: "azure", provider: "azure"},
 	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			originalRecorder := recordSessionTimestamp
+			defer func() { recordSessionTimestamp = originalRecorder }()
+
+			recordCount := 0
+			recordSessionTimestamp = func(sessionID string) { recordCount++ }
+
+			elevateCount := 0
+
+			authLoader := &mockAuthLoader{
+				token: &authmodels.IdsecToken{Token: "test-jwt"},
+			}
+			eligibilityLister := &mockEligibilityLister{
+				response: &models.EligibilityResponse{
+					Response: []models.EligibleTarget{
+						{
+							OrganizationID: "org-1",
+							WorkspaceID:    "ws-1",
+							WorkspaceName:  "Workspace One",
+							RoleInfo:       models.RoleInfo{ID: "role-1", Name: "Contributor"},
+						},
+					},
+					Total: 1,
+				},
+			}
+			elevateService := &mockElevateService{
+				elevateFunc: func(ctx context.Context, req *models.ElevateRequest) (*models.ElevateResponse, error) {
+					elevateCount++
+					t.Errorf("Elevate must not be called for provider %q", tt.provider)
+					return nil, errors.New("should not be called")
+				},
+			}
+			selector := &mockTargetSelector{
+				target: &models.EligibleTarget{
+					OrganizationID: "org-1",
+					WorkspaceID:    "ws-1",
+					WorkspaceName:  "Workspace One",
+					RoleInfo:       models.RoleInfo{ID: "role-1", Name: "Contributor"},
+				},
+			}
+
+			cmd := NewEnvCommandWithDeps(nil, authLoader, eligibilityLister, elevateService, selector, config.DefaultConfig())
+			_, err := executeCommand(cmd, "--provider", tt.provider)
+			if err == nil {
+				t.Fatalf("expected error for provider %q", tt.provider)
+			}
+			if !strings.Contains(strings.ToUpper(err.Error()), "AWS") {
+				t.Errorf("error should name AWS, got: %v", err)
+			}
+			if elevateCount != 0 {
+				t.Errorf("elevation call count = %d, want 0", elevateCount)
+			}
+			if recordCount != 0 {
+				t.Errorf("session timestamp record count = %d, want 0", recordCount)
+			}
+		})
+	}
+}
+
+// TestEnvElevatesOnceForAWS is the companion to the pre-flight validation test.
+func TestEnvElevatesOnceForAWS(t *testing.T) {
+	credsJSON := `{"aws_access_key":"ASIAXXX","aws_secret_access_key":"secret","aws_session_token":"tok"}`
+
+	elevateCount := 0
+	authLoader := &mockAuthLoader{token: &authmodels.IdsecToken{Token: "test-jwt"}}
 	eligibilityLister := &mockEligibilityLister{
 		response: &models.EligibilityResponse{
-			Response: []models.EligibleTarget{
-				{
-					OrganizationID: "org-123",
-					WorkspaceID:    "sub-456",
-					WorkspaceName:  "Prod-EastUS",
-					WorkspaceType:  models.WorkspaceTypeSubscription,
-					RoleInfo:       models.RoleInfo{ID: "role-789", Name: "Contributor"},
-				},
-			},
-			Total: 1,
+			Response: []models.EligibleTarget{{
+				OrganizationID: "o-1", WorkspaceID: "acct-1", WorkspaceName: "AWS Mgmt",
+				WorkspaceType: models.WorkspaceTypeAccount,
+				RoleInfo:      models.RoleInfo{ID: "role-1", Name: "Admin"},
+			}}, Total: 1,
 		},
 	}
 	elevateService := &mockElevateService{
-		response: &models.ElevateResponse{
-			Response: models.ElevateAccessResult{
-				CSP:            models.CSPAzure,
-				OrganizationID: "org-123",
-				Results: []models.ElevateTargetResult{
-					{
-						WorkspaceID: "sub-456",
-						RoleID:      "role-789",
-						SessionID:   "session-az",
-					},
-				},
-			},
+		elevateFunc: func(ctx context.Context, req *models.ElevateRequest) (*models.ElevateResponse, error) {
+			elevateCount++
+			return &models.ElevateResponse{Response: models.ElevateAccessResult{
+				CSP: models.CSPAWS, OrganizationID: "o-1",
+				Results: []models.ElevateTargetResult{{
+					WorkspaceID: "acct-1", RoleID: "role-1", SessionID: "sess-1",
+					AccessCredentials: &credsJSON,
+				}},
+			}}, nil
 		},
 	}
 	selector := &mockTargetSelector{
 		target: &models.EligibleTarget{
-			OrganizationID: "org-123",
-			WorkspaceID:    "sub-456",
-			WorkspaceName:  "Prod-EastUS",
-			WorkspaceType:  models.WorkspaceTypeSubscription,
-			RoleInfo:       models.RoleInfo{ID: "role-789", Name: "Contributor"},
+			OrganizationID: "o-1", WorkspaceID: "acct-1", WorkspaceName: "AWS Mgmt",
+			WorkspaceType: models.WorkspaceTypeAccount,
+			RoleInfo:      models.RoleInfo{ID: "role-1", Name: "Admin"},
 		},
 	}
 
-	cfg := config.DefaultConfig()
-	cmd := NewEnvCommandWithDeps(nil, authLoader, eligibilityLister, elevateService, selector, cfg)
+	cmd := NewEnvCommandWithDeps(nil, authLoader, eligibilityLister, elevateService, selector, config.DefaultConfig())
+	if _, err := executeCommand(cmd, "--provider", "aws"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if elevateCount != 1 {
+		t.Errorf("elevation call count = %d, want 1", elevateCount)
+	}
+}
 
-	_, err := executeCommand(cmd)
-	if err == nil {
-		t.Fatal("expected error for Azure elevation (no credentials)")
+// TestEnvCommand_AWSNilCredentials is the defense-in-depth path: AWS itself
+// returning no credentials must produce a clear error, not a panic.
+func TestEnvCommand_AWSNilCredentials(t *testing.T) {
+	authLoader := &mockAuthLoader{token: &authmodels.IdsecToken{Token: "test-jwt"}}
+	eligibilityLister := &mockEligibilityLister{
+		response: &models.EligibilityResponse{
+			Response: []models.EligibleTarget{{
+				OrganizationID: "o-1", WorkspaceID: "acct-1", WorkspaceName: "AWS Mgmt",
+				WorkspaceType: models.WorkspaceTypeAccount,
+				RoleInfo:      models.RoleInfo{ID: "role-1", Name: "Admin"},
+			}}, Total: 1,
+		},
+	}
+	elevateService := &mockElevateService{
+		response: &models.ElevateResponse{Response: models.ElevateAccessResult{
+			CSP: models.CSPAWS, OrganizationID: "o-1",
+			Results: []models.ElevateTargetResult{{
+				WorkspaceID: "acct-1", RoleID: "role-1", SessionID: "sess-1",
+				AccessCredentials: nil,
+			}},
+		}},
+	}
+	selector := &mockTargetSelector{
+		target: &models.EligibleTarget{
+			OrganizationID: "o-1", WorkspaceID: "acct-1", WorkspaceName: "AWS Mgmt",
+			WorkspaceType: models.WorkspaceTypeAccount,
+			RoleInfo:      models.RoleInfo{ID: "role-1", Name: "Admin"},
+		},
 	}
 
+	cmd := NewEnvCommandWithDeps(nil, authLoader, eligibilityLister, elevateService, selector, config.DefaultConfig())
+	_, err := executeCommand(cmd, "--provider", "aws")
+	if err == nil {
+		t.Fatal("expected error when AWS returns no credentials")
+	}
 	if !strings.Contains(err.Error(), "no credentials") {
 		t.Errorf("expected 'no credentials' error, got: %v", err)
 	}

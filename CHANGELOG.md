@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- `grant env` no longer performs an elevation before validating the provider. Previously `grant env --provider azure` created a real SCA session and recorded a session timestamp before failing with "no credentials returned", leaving an unwanted active session behind. The provider is now validated before the elevation request is issued
+
 ### Changed
 
 - Rebranded user-facing references from CyberArk to Idira (formerly CyberArk) in the README and CLI help/prompt text, following the Palo Alto Networks rebrand. No functional or API changes; SDK import paths (`github.com/cyberark/idsec-sdk-golang`), `*.cyberark.cloud` URLs, and environment variables are unchanged.

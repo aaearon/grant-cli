@@ -358,8 +358,12 @@ type elevationResult struct {
 }
 
 // resolveAndElevate performs the full elevation flow: auth check, flag resolution,
-// eligibility fetch, target selection, and elevation request. It is shared by
-// the root command and the env command.
+// eligibility fetch, target selection, and elevation request.
+//
+// preElevate, when non-nil, is called with the resolved target immediately
+// before the elevation request is issued. Returning an error aborts the flow
+// without creating a session — used by 'grant env' to reject targets whose
+// provider returns no credentials before burning a real elevation.
 func resolveAndElevate(
 	flags *elevateFlags,
 	profile *sdkmodels.IdsecProfile,
@@ -368,6 +372,7 @@ func resolveAndElevate(
 	elevateService elevateService,
 	selector targetSelector,
 	cfg *config.Config,
+	preElevate func(*models.EligibleTarget) error,
 ) (*elevationResult, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
 	defer cancel()
@@ -442,6 +447,13 @@ func resolveAndElevate(
 
 	// Ensure CSP is set on selected target
 	resolveTargetCSP(selectedTarget, allTargets, provider)
+
+	// Pre-flight validation — must run before any elevation is issued.
+	if preElevate != nil {
+		if err := preElevate(selectedTarget); err != nil {
+			return nil, err
+		}
+	}
 
 	// Build elevation request
 	req := &models.ElevateRequest{
