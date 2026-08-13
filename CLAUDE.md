@@ -156,6 +156,13 @@ make clean              # Clean build artifacts
 - `-trimpath` used in both `Makefile` and `.goreleaser.yaml` for reproducible builds
 - `.goreleaser.yaml` uses `CommitDate` (not build date) and `mod_timestamp` for reproducibility
 
+## CI
+- `.github/workflows/ci.yml` — `test` job runs as a matrix over `ubuntu-latest` and `windows-latest` with `fail-fast: false`
+- Windows runners have no GNU make, so that leg runs the equivalent Go commands directly (`go build -trimpath -o grant.exe .`, `go test -race ./... -v`); Linux keeps `make build` / `make test-race`. Keep the two legs in sync when Makefile targets change
+- `go test -race` works on windows/amd64 because the runner image ships gcc (the race detector needs cgo)
+- Lint (`golangci-lint-action`) runs on Linux only — a second pass on Windows adds minutes and finds nothing new
+- Tests must be OS-portable. Unix-only behaviour (POSIX file permissions, `HOME`) is skipped via `runtime.GOOS == "windows"` in `internal/config/config_test.go`
+
 ## Release Process
 1. Move `[Unreleased]` entries in `CHANGELOG.md` to a new `[X.Y.Z] - YYYY-MM-DD` section (leave `[Unreleased]` header empty)
 2. Commit: `docs: prepare CHANGELOG for vX.Y.Z release`

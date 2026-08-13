@@ -7,6 +7,11 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - Rebranded user-facing references from CyberArk to Idira (formerly CyberArk) in the README and CLI help/prompt text, following the Palo Alto Networks rebrand. No functional or API changes; SDK import paths (`github.com/cyberark/idsec-sdk-golang`), `*.cyberark.cloud` URLs, and environment variables are unchanged.
+- CI now runs the build and race-enabled test suite on both `ubuntu-latest` and `windows-latest` (`fail-fast: false`). The Windows leg invokes `go build` / `go test` directly because GitHub's Windows runners have no GNU make; lint still runs on Linux only.
+
+### Fixed
+
+- Skipped two Unix-only assertions in `internal/config` tests (POSIX permission bits, `HOME`) on Windows.
 
 ## [0.7.0] - 2026-04-21
 

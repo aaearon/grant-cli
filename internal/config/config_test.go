@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -176,6 +177,9 @@ func TestDefaultConfig(t *testing.T) {
 }
 
 func TestLoadConfig_PermissionError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod 0000 does not make a file unreadable on Windows")
+	}
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
 
@@ -209,6 +213,9 @@ func TestConfigPath_Override(t *testing.T) {
 }
 
 func TestConfigDir_Error(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("os.UserHomeDir uses USERPROFILE on Windows, not HOME")
+	}
 	// Override HOME to empty to force error
 	t.Setenv("HOME", "")
 	t.Setenv("XDG_CONFIG_HOME", "")
