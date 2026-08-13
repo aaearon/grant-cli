@@ -6,11 +6,20 @@
 // presign, Azure CLI token acquisition, JWE decryption). grant owns the command,
 // selector, cache and kubeconfig-file layers on top of it.
 //
-// Context propagation: only GenerateKubeconfigParallel accepts a context.Context.
-// Every other SDK entry point uses context.Background() internally, so grant
-// enforces cancellation at this wrapper boundary via runWithContext. That aborts
-// the caller promptly but cannot cancel the in-flight HTTP request; the goroutine
-// runs to completion and its result is discarded.
+// Context handling — read this before assuming cancellation works:
+//
+// Only GenerateKubeconfigParallel accepts a context.Context, and grant passes the
+// caller's context straight through. Every other SDK entry point takes no context
+// and issues its HTTP request on context.Background() internally.
+//
+// For those, runWithContext provides a caller-side timeout, NOT context
+// propagation. When the context is done it unblocks the caller and abandons the
+// call; the SDK request keeps running to completion. Three consequences worth
+// naming: the goroutine leaks until the request finishes, its result is
+// discarded, and — because the SDK mutates shared client headers around some
+// GETs (RemoveHeader/SetHeader on Content-Type) — an abandoned call can still
+// touch that shared client state after the caller has returned. Real
+// cancellation needs context-accepting methods upstream in the SDK.
 package k8s
 
 import (
@@ -140,9 +149,13 @@ func NormalizeCSP(csp string) (string, error) {
 	return "", fmt.Errorf("%w: %q (supported: %s)", ErrUnsupportedCSP, csp, strings.Join(SupportedCSPs, ", "))
 }
 
-// runWithContext runs fn on a goroutine and returns as soon as either fn
-// completes or ctx is done. The SDK call itself is not cancellable, so on
-// cancellation the goroutine keeps running and its result is dropped.
+// runWithContext gives the caller a deadline over an SDK call that cannot be
+// canceled. It returns as soon as fn completes or ctx is done.
+//
+// This is abandonment, not cancellation: on ctx.Done the goroutine keeps running
+// to completion, its result is dropped, and it may still mutate shared SDK client
+// state afterwards. Do not read a returned context.Canceled as "the request
+// stopped".
 func runWithContext[T any](ctx context.Context, fn func() (T, error)) (T, error) {
 	type outcome struct {
 		val T

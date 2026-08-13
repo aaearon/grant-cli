@@ -236,8 +236,23 @@ func (k *Kubeconfig) RewriteExecCommands(grantPath string) []ExecRewrite {
 		rewrites = append(rewrites, ExecRewrite{User: userName, From: command.Value, To: grantPath})
 		command.Value = grantPath
 		mapSet(exec, "args", sequenceNode(rewriteExecArgs(mapGet(exec, "args"))))
+		ensureInteractiveMode(exec)
 	}
 	return rewrites
+}
+
+// ensureInteractiveMode guarantees the exec stanza carries an interactiveMode.
+//
+// client-go REQUIRES interactiveMode for client.authentication.k8s.io/v1 (it is
+// only optional in v1beta1), and rejects the kubeconfig outright when it is
+// missing — before grant is ever invoked. "IfAvailable" is the right value for
+// grant: it replays cached credentials without stdin, and can run a browser or
+// `az login` flow when kubectl says stdin is available.
+func ensureInteractiveMode(exec *yaml.Node) {
+	if node := mapGet(exec, "interactiveMode"); node != nil && strings.TrimSpace(node.Value) != "" {
+		return
+	}
+	mapSet(exec, "interactiveMode", scalarNode("IfAvailable"))
 }
 
 func execNode(userEntry *yaml.Node) *yaml.Node {
@@ -284,15 +299,33 @@ func rewriteExecArgs(args *yaml.Node) []string {
 	return out
 }
 
-// ResolveKubeconfigPath returns the kubeconfig grant writes to: the first
-// non-empty entry of a $KUBECONFIG list, else <home>/.kube/config.
+// ResolveKubeconfigPath returns the kubeconfig grant writes to, following
+// kubectl's own write rule for a $KUBECONFIG list: the first file in the list
+// that EXISTS, or — when none of them exist — the last entry. Writing to the
+// first entry unconditionally would create a brand-new file that shadows the
+// user's real config instead of updating it.
+//
+// Note that kubectl READS the whole chain and merges it with the first file
+// winning on a name collision, so writing to the first existing file is also the
+// only placement that guarantees grant's entries are the ones kubectl resolves.
+// grant merges into exactly one file and never rewrites the rest of the chain.
 func ResolveKubeconfigPath(kubeconfigEnv, home string) string {
+	var entries []string
 	for _, entry := range filepath.SplitList(kubeconfigEnv) {
 		if strings.TrimSpace(entry) != "" {
+			entries = append(entries, entry)
+		}
+	}
+	if len(entries) == 0 {
+		return filepath.Join(home, ".kube", "config")
+	}
+
+	for _, entry := range entries {
+		if _, err := os.Stat(entry); err == nil {
 			return entry
 		}
 	}
-	return filepath.Join(home, ".kube", "config")
+	return entries[len(entries)-1]
 }
 
 // WriteKubeconfigAtomic writes data to path via a temp file in the same
@@ -367,21 +400,38 @@ func targetFileMode(path string) (perm os.FileMode, warnings []string) {
 
 // BackupOnce writes <path>.grant.bak the first time grant merges into an
 // existing kubeconfig. It never overwrites an existing backup.
+//
+// The backup is created with O_EXCL so two concurrent grant runs cannot clobber
+// each other's copy, and the source must be a regular file — a symlinked or
+// special kubeconfig is refused rather than dereferenced into a new file.
 func BackupOnce(path string) (bool, error) {
-	backup := path + ".grant.bak"
-	if _, err := os.Stat(backup); err == nil {
-		return false, nil
-	}
-
-	data, err := os.ReadFile(path) //nolint:gosec // path is the user's chosen kubeconfig
+	fi, err := os.Lstat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
 		}
+		return false, fmt.Errorf("failed to inspect %s: %w", path, err)
+	}
+	if !fi.Mode().IsRegular() {
+		return false, fmt.Errorf("refusing to back up %s: not a regular file", path)
+	}
+
+	data, err := os.ReadFile(path) //nolint:gosec // path is the user's chosen kubeconfig
+	if err != nil {
 		return false, fmt.Errorf("failed to read %s for backup: %w", path, err)
 	}
 
-	if err := os.WriteFile(backup, data, 0o600); err != nil {
+	backup := path + ".grant.bak"
+	f, err := os.OpenFile(backup, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		if os.IsExist(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to write %s: %w", backup, err)
+	}
+	defer func() { _ = f.Close() }()
+
+	if _, err := f.Write(data); err != nil {
 		return false, fmt.Errorf("failed to write %s: %w", backup, err)
 	}
 	return true, nil

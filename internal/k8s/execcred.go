@@ -29,8 +29,11 @@ type ExecCredentialParams struct {
 	OrganizationID string
 	Namespace      string
 
-	// ElevateToken is the ISP session JWT. The Azure provider decodes it to check
-	// the az CLI session belongs to the same identity.
+	// ElevateToken is the ISP session JWT. The Azure provider decodes it and
+	// compares the identity against the logged-in Azure CLI account, so that a
+	// different az session cannot be used to reach a cluster someone else
+	// elevated for. Leaving it empty silently disables that binding check, so
+	// callers must always populate it on the Azure path.
 	ElevateToken string
 
 	// Interactive reports whether kubectl said stdin is available. When false,
@@ -59,9 +62,27 @@ func (s *Service) ExecCredential(ctx context.Context, p ExecCredentialParams) (*
 		return nil, err
 	}
 
+	// The Azure providers only bind the az CLI identity to the SCA identity when
+	// an elevate token is supplied. Refuse rather than authenticate as whoever
+	// happens to be logged into the Azure CLI.
+	if csp == "AZURE" && strings.TrimSpace(p.ElevateToken) == "" {
+		return nil, errors.New(
+			"an Idira session token is required on the Azure path so the Azure CLI identity can be verified against the identity that elevated")
+	}
+
 	conn, err := s.Evaluate(ctx, csp, p.FQDN)
 	if err != nil {
 		return nil, err
+	}
+
+	// Fail closed. connectionMethod is an unconstrained string from the evaluate
+	// API; an empty, malformed or future value must not silently fall through to
+	// the direct flow, which would bypass the DPA proxy the tenant expects. This
+	// is checked before elevation so an unrecognized value costs no session.
+	if conn.ConnectionMethod != ConnectionDirect && conn.ConnectionMethod != ConnectionProxy {
+		return nil, fmt.Errorf(
+			"cluster %q reported an unrecognized connection method %q (expected %q or %q); upgrade grant or report this",
+			p.FQDN, conn.ConnectionMethod, ConnectionDirect, ConnectionProxy)
 	}
 
 	roleID := p.RoleID

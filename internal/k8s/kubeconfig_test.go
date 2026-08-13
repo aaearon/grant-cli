@@ -289,29 +289,165 @@ users:
 	}
 }
 
+// ResolveKubeconfigPath must follow kubectl's write rule: the first entry that
+// EXISTS, or the last entry when none do. Always taking the first entry would
+// create a new file that shadows the user's real config.
 func TestResolveKubeconfigPath(t *testing.T) {
 	sep := string(os.PathListSeparator)
 	testHome := filepath.Join(string(filepath.Separator)+"home", "u")
 	homeKubeconfig := filepath.Join(testHome, ".kube", "config")
+
+	dir := t.TempDir()
+	existingA := filepath.Join(dir, "a")
+	existingB := filepath.Join(dir, "b")
+	missing1 := filepath.Join(dir, "missing1")
+	missing2 := filepath.Join(dir, "missing2")
+	for _, p := range []string{existingA, existingB} {
+		if err := os.WriteFile(p, []byte("apiVersion: v1\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	tests := []struct {
 		name string
 		env  string
-		home string
 		want string
 	}{
-		{name: "unset falls back to home", env: "", home: testHome, want: homeKubeconfig},
-		{name: "single path", env: "/tmp/kc", home: testHome, want: "/tmp/kc"},
-		{name: "list form takes first", env: "/tmp/a" + sep + "/tmp/b", home: testHome, want: "/tmp/a"},
-		{name: "leading empty entry is skipped", env: sep + "/tmp/b", home: testHome, want: "/tmp/b"},
-		{name: "all empty falls back", env: sep + sep, home: testHome, want: homeKubeconfig},
+		{name: "unset falls back to home", env: "", want: homeKubeconfig},
+		{name: "single existing path", env: existingA, want: existingA},
+		{name: "single missing path is still the target", env: missing1, want: missing1},
+		{name: "first existing entry wins", env: existingA + sep + existingB, want: existingA},
+		{
+			name: "skips a missing earlier entry rather than creating it",
+			env:  missing1 + sep + existingB,
+			want: existingB,
+		},
+		{name: "none exist falls back to the last entry", env: missing1 + sep + missing2, want: missing2},
+		{name: "leading empty entry is skipped", env: sep + existingB, want: existingB},
+		{name: "all empty falls back to home", env: sep + sep, want: homeKubeconfig},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := ResolveKubeconfigPath(tt.env, tt.home); got != tt.want {
+			if got := ResolveKubeconfigPath(tt.env, testHome); got != tt.want {
 				t.Errorf("ResolveKubeconfigPath(%q) = %q, want %q", tt.env, got, tt.want)
 			}
 		})
+	}
+}
+
+// client-go REQUIRES interactiveMode for client.authentication.k8s.io/v1 and
+// rejects the kubeconfig before grant is ever invoked when it is missing.
+func TestRewriteExecCommandsSetsInteractiveMode(t *testing.T) {
+	const v1Generated = `apiVersion: v1
+kind: Config
+users:
+  - name: eks-prod-user
+    user:
+      exec:
+        apiVersion: client.authentication.k8s.io/v1
+        command: idsec
+        args: ["sca", "k8s", "kubectl-login", "--csp", "aws", "--fqdn", "prod.eks.example"]
+`
+	cfg, err := ParseKubeconfig([]byte(v1Generated))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if rewrites := cfg.RewriteExecCommands("/usr/local/bin/grant"); len(rewrites) != 1 {
+		t.Fatalf("got %d rewrites, want 1", len(rewrites))
+	}
+
+	out := decodeConfig(t, mustBytes(t, cfg))
+	user := entryByName(t, out, "users", "eks-prod-user")
+	exec, _ := user["user"].(map[string]any)["exec"].(map[string]any)
+	if exec["interactiveMode"] != "IfAvailable" {
+		t.Errorf("interactiveMode = %v, want IfAvailable (required for the v1 API)", exec["interactiveMode"])
+	}
+}
+
+func TestRewriteExecCommandsPreservesExplicitInteractiveMode(t *testing.T) {
+	const withMode = `apiVersion: v1
+kind: Config
+users:
+  - name: u
+    user:
+      exec:
+        apiVersion: client.authentication.k8s.io/v1
+        command: idsec
+        interactiveMode: Never
+`
+	cfg, _ := ParseKubeconfig([]byte(withMode))
+	cfg.RewriteExecCommands("/usr/local/bin/grant")
+
+	out := decodeConfig(t, mustBytes(t, cfg))
+	exec, _ := entryByName(t, out, "users", "u")["user"].(map[string]any)["exec"].(map[string]any)
+	if exec["interactiveMode"] != "Never" {
+		t.Errorf("interactiveMode = %v, want the explicit value preserved", exec["interactiveMode"])
+	}
+}
+
+// Two concurrent runs must not clobber each other's backup.
+func TestBackupOnceIsExclusive(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config")
+	if err := os.WriteFile(path, []byte(existingKubeconfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	const runs = 8
+	results := make(chan bool, runs)
+	errs := make(chan error, runs)
+	start := make(chan struct{})
+
+	for range runs {
+		go func() {
+			<-start
+			created, err := BackupOnce(path)
+			results <- created
+			errs <- err
+		}()
+	}
+	close(start)
+
+	created := 0
+	for range runs {
+		if <-results {
+			created++
+		}
+		if err := <-errs; err != nil {
+			t.Errorf("BackupOnce: %v", err)
+		}
+	}
+
+	if created != 1 {
+		t.Errorf("%d goroutines reported creating the backup, want exactly 1", created)
+	}
+	data, err := os.ReadFile(path + ".grant.bak") //nolint:gosec // test-controlled path
+	if err != nil {
+		t.Fatalf("backup missing: %v", err)
+	}
+	if string(data) != existingKubeconfig {
+		t.Error("the backup content was corrupted by concurrent writers")
+	}
+}
+
+func TestBackupOnceRefusesNonRegularSource(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on Windows")
+	}
+
+	dir := t.TempDir()
+	realPath := filepath.Join(dir, "real")
+	link := filepath.Join(dir, "link")
+	if err := os.WriteFile(realPath, []byte(existingKubeconfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realPath, link); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := BackupOnce(link); err == nil {
+		t.Fatal("expected a symlinked kubeconfig to be refused")
 	}
 }
 

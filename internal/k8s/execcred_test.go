@@ -194,6 +194,86 @@ func TestExecCredentialSurfacesInteractionRequired(t *testing.T) {
 	}
 }
 
+// Fail closed: an unrecognized connectionMethod must not fall through to the
+// direct flow, and must be caught before any elevation is spent.
+func TestExecCredentialRejectsUnknownConnectionMethod(t *testing.T) {
+	tests := []struct {
+		name   string
+		method string
+	}{
+		{name: "empty", method: ""},
+		{name: "whitespace", method: "   "},
+		{name: "future value", method: "tunnel"},
+		{name: "typo", method: "proxied"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			backend := evaluateBackend(tt.method, "Y2E=")
+			elevated := false
+			backend.elevateFn = func(*k8smodels.IdsecSCAK8sElevateKubectlRequest) (*k8smodels.IdsecSCAK8sElevateResponse, error) {
+				elevated = true
+				return nil, errors.New("must not be reached")
+			}
+
+			svc := NewServiceWithBackend(backend)
+			svc.SetCredentialFlow(&stubFlow{
+				directFn: func(*ElevateResult, *sdkk8s.IdsecSCAK8sClusterContext, bool) (*k8smodels.IdsecSCAK8sExecCredential, error) {
+					t.Error("the direct flow must not run for an unknown connection method")
+					return nil, nil
+				},
+			})
+
+			_, err := svc.ExecCredential(t.Context(), ExecCredentialParams{CSP: "aws", FQDN: "host"})
+			if err == nil || !strings.Contains(err.Error(), "unrecognized connection method") {
+				t.Fatalf("err = %v, want a fail-closed connection-method error", err)
+			}
+			if elevated {
+				t.Error("elevation was attempted before the connection method was validated")
+			}
+		})
+	}
+}
+
+// Azure identity binding only happens when the SDK gets an elevate token, so an
+// empty one must be refused rather than silently skipping the check.
+func TestExecCredentialAzureRequiresElevateToken(t *testing.T) {
+	svc := NewServiceWithBackend(evaluateBackend(ConnectionDirect, "Y2E="))
+	svc.SetCredentialFlow(&stubFlow{})
+
+	_, err := svc.ExecCredential(t.Context(), ExecCredentialParams{CSP: "azure", FQDN: "host"})
+	if err == nil || !strings.Contains(err.Error(), "Idira session token is required") {
+		t.Fatalf("err = %v, want a missing-elevate-token error", err)
+	}
+
+	// With a token it proceeds.
+	if _, err := svc.ExecCredential(t.Context(), ExecCredentialParams{
+		CSP: "azure", FQDN: "host", ElevateToken: "jwt",
+	}); err != nil {
+		t.Fatalf("unexpected error with a token: %v", err)
+	}
+}
+
+func TestExecCredentialPassesElevateTokenToFlow(t *testing.T) {
+	var got string
+	svc := NewServiceWithBackend(evaluateBackend(ConnectionDirect, "Y2E="))
+	svc.SetCredentialFlow(&stubFlow{
+		directFn: func(_ *ElevateResult, cctx *sdkk8s.IdsecSCAK8sClusterContext, _ bool) (*k8smodels.IdsecSCAK8sExecCredential, error) {
+			got = cctx.ElevateToken
+			return &k8smodels.IdsecSCAK8sExecCredential{}, nil
+		},
+	})
+
+	if _, err := svc.ExecCredential(t.Context(), ExecCredentialParams{
+		CSP: "azure", FQDN: "host", ElevateToken: "isp-jwt",
+	}); err != nil {
+		t.Fatalf("ExecCredential: %v", err)
+	}
+	if got != "isp-jwt" {
+		t.Errorf("ElevateToken = %q, want it in the cluster context", got)
+	}
+}
+
 func TestExecCredentialValidatesCSP(t *testing.T) {
 	svc := NewServiceWithBackend(evaluateBackend(ConnectionDirect, ""))
 	if _, err := svc.ExecCredential(t.Context(), ExecCredentialParams{CSP: "gcp", FQDN: "host"}); err == nil {

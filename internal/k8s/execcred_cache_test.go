@@ -1,6 +1,7 @@
 package k8s
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -231,6 +232,164 @@ func TestCredentialCacheKeysAreDistinct(t *testing.T) {
 			t.Errorf("cache key collision for %+v", k)
 		}
 		seen[path] = true
+	}
+}
+
+// Replacing a loose file must not write the token into it — the entry is
+// re-created private, so the secret is never exposed even momentarily.
+func TestCredentialCachePutReplacesLooseFileSecurely(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX file modes are not meaningful on Windows")
+	}
+
+	dir := t.TempDir()
+	c := NewCredentialCache(dir)
+	path := c.pathFor(testKey())
+
+	// An attacker (or an older grant) left a world-readable file behind.
+	if err := os.WriteFile(path, []byte("{}"), 0o666); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := c.Put(testKey(), credWithExpiry(time.Now().Add(time.Hour))); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o600 {
+		t.Errorf("mode = %o, want the entry re-created at 0600, not written into the loose file", fi.Mode().Perm())
+	}
+	if _, ok := c.Get(testKey()); !ok {
+		t.Error("the freshly written entry should be readable")
+	}
+}
+
+func TestCredentialCachePutTightensLooseDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX file modes are not meaningful on Windows")
+	}
+
+	dir := filepath.Join(t.TempDir(), "cache")
+	if err := os.MkdirAll(dir, 0o777); err != nil {
+		t.Fatal(err)
+	}
+
+	c := NewCredentialCache(dir)
+	if err := c.Put(testKey(), credWithExpiry(time.Now().Add(time.Hour))); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+
+	fi, _ := os.Stat(dir)
+	if fi.Mode().Perm() != 0o700 {
+		t.Errorf("cache dir mode = %o, want it tightened to 0700", fi.Mode().Perm())
+	}
+}
+
+func TestCredentialCacheRefusesLooseDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX file modes are not meaningful on Windows")
+	}
+
+	dir := filepath.Join(t.TempDir(), "cache")
+	c := NewCredentialCache(dir)
+	if err := c.Put(testKey(), credWithExpiry(time.Now().Add(time.Hour))); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := c.Get(testKey()); ok {
+		t.Error("expected a miss when the cache directory is readable beyond its owner")
+	}
+}
+
+func TestCredentialCacheRefusesSymlinkedEntry(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on Windows")
+	}
+
+	dir := t.TempDir()
+	// t.TempDir() is 0755 on some systems; tighten it so this test exercises the
+	// symlink check rather than the directory-permission check.
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	c := NewCredentialCache(dir)
+	path := c.pathFor(testKey())
+
+	target := filepath.Join(dir, "elsewhere.json")
+	data, _ := json.Marshal(credWithExpiry(time.Now().Add(time.Hour)))
+	if err := os.WriteFile(target, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, path); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ok := c.Get(testKey()); ok {
+		t.Fatal("a symlinked cache entry must not be followed")
+	}
+	if _, err := os.Lstat(path); !os.IsNotExist(err) {
+		t.Error("the symlink should have been removed")
+	}
+	// The symlink target itself must not have been touched.
+	if _, err := os.Stat(target); err != nil {
+		t.Errorf("the symlink target was removed: %v", err)
+	}
+}
+
+// A file carrying no credential material must not be replayed.
+func TestCredentialCacheRejectsEmptyCredentialMaterial(t *testing.T) {
+	dir := t.TempDir()
+	c := NewCredentialCache(dir)
+
+	empty := &k8smodels.IdsecSCAK8sExecCredential{
+		APIVersion: "client.authentication.k8s.io/v1beta1",
+		Kind:       "ExecCredential",
+		Status: k8smodels.IdsecSCAK8sExecCredentialStatus{
+			ExpirationTimestamp: time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+		},
+	}
+	if err := c.Put(testKey(), empty); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	if _, ok := c.Get(testKey()); ok {
+		t.Error("a credential with neither a token nor client cert material must not be cached or replayed")
+	}
+}
+
+func TestCredentialCacheAcceptsClientCertificateCredentials(t *testing.T) {
+	dir := t.TempDir()
+	c := NewCredentialCache(dir)
+
+	proxyCred := &k8smodels.IdsecSCAK8sExecCredential{
+		Kind: "ExecCredential",
+		Status: k8smodels.IdsecSCAK8sExecCredentialStatus{
+			ClientCertificateData: "cert",
+			ClientKeyData:         "key",
+			ExpirationTimestamp:   time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+		},
+	}
+	if err := c.Put(testKey(), proxyCred); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	if _, ok := c.Get(testKey()); !ok {
+		t.Error("a proxy client-certificate credential should be cacheable")
+	}
+}
+
+// Two organizations must never share a cache entry for the same cluster+role.
+func TestCredentialCacheKeyIncludesOrganization(t *testing.T) {
+	c := NewCredentialCache(t.TempDir())
+	a := CredentialKey{CSP: "AWS", FQDN: "host", RoleID: "r", OrganizationID: "org-a"}
+	b := CredentialKey{CSP: "AWS", FQDN: "host", RoleID: "r", OrganizationID: "org-b"}
+
+	if c.pathFor(a) == c.pathFor(b) {
+		t.Error("cache key collides across organizations")
 	}
 }
 

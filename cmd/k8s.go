@@ -49,13 +49,15 @@ func NewK8sKubeconfigCommandWithDeps(auth authLoader, generator kubeconfigGenera
 
 // NewK8sExecCredentialCommandWithDeps creates the exec-credential command with
 // injected deps. execInfo stands in for the KUBERNETES_EXEC_INFO env var.
+// resolveDeps is called only on a cache miss, so tests can assert that a cache
+// hit never authenticates.
 func NewK8sExecCredentialCommandWithDeps(
-	provider clusterCredentialProvider,
+	resolveDeps func(interactive bool) (*execCredentialDeps, error),
 	credCache *k8s.CredentialCache,
 	execInfo string,
 ) *cobra.Command {
 	return newK8sExecCredentialCommand(func(c *cobra.Command, _ []string) error {
-		return runK8sExecCredential(c, provider, credCache, execInfo)
+		return runK8sExecCredential(c, resolveDeps, credCache, execInfo)
 	})
 }
 

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/aaearon/grant-cli/internal/k8s"
+	"github.com/cyberark/idsec-sdk-golang/pkg/common"
 	"github.com/spf13/cobra"
 )
 
@@ -29,6 +31,15 @@ func (m *mockCredentialProvider) ExecCredential(_ context.Context, p k8s.ExecCre
 	m.gotParams = p
 	m.interactive = append(m.interactive, p.Interactive)
 	return m.cred, m.err
+}
+
+// depsFor wraps a provider in the lazy dependency resolver the command expects.
+// It records whether it was called, so tests can assert that a cache hit never
+// reaches authentication.
+func depsFor(provider clusterCredentialProvider) func(bool) (*execCredentialDeps, error) {
+	return func(bool) (*execCredentialDeps, error) {
+		return &execCredentialDeps{provider: provider, elevateToken: "isp-jwt"}, nil
+	}
 }
 
 func execInfoJSON(t *testing.T, apiVersion string, interactive bool) string {
@@ -68,19 +79,84 @@ func runExecCred(t *testing.T, cmd *cobra.Command, args ...string) (stdout, stde
 	return out.String(), errBuf.String(), err
 }
 
+// TestExecCredentialStdoutIsOnlyJSON drives the command through the REAL root
+// command, so the production PersistentPreRunE runs and `--verbose` genuinely
+// enables SDK logging. That matters: the SDK logger is built with
+// log.New(os.Stdout, ...) and resolves its level from IDSEC_LOG_LEVEL on every
+// call, so a command that merely sets the package `verbose` var would keep this
+// test green while emitting log lines into kubectl's stdout.
 func TestExecCredentialStdoutIsOnlyJSON(t *testing.T) {
-	// Verbose logging on: any log output must go to stderr, never stdout.
-	oldVerbose := verbose
-	defer func() { verbose = oldVerbose }()
-	verbose = true
+	restoreVerbose := verbose
+	restoreArgValidation := passedArgValidation
+	t.Cleanup(func() {
+		verbose = restoreVerbose
+		passedArgValidation = restoreArgValidation
+	})
+	// t.Setenv restores the previous value (or unsets it) at test end.
+	t.Setenv("IDSEC_LOG_LEVEL", os.Getenv("IDSEC_LOG_LEVEL"))
 
+	// The SDK logger is built with log.New(os.Stdout, ...) and captures the file
+	// handle at construction, so it bypasses cmd.SetOut entirely. Redirect the
+	// real os.Stdout to a pipe and rebuild the logger from it, so this test sees
+	// exactly what kubectl would see on the process's stdout.
+	realStdout := os.Stdout
+	pipeR, pipeW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = pipeW
+	restoreLog := log
+	log = common.GetLogger("grant", -1)
+	t.Cleanup(func() {
+		os.Stdout = realStdout
+		log = restoreLog
+	})
+
+	// levelDuringFlow records IDSEC_LOG_LEVEL at the moment the credential flow
+	// runs. Every SDK logger re-reads it on each call, so this is the value that
+	// decides whether SDK log lines hit stdout mid-protocol.
+	var levelDuringFlow string
 	provider := &mockCredentialProvider{cred: sampleCredential(time.Now().Add(time.Hour))}
-	cmd := NewK8sExecCredentialCommandWithDeps(provider, nil,
+	resolveDeps := func(bool) (*execCredentialDeps, error) {
+		levelDuringFlow = os.Getenv("IDSEC_LOG_LEVEL")
+		// Anything the SDK or grant logs at this point must not reach stdout.
+		log.Info("this line must never appear on stdout")
+		return &execCredentialDeps{provider: provider, elevateToken: "isp-jwt"}, nil
+	}
+
+	execCmd := NewK8sExecCredentialCommandWithDeps(resolveDeps, nil,
 		execInfoJSON(t, "client.authentication.k8s.io/v1beta1", true))
 
-	stdout, _, err := runExecCred(t, cmd, "--csp", "aws", "--fqdn", "prod.eks.example")
+	k8sParent := newK8sParent()
+	k8sParent.AddCommand(execCmd)
+	root := newRootCommand(nil)
+	root.AddCommand(k8sParent)
+
+	stdout, stderr, err := runExecCred(t, root,
+		"--verbose", "k8s", "exec-credential", "--csp", "aws", "--fqdn", "prod.eks.example")
 	if err != nil {
-		t.Fatalf("execute: %v", err)
+		t.Fatalf("execute: %v\nstderr: %s", err, stderr)
+	}
+	if !verbose {
+		t.Fatal("the root PersistentPreRunE did not run; this test is not exercising production wiring")
+	}
+
+	// Nothing may have reached the process's real stdout.
+	_ = pipeW.Close()
+	leaked, err := io.ReadAll(pipeR)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(leaked) != 0 {
+		t.Errorf("log output leaked onto the process stdout, which would corrupt the kubectl protocol:\n%s", leaked)
+	}
+
+	if levelDuringFlow != "CRITICAL" {
+		t.Errorf("IDSEC_LOG_LEVEL during the credential flow = %q, want CRITICAL so no SDK logger writes to stdout", levelDuringFlow)
+	}
+	// The caller's setting is restored once the command is done.
+	if got := os.Getenv("IDSEC_LOG_LEVEL"); got != "INFO" {
+		t.Errorf("IDSEC_LOG_LEVEL = %q after the command, want it restored to INFO", got)
 	}
 
 	trimmed := strings.TrimSpace(stdout)
@@ -123,7 +199,7 @@ func TestExecCredentialAPIVersionNegotiation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// The provider always returns v1beta1; the response must echo the request.
 			provider := &mockCredentialProvider{cred: sampleCredential(time.Now().Add(time.Hour))}
-			cmd := NewK8sExecCredentialCommandWithDeps(provider, nil, execInfoJSON(t, tt.apiVersion, true))
+			cmd := NewK8sExecCredentialCommandWithDeps(depsFor(provider), nil, execInfoJSON(t, tt.apiVersion, true))
 
 			stdout, _, err := runExecCred(t, cmd, "--csp", "aws", "--fqdn", "host")
 			if tt.wantErr {
@@ -152,7 +228,7 @@ func TestExecCredentialAPIVersionNegotiation(t *testing.T) {
 
 func TestExecCredentialRequiresExecInfo(t *testing.T) {
 	provider := &mockCredentialProvider{cred: sampleCredential(time.Now().Add(time.Hour))}
-	cmd := NewK8sExecCredentialCommandWithDeps(provider, nil, "")
+	cmd := NewK8sExecCredentialCommandWithDeps(depsFor(provider), nil, "")
 
 	stdout, _, err := runExecCred(t, cmd, "--csp", "aws", "--fqdn", "host")
 	if err == nil {
@@ -168,7 +244,7 @@ func TestExecCredentialRequiresExecInfo(t *testing.T) {
 
 func TestExecCredentialRejectsMalformedExecInfo(t *testing.T) {
 	provider := &mockCredentialProvider{cred: sampleCredential(time.Now().Add(time.Hour))}
-	cmd := NewK8sExecCredentialCommandWithDeps(provider, nil, "{not json")
+	cmd := NewK8sExecCredentialCommandWithDeps(depsFor(provider), nil, "{not json")
 
 	if _, _, err := runExecCred(t, cmd, "--csp", "aws", "--fqdn", "host"); err == nil {
 		t.Fatal("expected an error for malformed KUBERNETES_EXEC_INFO")
@@ -178,7 +254,7 @@ func TestExecCredentialRejectsMalformedExecInfo(t *testing.T) {
 func TestExecCredentialInteractiveModePropagated(t *testing.T) {
 	for _, interactive := range []bool{true, false} {
 		provider := &mockCredentialProvider{cred: sampleCredential(time.Now().Add(time.Hour))}
-		cmd := NewK8sExecCredentialCommandWithDeps(provider, nil,
+		cmd := NewK8sExecCredentialCommandWithDeps(depsFor(provider), nil,
 			execInfoJSON(t, "client.authentication.k8s.io/v1beta1", interactive))
 
 		if _, _, err := runExecCred(t, cmd, "--csp", "aws", "--fqdn", "host"); err != nil {
@@ -195,7 +271,7 @@ func TestExecCredentialNonInteractiveCacheMissFailsCleanly(t *testing.T) {
 	provider := &mockCredentialProvider{
 		err: k8s.ErrInteractionRequired,
 	}
-	cmd := NewK8sExecCredentialCommandWithDeps(provider, nil,
+	cmd := NewK8sExecCredentialCommandWithDeps(depsFor(provider), nil,
 		execInfoJSON(t, "client.authentication.k8s.io/v1beta1", false))
 
 	stdout, _, err := runExecCred(t, cmd, "--csp", "aws", "--fqdn", "host")
@@ -217,7 +293,7 @@ func TestExecCredentialNonInteractiveCacheHitSucceeds(t *testing.T) {
 	}
 
 	provider := &mockCredentialProvider{err: k8s.ErrInteractionRequired}
-	cmd := NewK8sExecCredentialCommandWithDeps(provider, credCache,
+	cmd := NewK8sExecCredentialCommandWithDeps(depsFor(provider), credCache,
 		execInfoJSON(t, "client.authentication.k8s.io/v1beta1", false))
 
 	stdout, _, err := runExecCred(t, cmd, "--csp", "aws", "--fqdn", "host", "--role-id", "r")
@@ -241,7 +317,7 @@ func TestExecCredentialCachesAndRefetchesAfterExpiry(t *testing.T) {
 	info := execInfoJSON(t, "client.authentication.k8s.io/v1beta1", true)
 
 	// First call: cache miss, provider invoked, credential cached.
-	cmd := NewK8sExecCredentialCommandWithDeps(provider, credCache, info)
+	cmd := NewK8sExecCredentialCommandWithDeps(depsFor(provider), credCache, info)
 	if _, _, err := runExecCred(t, cmd, "--csp", "aws", "--fqdn", "host"); err != nil {
 		t.Fatalf("first call: %v", err)
 	}
@@ -250,7 +326,7 @@ func TestExecCredentialCachesAndRefetchesAfterExpiry(t *testing.T) {
 	}
 
 	// Second call: cache hit, provider not invoked again.
-	cmd = NewK8sExecCredentialCommandWithDeps(provider, credCache, info)
+	cmd = NewK8sExecCredentialCommandWithDeps(depsFor(provider), credCache, info)
 	if _, _, err := runExecCred(t, cmd, "--csp", "aws", "--fqdn", "host"); err != nil {
 		t.Fatalf("second call: %v", err)
 	}
@@ -269,7 +345,7 @@ func TestExecCredentialCachesAndRefetchesAfterExpiry(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cmd = NewK8sExecCredentialCommandWithDeps(provider, credCache, info)
+	cmd = NewK8sExecCredentialCommandWithDeps(depsFor(provider), credCache, info)
 	if _, _, err := runExecCred(t, cmd, "--csp", "aws", "--fqdn", "host"); err != nil {
 		t.Fatalf("third call: %v", err)
 	}
@@ -283,7 +359,7 @@ func TestExecCredentialCacheFilePermissions(t *testing.T) {
 	credCache := k8s.NewCredentialCache(dir)
 	provider := &mockCredentialProvider{cred: sampleCredential(time.Now().Add(time.Hour))}
 
-	cmd := NewK8sExecCredentialCommandWithDeps(provider, credCache,
+	cmd := NewK8sExecCredentialCommandWithDeps(depsFor(provider), credCache,
 		execInfoJSON(t, "client.authentication.k8s.io/v1beta1", true))
 	if _, _, err := runExecCred(t, cmd, "--csp", "aws", "--fqdn", "host"); err != nil {
 		t.Fatalf("execute: %v", err)
@@ -307,7 +383,7 @@ func TestExecCredentialCacheFilePermissions(t *testing.T) {
 func TestExecCredentialDoesNotAdjustExpiry(t *testing.T) {
 	expiry := time.Now().Add(37 * time.Minute).UTC().Truncate(time.Second)
 	provider := &mockCredentialProvider{cred: sampleCredential(expiry)}
-	cmd := NewK8sExecCredentialCommandWithDeps(provider, nil,
+	cmd := NewK8sExecCredentialCommandWithDeps(depsFor(provider), nil,
 		execInfoJSON(t, "client.authentication.k8s.io/v1beta1", true))
 
 	stdout, _, err := runExecCred(t, cmd, "--csp", "aws", "--fqdn", "host")
@@ -339,11 +415,106 @@ func TestExecCredentialValidatesFlags(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			provider := &mockCredentialProvider{cred: sampleCredential(time.Now().Add(time.Hour))}
-			cmd := NewK8sExecCredentialCommandWithDeps(provider, nil, info)
+			cmd := NewK8sExecCredentialCommandWithDeps(depsFor(provider), nil, info)
 			if _, _, err := runExecCred(t, cmd, tt.args...); err == nil {
 				t.Fatal("expected a validation error")
 			}
 		})
+	}
+}
+
+// A cache hit must short-circuit before authentication: kubectl may be running
+// with no terminal, and a login prompt there would hang.
+func TestExecCredentialCacheHitDoesNotAuthenticate(t *testing.T) {
+	credCache := k8s.NewCredentialCache(t.TempDir())
+	key := k8s.CredentialKey{CSP: "aws", FQDN: "host", RoleID: "r"}
+	if err := credCache.Put(key, sampleCredential(time.Now().Add(time.Hour))); err != nil {
+		t.Fatalf("seed cache: %v", err)
+	}
+
+	resolved := false
+	resolveDeps := func(bool) (*execCredentialDeps, error) {
+		resolved = true
+		return nil, errors.New("authentication must not be attempted on a cache hit")
+	}
+
+	cmd := NewK8sExecCredentialCommandWithDeps(resolveDeps, credCache,
+		execInfoJSON(t, "client.authentication.k8s.io/v1beta1", true))
+
+	stdout, _, err := runExecCred(t, cmd, "--csp", "aws", "--fqdn", "host", "--role-id", "r")
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if resolved {
+		t.Error("authentication was attempted despite a cache hit")
+	}
+	if !strings.Contains(stdout, "k8s-aws-v1.abc") {
+		t.Errorf("cached credential not replayed: %s", stdout)
+	}
+}
+
+// Invalid exec info must be rejected before authentication too.
+func TestExecCredentialDoesNotAuthenticateOnInvalidExecInfo(t *testing.T) {
+	tests := []struct {
+		name     string
+		execInfo string
+	}{
+		{name: "absent", execInfo: ""},
+		{name: "malformed", execInfo: "{not json"},
+		{name: "unsupported apiVersion", execInfo: execInfoJSON(t, "client.authentication.k8s.io/v2", true)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resolved := false
+			resolveDeps := func(bool) (*execCredentialDeps, error) {
+				resolved = true
+				return nil, nil
+			}
+			cmd := NewK8sExecCredentialCommandWithDeps(resolveDeps, nil, tt.execInfo)
+			if _, _, err := runExecCred(t, cmd, "--csp", "aws", "--fqdn", "host"); err == nil {
+				t.Fatal("expected an error")
+			}
+			if resolved {
+				t.Error("authentication was attempted before the exec info was validated")
+			}
+		})
+	}
+}
+
+// The Idira session JWT must reach the Azure identity-binding check.
+func TestExecCredentialPropagatesElevateToken(t *testing.T) {
+	provider := &mockCredentialProvider{cred: sampleCredential(time.Now().Add(time.Hour))}
+	cmd := NewK8sExecCredentialCommandWithDeps(depsFor(provider), nil,
+		execInfoJSON(t, "client.authentication.k8s.io/v1beta1", true))
+
+	if _, _, err := runExecCred(t, cmd, "--csp", "azure", "--fqdn", "host"); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if provider.gotParams.ElevateToken != "isp-jwt" {
+		t.Errorf("ElevateToken = %q, want the session JWT to be propagated", provider.gotParams.ElevateToken)
+	}
+}
+
+// The organization is part of the cache identity: two tenants must not share an
+// entry for the same cluster and role.
+func TestExecCredentialCacheIsolatedByOrganization(t *testing.T) {
+	credCache := k8s.NewCredentialCache(t.TempDir())
+	info := execInfoJSON(t, "client.authentication.k8s.io/v1beta1", true)
+	provider := &mockCredentialProvider{cred: sampleCredential(time.Now().Add(time.Hour))}
+
+	cmd := NewK8sExecCredentialCommandWithDeps(depsFor(provider), credCache, info)
+	if _, _, err := runExecCred(t, cmd, "--csp", "aws", "--fqdn", "host", "--organization-id", "org-a"); err != nil {
+		t.Fatalf("first: %v", err)
+	}
+
+	cmd = NewK8sExecCredentialCommandWithDeps(depsFor(provider), credCache, info)
+	if _, _, err := runExecCred(t, cmd, "--csp", "aws", "--fqdn", "host", "--organization-id", "org-b"); err != nil {
+		t.Fatalf("second: %v", err)
+	}
+
+	if provider.calls != 2 {
+		t.Errorf("provider calls = %d, want 2 — a different organization must not hit the cache", provider.calls)
 	}
 }
 
