@@ -7,6 +7,10 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - `grant k8s list` shows the Secure Cloud Access Kubernetes clusters you are eligible for; untested against a live cluster
+- `grant k8s elevate` requests JIT access to a cluster, prompting for one when the name is omitted
+- `grant k8s kubeconfig` merges a cluster entry into your kubeconfig, leaving your other contexts untouched
+- Hidden `grant k8s exec-credential` plugin lets `kubectl` fetch and cache short-lived cluster credentials
+- The `grant` binary is larger now that Kubernetes support pulls the SDK's Azure, AWS and JOSE modules into the build
 
 ### Changed
 

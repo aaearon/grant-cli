@@ -18,7 +18,7 @@ func TestIntegration_K8sHelp(t *testing.T) {
 	}
 
 	outputStr := string(output)
-	for _, want := range []string{"list", "Kubernetes"} {
+	for _, want := range []string{"list", "elevate", "kubeconfig", "Kubernetes"} {
 		if !strings.Contains(outputStr, want) {
 			t.Errorf("expected %q in `grant k8s --help` output, got:\n%s", want, outputStr)
 		}

@@ -97,6 +97,21 @@ type clusterLister interface {
 	ListClusters(ctx context.Context, csp string) ([]k8s.Cluster, error)
 }
 
+// clusterElevator interface for elevating access to a Kubernetes cluster
+type clusterElevator interface {
+	Elevate(ctx context.Context, p k8s.ElevateParams) (*k8s.ElevateResult, error)
+}
+
+// kubeconfigGenerator interface for fetching DPA-generated kubeconfigs
+type kubeconfigGenerator interface {
+	GenerateKubeconfigs(ctx context.Context, csps []string) (map[string]string, []k8s.KubeconfigFailure, error)
+}
+
+// clusterCredentialProvider interface for the kubectl exec-credential flow
+type clusterCredentialProvider interface {
+	ExecCredential(ctx context.Context, p k8s.ExecCredentialParams) (*k8s.ExecCredential, error)
+}
+
 // accessRequestService interface for access request operations
 type accessRequestService interface {
 	ListRequests(ctx context.Context, params workflows.ListRequestsParams) ([]wfmodels.AccessRequest, int, error)

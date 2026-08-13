@@ -107,7 +107,13 @@ type backend interface {
 // Service is grant's wrapper around the SDK SCA K8s service.
 type Service struct {
 	backend backend
+
+	// credFlow overrides the SDK credential providers. Tests only.
+	credFlow credentialFlow
 }
+
+// SetCredentialFlow overrides the credential providers. For tests.
+func (s *Service) SetCredentialFlow(f credentialFlow) { s.credFlow = f }
 
 // NewService creates a Service backed by the real SDK k8s service.
 func NewService(authenticators ...auth.IdsecAuth) (*Service, error) {

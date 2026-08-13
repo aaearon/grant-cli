@@ -11,6 +11,16 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// setOutputFormat pins the global output format for one test. The package-level
+// outputFormat var is bound to the persistent --output flag, so it leaks between
+// tests unless each test states what it expects.
+func setOutputFormat(t *testing.T, format string) {
+	t.Helper()
+	old := outputFormat
+	t.Cleanup(func() { outputFormat = old })
+	outputFormat = format
+}
+
 func sampleClusters() []k8s.Cluster {
 	return []k8s.Cluster{
 		{
@@ -27,9 +37,7 @@ func sampleClusters() []k8s.Cluster {
 }
 
 func TestK8sListJSONOutput(t *testing.T) {
-	old := outputFormat
-	defer func() { outputFormat = old }()
-	outputFormat = "json"
+	setOutputFormat(t, "json")
 
 	cmd := NewK8sCommandWithDeps(&mockAuthLoader{}, &mockClusterLister{clusters: sampleClusters()})
 	out, err := executeCommand(cmd, "list")
@@ -54,6 +62,8 @@ func TestK8sListJSONOutput(t *testing.T) {
 }
 
 func TestK8sListTextOutput(t *testing.T) {
+	setOutputFormat(t, "text")
+
 	cmd := NewK8sCommandWithDeps(&mockAuthLoader{}, &mockClusterLister{clusters: sampleClusters()})
 	out, err := executeCommand(cmd, "list")
 	if err != nil {

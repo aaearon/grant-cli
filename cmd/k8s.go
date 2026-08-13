@@ -15,6 +15,9 @@ func NewK8sCommand() *cobra.Command {
 	cmd := newK8sParent()
 	cmd.AddCommand(
 		NewK8sListCommand(),
+		NewK8sElevateCommand(),
+		NewK8sKubeconfigCommand(),
+		NewK8sExecCredentialCommand(),
 	)
 	return cmd
 }
@@ -28,6 +31,32 @@ func NewK8sCommandWithDeps(auth authLoader, clusters clusterLister) *cobra.Comma
 		}),
 	)
 	return cmd
+}
+
+// NewK8sElevateCommandWithDeps creates the elevate command with injected deps.
+func NewK8sElevateCommandWithDeps(auth authLoader, clusters clusterLister, elevator clusterElevator) *cobra.Command {
+	return newK8sElevateCommand(func(c *cobra.Command, args []string) error {
+		return runK8sElevate(c, args, auth, clusters, elevator)
+	})
+}
+
+// NewK8sKubeconfigCommandWithDeps creates the kubeconfig command with injected deps.
+func NewK8sKubeconfigCommandWithDeps(auth authLoader, generator kubeconfigGenerator) *cobra.Command {
+	return newK8sKubeconfigCommand(func(c *cobra.Command, _ []string) error {
+		return runK8sKubeconfig(c, auth, generator)
+	})
+}
+
+// NewK8sExecCredentialCommandWithDeps creates the exec-credential command with
+// injected deps. execInfo stands in for the KUBERNETES_EXEC_INFO env var.
+func NewK8sExecCredentialCommandWithDeps(
+	provider clusterCredentialProvider,
+	credCache *k8s.CredentialCache,
+	execInfo string,
+) *cobra.Command {
+	return newK8sExecCredentialCommand(func(c *cobra.Command, _ []string) error {
+		return runK8sExecCredential(c, provider, credCache, execInfo)
+	})
 }
 
 func newK8sParent() *cobra.Command {

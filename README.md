@@ -163,6 +163,19 @@ on stdout even on exit 1.
 | Subcommand | Description |
 |------------|-------------|
 | `list` | List Kubernetes clusters you are eligible for (`--provider aws\|azure`, `--refresh`, `--output json`) |
+| `elevate [cluster]` | Elevate access for a cluster; omit `<cluster>` in a TTY to open an interactive picker |
+| `kubeconfig` | Fetch a kubeconfig and merge it into `$KUBECONFIG` / `~/.kube/config` |
+
+```bash
+grant k8s list                          # what can I reach?
+grant k8s elevate prod-cluster          # JIT elevation for one cluster
+grant k8s kubeconfig                    # merge into your existing kubeconfig
+kubectl --context grant-aws-prod get ns
+```
+
+`grant k8s kubeconfig` is a **merge**, not an overwrite. Only entries grant owns — named `grant-<provider>-<name>` — are added or replaced; every other cluster, user and context in your kubeconfig is left alone, and `current-context` is not changed unless you pass `--set-current-context`. The file is written atomically at mode `0600`, and the first merge into a pre-existing kubeconfig leaves a `<target>.grant.bak` copy behind. Use `--stdout` to print without touching any file, or `--file <path>` to target a different one.
+
+The generated kubeconfig authenticates through a hidden `grant k8s exec-credential` plugin that kubectl invokes for you.
 
 Supported providers are `aws` (EKS) and `azure` (AKS). GCP is not supported by the SCA Kubernetes API.
 The Azure path additionally requires the [Azure CLI](https://learn.microsoft.com/cli/azure/) to be installed and logged in (`az login`).
@@ -174,8 +187,11 @@ The Azure path additionally requires the [Azure CLI](https://learn.microsoft.com
 **Elevation** (`grant`, `env`, `favorites add`):
 `--provider, -p` | `--target, -t` | `--role, -r` | `--favorite, -f` | `--group, -g` | `--groups` | `--refresh`
 
-**`grant k8s list`:**
-`--provider, -p` | `--refresh`
+**`grant k8s list`:** `--provider, -p` | `--refresh`
+
+**`grant k8s elevate`:** `--provider, -p` | `--role-id` | `--refresh`
+
+**`grant k8s kubeconfig`:** `--provider, -p` | `--all` | `--file` (target path) | `--stdout` | `--set-current-context`
 
 **`grant request submit`:**
 `--provider, -p` | `--target, -t` | `--role` | `--role-id` | `--reason` | `--priority` | `--date` | `--timezone` | `--from` | `--to` | `--yes` | `--refresh`
