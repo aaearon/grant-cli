@@ -7,6 +7,15 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - Rebranded user-facing references from CyberArk to Idira (formerly CyberArk) in the README and CLI help/prompt text, following the Palo Alto Networks rebrand. No functional or API changes; SDK import paths (`github.com/cyberark/idsec-sdk-golang`), `*.cyberark.cloud` URLs, and environment variables are unchanged.
+- `grant update` no longer depends on the abandoned `github.com/rhysd/go-github-selfupdate` (last commit Jan 2021). Release discovery, version comparison, asset selection, checksum verification and archive extraction are now implemented in-house in `internal/selfupdate/`; the binary swap (staged sibling file, the two-rename dance including the Windows path, and rollback) is delegated to `github.com/minio/selfupdate` v0.6.0, with grant adding an `fsync` of the staged file before the swap
+- **Replacement guarantees, stated precisely.** Each rename is individually atomic, so the installed binary is never a partially written file. The *pair* of renames is not atomic: if the process is killed between them, or if the second rename and the rollback both fail, the binary path is left absent with `.grant.old` and `.grant.new` beside it. grant now detects that state and prints the exact `mv` command that restores the previous binary
+- Dependency graph shrinks. Build graph (`go list -deps`, the modules actually compiled in): 39 -> 33. `go.mod` require directives: 47 -> 39 (indirect 40 -> 33). Full module graph (`go list -m all`): 110 -> 95. The only genuinely new module paths are `github.com/minio/selfupdate` and `aead.dev/minisign`. Removed `blang/semver`, `rhysd/go-github-selfupdate`, `google/go-github/v30`, `google/go-querystring`, `golang.org/x/oauth2` (a Nov 2018 pseudo-version), `golang/protobuf`, `google.golang.org/appengine`, `tcnksm/go-gitconfig`, `inconshreveable/go-update` and `ulikunitz/xz`
+
+### Security
+
+- `grant update` now verifies the downloaded archive's SHA-256 against the release's `checksums.txt` before replacing the binary. Previously no validation was performed at all (`selfupdate.DefaultUpdater()` ships a nil `Validator`). Note the trust model: `checksums.txt` is fetched from the same origin as the archive, so this protects against corrupted or tampered downloads in transit, not against a compromised GitHub account or release pipeline
+- Archive extraction now rejects oversized entries instead of silently truncating them at the 128 MiB cap, rejects drive-absolute (`C:\...`) and UNC archive paths alongside `..` traversal, and only accepts the binary at the archive root (never a nested entry, never two candidates)
+- Removes `golang.org/x/crypto/openpgp` from the build graph, clearing advisory GO-2026-5932 (unmaintained package, no fix available). Dropping `ulikunitz/xz` also clears GO-2025-3922
 
 ### Fixed
 

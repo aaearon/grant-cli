@@ -8,10 +8,8 @@ import (
 	"github.com/aaearon/grant-cli/internal/sca/models"
 	"github.com/aaearon/grant-cli/internal/workflows"
 	wfmodels "github.com/aaearon/grant-cli/internal/workflows/models"
-	"github.com/blang/semver"
 	sdkmodels "github.com/cyberark/idsec-sdk-golang/pkg/models"
 	authmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
-	"github.com/rhysd/go-github-selfupdate/selfupdate"
 )
 
 // errNotAuthenticated is a sentinel error used in tests to simulate
@@ -228,16 +226,19 @@ func (m *mockUnifiedSelector) SelectItem(items []selectionItem) (*selectionItem,
 
 // mockSelfUpdater implements selfUpdater interface for testing
 type mockSelfUpdater struct {
-	updateSelfFn func(semver.Version, string) (*selfupdate.Release, error)
-	release      *selfupdate.Release
+	updateSelfFn func(ctx context.Context, current string) (string, bool, error)
+	newVersion   string
+	updated      bool
 	updateErr    error
+	gotCurrent   string
 }
 
-func (m *mockSelfUpdater) UpdateSelf(current semver.Version, slug string) (*selfupdate.Release, error) {
+func (m *mockSelfUpdater) UpdateSelf(ctx context.Context, current string) (newVersion string, updated bool, err error) {
+	m.gotCurrent = current
 	if m.updateSelfFn != nil {
-		return m.updateSelfFn(current, slug)
+		return m.updateSelfFn(ctx, current)
 	}
-	return m.release, m.updateErr
+	return m.newVersion, m.updated, m.updateErr
 }
 
 // mockAccessRequestService implements accessRequestService for testing
