@@ -10,6 +10,7 @@ import (
 	"net/http"
 
 	"github.com/aaearon/grant-cli/internal/sca/models"
+	"github.com/aaearon/grant-cli/internal/sdkclient"
 	"github.com/cyberark/idsec-sdk-golang/pkg/auth"
 	"github.com/cyberark/idsec-sdk-golang/pkg/common"
 	"github.com/cyberark/idsec-sdk-golang/pkg/common/isp"
@@ -60,6 +61,12 @@ func NewSCAAccessService(authenticators ...auth.IdsecAuth) (*SCAAccessService, e
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ISP client: %w", err)
 	}
+
+	// Disable the SDK's automatic transient retry. SDK v0.8.1 retries 429s with
+	// no method filter (idsec_client.go:865-885) and bare EOF transport errors
+	// for any method including POST (:1252-1266), which could replay the
+	// non-idempotent elevate / group-elevate / revoke POSTs below.
+	sdkclient.DisableTransientRetry(client.IdsecClient)
 
 	// Set required API version header
 	client.SetHeader("X-API-Version", "2.0")

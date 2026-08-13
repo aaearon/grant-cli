@@ -60,6 +60,16 @@ Custom `SCAAccessService` follows SDK conventions:
 - **Target category:** `CLOUD_CONSOLE` (hardcoded for v1)
 - **Headers:** `Authorization: Bearer {jwt}`, `Content-Type: application/json`
 
+## SDK Retry Behavior
+- idsec-sdk-golang v0.8.1 added automatic transient retry, enabled by default: 3 retries, 500ms base wait, 10s cap (`pkg/common/idsec_client.go:53-60`, `:375-377`). Backoff jitter can exceed the cap by up to ~50% (`:1331-1349`)
+- Two retry paths, neither safe for non-idempotent POSTs:
+  - **429** (`:865-885`) — no HTTP method filter at all; honors `Retry-After` (clamped to max wait), else exponential backoff
+  - **Transport errors** (`:835-849` via `isRetryableTransportError` `:1244-1283`) — bare `io.EOF`/`io.ErrUnexpectedEOF`/`"eof"`/`"server closed idle connection"` are retried for **any** method including POST (`:1252-1266`); only connection-reset/broken-pipe/GOAWAY are gated behind `isIdempotentMethod` (`:1269-1281`). An EOF can surface after the server already processed the request, so this path can replay a mutation
+- **grant disables transient retry on BOTH the SCA and UAR/workflows clients** via `internal/sdkclient.DisableTransientRetry` (calls `SetTransientRetry(0, 0, 0)`, `:1187-1197`), invoked right after `isp.FromISPAuth` in `internal/sca/service.go` and `internal/workflows/service.go`
+- Why client-wide rather than per-mutation: the SDK has no per-request opt-out, and toggling client state around individual calls is race-prone (grant fans out concurrently across CSPs). SCA `elevate` / `elevate/groups` are as non-idempotent as UAR `submit`
+- `isp.IdsecISPServiceClient` embeds `*common.IdsecClient`, so the helper takes `client.IdsecClient`
+- Non-idempotent POSTs protected: `internal/sca/service.go` elevate, sessions/revoke, ondemand roles, group elevate; `internal/workflows/service.go` submit, cancel, finalize
+
 ## Testing
 - TDD: write `_test.go` before `.go` for every package
 - Table-driven tests
