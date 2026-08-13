@@ -1158,7 +1158,10 @@ func TestRootElevate_UsageAndFlags(t *testing.T) {
 	}
 }
 
-func TestFetchEligibility_SingleProviderOmitsCSPTag(t *testing.T) {
+// TestFetchEligibility_SingleProviderSetsCSP guards the JSON "provider" field:
+// EligibleTarget.CSP is json:"-" and is never re-resolved downstream, so the
+// single-provider branch has to stamp it just like the multi-CSP branch does.
+func TestFetchEligibility_SingleProviderSetsCSP(t *testing.T) {
 	lister := &mockEligibilityLister{
 		response: &models.EligibilityResponse{
 			Response: []models.EligibleTarget{
@@ -1177,9 +1180,12 @@ func TestFetchEligibility_SingleProviderOmitsCSPTag(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
+	if len(targets) != 1 {
+		t.Fatalf("expected 1 target, got %d", len(targets))
+	}
 	for _, tgt := range targets {
-		if tgt.CSP != "" {
-			t.Errorf("expected empty CSP on single-provider fetch, got %q", tgt.CSP)
+		if tgt.CSP != models.CSPAzure {
+			t.Errorf("CSP = %q, want %q", tgt.CSP, models.CSPAzure)
 		}
 	}
 }

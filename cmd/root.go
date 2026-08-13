@@ -330,6 +330,11 @@ func fetchEligibility(ctx context.Context, eligLister eligibilityLister, provide
 	}
 	targets := make([]models.EligibleTarget, len(resp.Response))
 	copy(targets, resp.Response)
+	// CSP is json:"-" and is not re-resolved downstream (e.g. grant list -o
+	// json), so stamp it here exactly as the multi-CSP branch does.
+	for i := range targets {
+		targets[i].CSP = csp
+	}
 	return targets, nil
 }
 
