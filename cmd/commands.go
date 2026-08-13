@@ -13,5 +13,6 @@ func init() {
 		NewUpdateCommand(),
 		NewListCommand(),
 		NewRequestCommand(),
+		NewK8sCommand(),
 	)
 }

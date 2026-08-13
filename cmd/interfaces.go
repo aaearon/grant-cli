@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 
+	"github.com/aaearon/grant-cli/internal/k8s"
 	"github.com/aaearon/grant-cli/internal/sca/models"
 	"github.com/aaearon/grant-cli/internal/workflows"
 	wfmodels "github.com/aaearon/grant-cli/internal/workflows/models"
@@ -89,6 +90,11 @@ type unifiedSelector interface {
 // Returns the latest published version and whether the binary was replaced.
 type selfUpdater interface {
 	UpdateSelf(ctx context.Context, current string) (newVersion string, updated bool, err error)
+}
+
+// clusterLister interface for listing eligible Kubernetes clusters
+type clusterLister interface {
+	ListClusters(ctx context.Context, csp string) ([]k8s.Cluster, error)
 }
 
 // accessRequestService interface for access request operations

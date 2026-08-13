@@ -4,6 +4,7 @@
 - **Language:** Go 1.25+
 - **Module:** `github.com/aaearon/grant-cli`
 - **Dependencies:** `github.com/cyberark/idsec-sdk-golang` is the primary dependency; zero-new-Go-module-deps is a goal, not an absolute rule. Documented exception: `github.com/minio/selfupdate` (+ its one transitive `aead.dev/minisign`) for `grant update`, adopted to remove the abandoned `rhysd/go-github-selfupdate` and advisory GO-2026-5932. It was a net *reduction* in every dependency measure — the exception cost nothing. Measure with `go list -deps` / `go list -m all` if a current figure is needed; do not record one here
+- **Second documented exception:** the SDK's SCA K8s package (`pkg/services/sca/k8s`) pulls in the Azure/AWS/JOSE trees — see `## SCA K8s API`, decision D-4/5B
 
 ## SDK Import Conventions
 ```go
@@ -51,6 +52,24 @@ Custom `SCAAccessService` follows SDK conventions:
   - `GET /api/access/{CSP}/eligibility/groups` — list eligible Entra ID groups (response: `groupId`/`groupName`/`directoryId`)
   - `POST /api/access/elevate/groups` — request group membership elevation (response wrapped in `response` key, same as cloud elevation)
 - **Headers:** `Authorization: Bearer {jwt}`, `X-API-Version: 2.0`, `Content-Type: application/json`
+
+## SCA K8s API
+- **Package:** `internal/k8s/` — `Service`, a thin wrapper over the SDK's `pkg/services/sca/k8s`. grant owns the command/selector/cache/kubeconfig layer; the SDK owns transport and credential flows.
+- **Base URLs:** control plane `https://{subdomain}.sca.{platform_domain}/api`, kubeconfig generation `https://{subdomain}.dpa.{platform_domain}/api`
+- **Endpoints (all called via the SDK, not reimplemented):**
+  - `GET /api/access/{CSP}/eligibility/clusters` — list eligible clusters (nextToken pagination, no `X-CLI-Signature`)
+  - `POST /api/access/{CSP}/eligibility/clusters/evaluate` — resolve connection method (`direct` | `proxy`)
+  - `POST /api/access/elevate/clusters` — JIT elevation for a cluster
+  - `GET /api/k8s/kube-config[/{AWS|azure_resource}]` — DPA-generated kubeconfig
+  - `POST /api/adb/sso/acquire` — short-lived client certificate for the proxy connection method
+- **Providers:** `aws` (EKS) and `azure` (AKS) only — GCP is not supported by this API.
+- **Do NOT reimplement** the `X-CLI-Signature` HMAC scheme or the `Content-Type` remove/restore dance around GETs; the SDK handles both.
+- **Context propagation:** only `GenerateKubeconfigParallel` accepts a `context.Context`. Every other SDK entry point uses `context.Background()` internally, so `internal/k8s.runWithContext` enforces cancellation at the wrapper boundary — the caller returns promptly but the in-flight HTTP request is not cancelled.
+- **Dependency decision (D-4 / 5B):** importing the SDK's `pkg/services/sca/k8s` adds exactly 16 modules (Azure azcore/azidentity/armauthorization, MSAL, aws-sdk-go-v2 + credentials + sts + smithy-go, go-jose/v4, pkg/browser, kylelemons/godebug). This is a **deliberate, eyes-open departure** from the "zero new Go module deps" goal: the zero-dep alternative provably cannot ship `grant k8s exec-credential` (direct-AWS needs `sts`, direct-Azure needs `azidentity`, proxy needs `go-jose` for JWE), so it would produce a kubeconfig `kubectl` cannot authenticate with. Accepted costs: larger binary and an enlarged CVE surface — keep `govulncheck ./...` in the verify sequence and track Azure/AWS SDK advisories.
+- **Azure prerequisite:** the SDK uses `azidentity.NewAzureCLICredential`, so the Azure path requires the Azure CLI installed and logged in (`az login`). Never document it as "no Azure CLI needed".
+- **Cache:** `internal/cache/cached_clusters.go` — `CachedClusterLister`, keys `clusters_<csp>` (`clusters_all` when no provider), same TTL/`--refresh` semantics as eligibility.
+- **Selector:** `internal/ui/cluster_selector.go` — Format/Build/Find/Select quartet mirroring `internal/ui/selector.go`.
+- **Untested against a live cluster.** No Kubernetes entitlements were available; README carries a single note saying so.
 
 ## Access Requests API (Workflows)
 - **Base URL:** `https://{subdomain}.uar.{platform_domain}/api`
@@ -110,6 +129,8 @@ Custom `SCAAccessService` follows SDK conventions:
 - `grant request cancel [id]` — cancel an open request; optional `--reason`. Omitting `<id>` in a TTY opens a picker scoped to STARTING/RUNNING/PENDING requests you created (role=CREATOR)
 - `grant request approve [id]` / `grant request reject [id]` — finalize a request; optional `--reason`. Omitting `<id>` in a TTY opens a picker scoped to PENDING requests assigned to you (role=APPROVER)
 - Request picker: `internal/ui/request_selector.go` mirrors the role-selector Format/Build/Select quartet; `resolveRequestIDFn` in `cmd/request_picker.go` is injectable for tests. Non-TTY invocation without `<id>` returns `ErrNotInteractive` with a hint to run `grant request list`
+- `grant k8s` — Kubernetes cluster access; subcommands: `list`
+- `grant k8s list` — list SCA-eligible clusters; flags: `--provider` (aws|azure), `--refresh`, `--output json`
 - `grant update` — self-update binary via GitHub Releases; guards against dev builds. Implemented in `internal/selfupdate/`:
   - Discovery: `GET https://api.github.com/repos/aaearon/grant-cli/releases/latest` (`apiBaseURL` field injectable for tests)
   - Version compare: in-house SemVer 2.0.0 parser (`ParseVersion`/`CompareVersions`). Handles pre-release and build metadata (GoReleaser can emit both) with SemVer precedence: build metadata ignored for ordering, pre-release sorts before its release. A leading `v`/`V` is tolerated; leading zeroes are rejected

@@ -103,3 +103,25 @@ type accessRequestListOutput struct {
 	Requests   []accessRequestOutput `json:"requests"`
 	TotalCount int                   `json:"totalCount"`
 }
+
+// clusterOutput is the JSON representation of an eligible Kubernetes cluster.
+type clusterOutput struct {
+	Provider       string `json:"provider"`
+	Name           string `json:"name"`
+	ClusterID      string `json:"clusterId"`
+	FQDN           string `json:"fqdn,omitempty"`
+	Region         string `json:"region,omitempty"`
+	Scope          string `json:"scope,omitempty"`
+	Namespace      string `json:"namespace,omitempty"`
+	WorkspaceID    string `json:"workspaceId,omitempty"`
+	WorkspaceName  string `json:"workspaceName,omitempty"`
+	WorkspaceType  string `json:"workspaceType,omitempty"`
+	Role           string `json:"role,omitempty"`
+	RoleID         string `json:"roleId,omitempty"`
+	OrganizationID string `json:"organizationId,omitempty"`
+}
+
+// k8sListOutput is the JSON representation of `grant k8s list`.
+type k8sListOutput struct {
+	Clusters []clusterOutput `json:"clusters"`
+}

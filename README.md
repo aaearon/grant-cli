@@ -120,6 +120,7 @@ Running `grant` with no subcommand elevates cloud permissions (the core behavior
 | `favorites` | Manage saved role favorites (`add`/`list`/`remove`) |
 | `revoke` | Revoke sessions (interactive, by ID, or `--all`) — see exit codes below |
 | `request` | Manage access requests through an approval workflow (see subcommands below) |
+| `k8s` | Work with SCA-eligible Kubernetes clusters (see subcommands below) |
 | `update` | Self-update to the latest release from GitHub |
 | `version` | Print version information |
 
@@ -155,12 +156,26 @@ on stdout even on exit 1.
 | `approve [id]` | Approve a pending request (approvers only); omit `<id>` in a TTY to pick from pending requests |
 | `reject [id]` | Reject a pending request (approvers only); omit `<id>` in a TTY to pick from pending requests |
 
+### `grant k8s` subcommands
+
+> **Untested against a live cluster.** The `grant k8s` commands are implemented against the SCA Kubernetes API and SDK but have not been exercised against a real tenant with Kubernetes entitlements — please report issues.
+
+| Subcommand | Description |
+|------------|-------------|
+| `list` | List Kubernetes clusters you are eligible for (`--provider aws\|azure`, `--refresh`, `--output json`) |
+
+Supported providers are `aws` (EKS) and `azure` (AKS). GCP is not supported by the SCA Kubernetes API.
+The Azure path additionally requires the [Azure CLI](https://learn.microsoft.com/cli/azure/) to be installed and logged in (`az login`).
+
 ### Flags
 
 **Global:** `--verbose, -v` (detailed output) | `--output, -o` (`text` or `json`)
 
 **Elevation** (`grant`, `env`, `favorites add`):
 `--provider, -p` | `--target, -t` | `--role, -r` | `--favorite, -f` | `--group, -g` | `--groups` | `--refresh`
+
+**`grant k8s list`:**
+`--provider, -p` | `--refresh`
 
 **`grant request submit`:**
 `--provider, -p` | `--target, -t` | `--role` | `--role-id` | `--reason` | `--priority` | `--date` | `--timezone` | `--from` | `--to` | `--yes` | `--refresh`

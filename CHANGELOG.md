@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `grant k8s list` shows the Secure Cloud Access Kubernetes clusters you are eligible for; untested against a live cluster
+
 ### Changed
 
 - An invalid `cache_ttl` (unparseable, zero or negative) now fails the command instead of silently defaulting; the error names the config file, the expected duration syntax and `--refresh`
