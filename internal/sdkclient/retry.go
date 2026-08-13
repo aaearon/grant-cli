@@ -6,9 +6,10 @@ import "github.com/cyberark/idsec-sdk-golang/pkg/common"
 
 // DisableTransientRetry turns off the SDK's automatic transient-failure retry.
 //
-// idsec-sdk-golang v0.8.1 retries by default (3 attempts, 500ms base, 10s cap —
-// idsec_client.go:53-60, :375-377) on two paths, neither of which is safe for
-// grant's non-idempotent POSTs:
+// idsec-sdk-golang v0.8.1 retries by default — 3 retries on top of the initial
+// attempt, so up to 4 requests; 500ms base, 10s cap (idsec_client.go:53-60,
+// :375-377) — on two paths, neither of which is safe for grant's
+// non-idempotent POSTs:
 //
 //   - HTTP 429 (idsec_client.go:865-885) — no HTTP method filter at all.
 //   - Transport errors (idsec_client.go:835-849 via isRetryableTransportError,
