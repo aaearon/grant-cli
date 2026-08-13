@@ -65,7 +65,9 @@ func NewSCAAccessService(authenticators ...auth.IdsecAuth) (*SCAAccessService, e
 	// Disable the SDK's automatic transient retry. SDK v0.8.1 retries 429s with
 	// no method filter (idsec_client.go:865-885) and bare EOF transport errors
 	// for any method including POST (:1252-1266), which could replay the
-	// non-idempotent elevate / group-elevate / revoke POSTs below.
+	// non-idempotent elevate / group-elevate POSTs below. The client-wide
+	// switch also covers sessions/revoke and on-demand role discovery, which
+	// are effectively idempotent and safe to retry either way.
 	sdkclient.DisableTransientRetry(client.IdsecClient)
 
 	// Set required API version header
