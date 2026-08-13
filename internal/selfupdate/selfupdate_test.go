@@ -175,6 +175,18 @@ func TestVerifyChecksum(t *testing.T) {
 			data:     payload,
 		},
 		{
+			name:      "GNU binary mode marker",
+			checksums: good + " *grant-cli_0.7.0_linux_amd64.tar.gz\n",
+			filename:  "grant-cli_0.7.0_linux_amd64.tar.gz",
+			data:      payload,
+		},
+		{
+			name:      "CRLF line endings",
+			checksums: good + "  grant-cli_0.7.0_linux_amd64.tar.gz\r\n",
+			filename:  "grant-cli_0.7.0_linux_amd64.tar.gz",
+			data:      payload,
+		},
+		{
 			name:      "mismatch",
 			checksums: "0000000000000000000000000000000000000000000000000000000000000000  grant-cli_0.7.0_linux_amd64.tar.gz\n",
 			filename:  "grant-cli_0.7.0_linux_amd64.tar.gz",
@@ -313,6 +325,58 @@ func TestExtractBinary(t *testing.T) {
 			assetName: "grant-cli_0.7.0_linux_amd64.tar.gz",
 			archive: buildTarGz(t, [][2]string{
 				{"/etc/passwd", "pwned"},
+			}),
+			wantErr: true,
+		},
+		{
+			name:      "tar.gz windows drive-absolute path rejected",
+			assetName: "grant-cli_0.7.0_linux_amd64.tar.gz",
+			archive: buildTarGz(t, [][2]string{
+				{`C:\grant.exe`, "pwned"},
+			}),
+			wantErr: true,
+		},
+		{
+			name:      "zip windows drive-absolute path rejected",
+			assetName: "grant-cli_0.7.0_windows_amd64.zip",
+			archive: buildZip(t, [][2]string{
+				{`C:\grant.exe`, "pwned"},
+			}),
+			wantErr: true,
+		},
+		{
+			name:      "tar.gz UNC path rejected",
+			assetName: "grant-cli_0.7.0_linux_amd64.tar.gz",
+			archive:   buildTarGz(t, [][2]string{{"//host/share/grant", "pwned"}}),
+			wantErr:   true,
+		},
+		{
+			name:      "nested binary is not selected",
+			assetName: "grant-cli_0.7.0_linux_amd64.tar.gz",
+			archive:   buildTarGz(t, [][2]string{{"nested/dir/grant", "pwned"}}),
+			wantErr:   true,
+		},
+		{
+			name:      "dot-slash prefixed binary is accepted",
+			assetName: "grant-cli_0.7.0_linux_amd64.tar.gz",
+			archive:   buildTarGz(t, [][2]string{{"./grant", binContents}}),
+			want:      binContents,
+		},
+		{
+			name:      "two candidate binaries rejected",
+			assetName: "grant-cli_0.7.0_linux_amd64.tar.gz",
+			archive: buildTarGz(t, [][2]string{
+				{"grant", binContents},
+				{"grant.exe", "a different binary"},
+			}),
+			wantErr: true,
+		},
+		{
+			name:      "zip with two candidate binaries rejected",
+			assetName: "grant-cli_0.7.0_windows_amd64.zip",
+			archive: buildZip(t, [][2]string{
+				{"grant.exe", binContents},
+				{"grant", "a different binary"},
 			}),
 			wantErr: true,
 		},
@@ -499,4 +563,180 @@ func TestUpdateSelf(t *testing.T) {
 			t.Fatal("expected apply error, got nil")
 		}
 	})
+}
+
+// withSmallCap shrinks the download/decompression cap for a test.
+func withSmallCap(t *testing.T, limit int64) {
+	t.Helper()
+	orig := maxDownloadBytes
+	maxDownloadBytes = limit
+	t.Cleanup(func() { maxDownloadBytes = orig })
+}
+
+// TestReadCappedDetectsOversize pins the boundary bug io.LimitReader hides: a
+// source longer than the cap must be an error, never a successful short read.
+func TestReadCappedDetectsOversize(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		limit   int64
+		wantErr bool
+		want    string
+	}{
+		{name: "under the limit", input: "abcd", limit: 8, want: "abcd"},
+		{name: "exactly at the limit", input: "abcdefgh", limit: 8, want: "abcdefgh"},
+		{name: "one byte over the limit", input: "abcdefghi", limit: 8, wantErr: true},
+		{name: "far over the limit", input: strings.Repeat("x", 1000), limit: 8, wantErr: true},
+		{name: "empty", input: "", limit: 8, want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := readCapped(strings.NewReader(tt.input), tt.limit, "test input")
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got %d bytes", len(got))
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if string(got) != tt.want {
+				t.Errorf("got %q, want %q", string(got), tt.want)
+			}
+		})
+	}
+}
+
+// TestExtractBinaryRejectsOversizedEntry covers the critical case: a
+// checksum-valid archive whose *decompressed* binary exceeds the cap must be
+// rejected, not silently truncated and installed.
+func TestExtractBinaryRejectsOversizedEntry(t *testing.T) {
+	withSmallCap(t, 64)
+	big := strings.Repeat("A", 300)
+
+	t.Run("tar.gz", func(t *testing.T) {
+		archive := buildTarGz(t, [][2]string{{"grant", big}})
+		got, err := extractBinary(archive, "grant-cli_0.7.0_linux_amd64.tar.gz")
+		if err == nil {
+			t.Fatalf("expected error, got %d bytes", len(got))
+		}
+		if !strings.Contains(err.Error(), "limit") {
+			t.Errorf("error should mention the limit: %v", err)
+		}
+	})
+
+	t.Run("zip", func(t *testing.T) {
+		archive := buildZip(t, [][2]string{{"grant.exe", big}})
+		got, err := extractBinary(archive, "grant-cli_0.7.0_windows_amd64.zip")
+		if err == nil {
+			t.Fatalf("expected error, got %d bytes", len(got))
+		}
+		if !strings.Contains(err.Error(), "limit") {
+			t.Errorf("error should mention the limit: %v", err)
+		}
+	})
+
+	t.Run("entry exactly at the limit still extracts", func(t *testing.T) {
+		exact := strings.Repeat("A", 64)
+		archive := buildTarGz(t, [][2]string{{"grant", exact}})
+		got, err := extractBinary(archive, "grant-cli_0.7.0_linux_amd64.tar.gz")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if string(got) != exact {
+			t.Errorf("extracted %d bytes, want %d", len(got), len(exact))
+		}
+	})
+}
+
+// TestExtractBinaryRejectsTruncatedEntry covers a tar whose header declares
+// more bytes than the stream actually carries.
+func TestExtractBinaryRejectsTruncatedEntry(t *testing.T) {
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	body := strings.Repeat("B", 4096)
+	if err := tw.WriteHeader(&tar.Header{Name: "grant", Mode: 0o755, Size: int64(len(body)), Typeflag: tar.TypeReg}); err != nil {
+		t.Fatalf("write header: %v", err)
+	}
+	if _, err := tw.Write([]byte(body)); err != nil {
+		t.Fatalf("write body: %v", err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatalf("close tar: %v", err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatalf("close gzip: %v", err)
+	}
+
+	// Chop the gzip stream mid-entry so the declared 4096 bytes are not there.
+	truncated := buf.Bytes()[:buf.Len()/2]
+	if _, err := extractBinary(truncated, "grant-cli_0.7.0_linux_amd64.tar.gz"); err == nil {
+		t.Fatal("expected an error for a truncated archive, got nil")
+	}
+}
+
+// TestDownloadRejectsOversizeBody pins the same boundary on the HTTP path.
+func TestDownloadRejectsOversizeBody(t *testing.T) {
+	withSmallCap(t, 32)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, strings.Repeat("x", 4096))
+	}))
+	defer srv.Close()
+
+	u := New("aaearon/grant-cli")
+	if _, err := u.download(t.Context(), srv.URL); err == nil {
+		t.Fatal("expected an error for an oversized download, got nil")
+	}
+}
+
+// TestUpdateSelfRejectsOversizedBinary is the end-to-end guard: the archive
+// checksum is valid, but the binary inside is too big, so nothing is applied.
+func TestUpdateSelfRejectsOversizedBinary(t *testing.T) {
+	withSmallCap(t, 128)
+
+	archiveName := "grant-cli_0.7.0_linux_amd64.tar.gz"
+	archive := buildTarGz(t, [][2]string{{"grant", strings.Repeat("A", 4096)}})
+	srv := newFixtureServer(t, archiveName, archive, checksumsFor(archiveName, archive))
+
+	u := New("aaearon/grant-cli")
+	u.apiBaseURL = srv.URL
+	u.goos, u.goarch = "linux", "amd64"
+
+	applied := false
+	u.applyFn = func(b []byte) error { applied = true; return nil }
+
+	if _, _, err := u.UpdateSelf(t.Context(), "0.6.1"); err == nil {
+		t.Fatal("expected an error for an oversized binary, got nil")
+	}
+	if applied {
+		t.Error("an oversized binary must never reach the apply step")
+	}
+}
+
+// TestUpdateSelfPrereleaseCanUpdate is the regression guard for the parser: a
+// pre-release build must be able to update to the release.
+func TestUpdateSelfPrereleaseCanUpdate(t *testing.T) {
+	archiveName := "grant-cli_0.7.0_linux_amd64.tar.gz"
+	archive := buildTarGz(t, [][2]string{{"grant", "new binary"}})
+	srv := newFixtureServer(t, archiveName, archive, checksumsFor(archiveName, archive))
+
+	u := New("aaearon/grant-cli")
+	u.apiBaseURL = srv.URL
+	u.goos, u.goarch = "linux", "amd64"
+	u.applyFn = func(b []byte) error { return nil }
+
+	latest, updated, err := u.UpdateSelf(t.Context(), "0.7.0-rc.1")
+	if err != nil {
+		t.Fatalf("a pre-release build must be able to update: %v", err)
+	}
+	if !updated {
+		t.Error("expected the pre-release to update to the release")
+	}
+	if latest != "0.7.0" {
+		t.Errorf("latest = %q, want 0.7.0", latest)
+	}
 }

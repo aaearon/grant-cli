@@ -39,12 +39,13 @@ const (
 	checksumsFile = "checksums.txt"
 	// defaultAPIBaseURL is the GitHub REST API root.
 	defaultAPIBaseURL = "https://api.github.com"
-	// maxDownloadBytes caps every download and every decompressed entry,
-	// guarding against decompression bombs (gosec G110).
-	maxDownloadBytes = 128 << 20 // 128 MiB
 	// downloadTimeout bounds the whole update operation.
 	downloadTimeout = 5 * time.Minute
 )
+
+// maxDownloadBytes caps every download and every decompressed entry, guarding
+// against decompression bombs (gosec G110). A variable so tests can shrink it.
+var maxDownloadBytes int64 = 128 << 20 // 128 MiB
 
 // httpDoer allows injecting a stub transport in tests.
 type httpDoer interface {
@@ -171,7 +172,7 @@ func (u *Updater) fetchLatestRelease(ctx context.Context) (*ghRelease, error) {
 	}
 	defer resp.Body.Close() //nolint:errcheck // nothing actionable on close
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxDownloadBytes))
+	body, err := readCapped(resp.Body, maxDownloadBytes, "GitHub release response")
 	if err != nil {
 		return nil, fmt.Errorf("failed to read GitHub response: %w", err)
 	}
@@ -207,7 +208,7 @@ func (u *Updater) download(ctx context.Context, url string) ([]byte, error) {
 		return nil, fmt.Errorf("download returned status %d", resp.StatusCode)
 	}
 
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxDownloadBytes))
+	data, err := readCapped(resp.Body, maxDownloadBytes, "download")
 	if err != nil {
 		return nil, err
 	}
@@ -215,6 +216,30 @@ func (u *Updater) download(ctx context.Context, url string) ([]byte, error) {
 		return nil, errors.New("download was empty")
 	}
 	return data, nil
+}
+
+// readCapped reads at most limit bytes and fails if the source has more to
+// give. io.LimitReader alone reports a *successful* short read when the input
+// is longer than the cap, which would silently truncate a binary; probing for
+// one extra byte turns that into an error (gosec G110 without the silent
+// truncation hazard).
+func readCapped(r io.Reader, limit int64, what string) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(r, limit))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) < limit {
+		return data, nil
+	}
+	var probe [1]byte
+	switch n, err := io.ReadFull(r, probe[:]); {
+	case n > 0:
+		return nil, fmt.Errorf("%s exceeds the %d byte limit", what, limit)
+	case err == nil, errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
+		return data, nil
+	default:
+		return nil, err
+	}
 }
 
 // assetNameFor builds the GoReleaser archive name for a platform.
@@ -242,7 +267,8 @@ func verifyChecksum(checksums []byte, filename string, data []byte) error {
 		if len(fields) != 2 {
 			return fmt.Errorf("malformed line in %s: %q", checksumsFile, line)
 		}
-		if fields[1] == filename {
+		// GNU coreutils marks binary-mode entries with a leading "*".
+		if strings.TrimPrefix(fields[1], "*") == filename {
 			want = fields[0]
 			break
 		}
@@ -275,18 +301,49 @@ func extractBinary(archive []byte, assetName string) ([]byte, error) {
 }
 
 // isBinaryEntry reports whether an archive entry is the grant executable.
+// GoReleaser places the binary at the archive root, so nested entries with the
+// same basename are deliberately NOT accepted - matching them would let a
+// crafted archive smuggle a different file into the install.
 func isBinaryEntry(name string) bool {
-	base := path.Base(name)
-	return base == binaryName || base == binaryName+".exe"
+	cleaned := path.Clean(strings.ReplaceAll(name, `\`, "/"))
+	cleaned = strings.TrimPrefix(cleaned, "./")
+	if strings.Contains(cleaned, "/") {
+		return false
+	}
+	return cleaned == binaryName || cleaned == binaryName+".exe"
 }
 
-// checkArchivePath rejects absolute paths and traversal (gosec G305).
+// checkArchivePath rejects absolute paths, drive-absolute Windows paths, UNC
+// paths and traversal (gosec G305). Extraction is in-memory, so none of these
+// are currently exploitable, but the archive is untrusted input and the
+// documented guarantee has to actually hold.
 func checkArchivePath(name string) error {
-	cleaned := path.Clean(strings.ReplaceAll(name, `\`, "/"))
-	if path.IsAbs(cleaned) || strings.HasPrefix(cleaned, "../") || cleaned == ".." {
-		return fmt.Errorf("archive contains illegal path %q", name)
+	normalized := strings.ReplaceAll(name, `\`, "/")
+	cleaned := path.Clean(normalized)
+
+	switch {
+	case name == "":
+		return errors.New("archive contains an entry with an empty name")
+	case path.IsAbs(cleaned):
+		return fmt.Errorf("archive contains illegal absolute path %q", name)
+	case strings.HasPrefix(normalized, "//"):
+		return fmt.Errorf("archive contains illegal UNC path %q", name)
+	case hasDriveLetter(normalized):
+		return fmt.Errorf("archive contains illegal drive-absolute path %q", name)
+	case cleaned == ".." || strings.HasPrefix(cleaned, "../"):
+		return fmt.Errorf("archive contains illegal path traversal %q", name)
 	}
 	return nil
+}
+
+// hasDriveLetter reports whether name starts with a Windows drive designator
+// such as "C:" - path.IsAbs does not consider these absolute.
+func hasDriveLetter(name string) bool {
+	if len(name) < 2 || name[1] != ':' {
+		return false
+	}
+	c := name[0]
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 }
 
 func extractFromTarGz(archive []byte) ([]byte, error) {
@@ -296,6 +353,7 @@ func extractFromTarGz(archive []byte) ([]byte, error) {
 	}
 	defer gz.Close() //nolint:errcheck // read-only stream
 
+	var found []byte
 	tr := tar.NewReader(gz)
 	for {
 		hdr, err := tr.Next()
@@ -311,13 +369,25 @@ func extractFromTarGz(archive []byte) ([]byte, error) {
 		if hdr.Typeflag != tar.TypeReg || !isBinaryEntry(hdr.Name) {
 			continue
 		}
-		data, err := io.ReadAll(io.LimitReader(tr, maxDownloadBytes)) // gosec G110
+		if found != nil {
+			return nil, fmt.Errorf("archive contains more than one %s binary", binaryName)
+		}
+		if hdr.Size > maxDownloadBytes {
+			return nil, fmt.Errorf("%s in archive declares %d bytes, over the %d byte limit", hdr.Name, hdr.Size, maxDownloadBytes)
+		}
+		data, err := readCapped(tr, maxDownloadBytes, hdr.Name) // gosec G110
 		if err != nil {
 			return nil, fmt.Errorf("failed to read %s from archive: %w", hdr.Name, err)
 		}
-		return data, nil
+		if int64(len(data)) != hdr.Size {
+			return nil, fmt.Errorf("%s in archive is truncated: got %d bytes, header declares %d", hdr.Name, len(data), hdr.Size)
+		}
+		found = data
 	}
-	return nil, fmt.Errorf("archive does not contain a %s binary", binaryName)
+	if found == nil {
+		return nil, fmt.Errorf("archive does not contain a %s binary", binaryName)
+	}
+	return found, nil
 }
 
 func extractFromZip(archive []byte) ([]byte, error) {
@@ -326,6 +396,7 @@ func extractFromZip(archive []byte) ([]byte, error) {
 		return nil, fmt.Errorf("failed to open zip archive: %w", err)
 	}
 
+	var found []byte
 	for _, f := range zr.File {
 		if err := checkArchivePath(f.Name); err != nil {
 			return nil, err
@@ -333,19 +404,38 @@ func extractFromZip(archive []byte) ([]byte, error) {
 		if f.FileInfo().IsDir() || !isBinaryEntry(f.Name) {
 			continue
 		}
-		rc, err := f.Open()
+		if found != nil {
+			return nil, fmt.Errorf("archive contains more than one %s binary", binaryName)
+		}
+		if maxDownloadBytes >= 0 && f.UncompressedSize64 > uint64(maxDownloadBytes) { //nolint:gosec // maxDownloadBytes is a positive constant-derived cap
+			return nil, fmt.Errorf("%s in archive declares %d bytes, over the %d byte limit", f.Name, f.UncompressedSize64, maxDownloadBytes)
+		}
+		data, err := readZipEntry(f)
 		if err != nil {
-			return nil, fmt.Errorf("failed to open %s in archive: %w", f.Name, err)
+			return nil, err
 		}
-		data, err := io.ReadAll(io.LimitReader(rc, maxDownloadBytes)) // gosec G110
-		closeErr := rc.Close()
-		if err != nil {
-			return nil, fmt.Errorf("failed to read %s from archive: %w", f.Name, err)
+		if uint64(len(data)) != f.UncompressedSize64 {
+			return nil, fmt.Errorf("%s in archive is truncated: got %d bytes, directory declares %d", f.Name, len(data), f.UncompressedSize64)
 		}
-		if closeErr != nil {
-			return nil, fmt.Errorf("failed to close %s in archive: %w", f.Name, closeErr)
-		}
-		return data, nil
+		found = data
 	}
-	return nil, fmt.Errorf("archive does not contain a %s binary", binaryName)
+	if found == nil {
+		return nil, fmt.Errorf("archive does not contain a %s binary", binaryName)
+	}
+	return found, nil
+}
+
+// readZipEntry reads a single zip entry with the decompression cap applied.
+func readZipEntry(f *zip.File) ([]byte, error) {
+	rc, err := f.Open()
+	if err != nil {
+		return nil, fmt.Errorf("failed to open %s in archive: %w", f.Name, err)
+	}
+	defer rc.Close() //nolint:errcheck // read-only stream
+
+	data, err := readCapped(rc, maxDownloadBytes, f.Name) // gosec G110
+	if err != nil {
+		return nil, fmt.Errorf("failed to read %s from archive: %w", f.Name, err)
+	}
+	return data, nil
 }
