@@ -66,7 +66,7 @@ Examples:
 		RunE:          runFn,
 	}
 
-	cmd.Flags().StringP("provider", "p", "", "Cloud provider: azure, aws (omit to show all)")
+	cmd.Flags().StringP("provider", "p", "", "Cloud provider: azure, aws, gcp (omit to show all)")
 	cmd.Flags().Bool("groups", false, "Show only Entra ID groups")
 	cmd.Flags().Bool("refresh", false, "Bypass eligibility cache and fetch fresh data")
 

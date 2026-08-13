@@ -773,6 +773,80 @@ func TestListEligibility_Pagination(t *testing.T) {
 	}
 }
 
+// TestListEligibility_GCPRouteAndPagination pins the route construction and
+// nextToken pagination for GCP, matching the AWS/Azure behavior.
+func TestListEligibility_GCPRouteAndPagination(t *testing.T) {
+	token := "gcppage2"
+	callCount := 0
+	var routes []string
+
+	mock := &mockHTTPClient{
+		getFunc: func(ctx context.Context, route string, params interface{}) (*http.Response, error) {
+			callCount++
+			routes = append(routes, route)
+			if callCount == 1 {
+				if params != nil {
+					t.Errorf("expected nil params on first call, got %v", params)
+				}
+				return jsonResponse(models.EligibilityResponse{
+					Response: []models.EligibleTarget{
+						{
+							OrganizationID: "123456789012",
+							WorkspaceID:    "proj-1",
+							WorkspaceName:  "Project One",
+							WorkspaceType:  models.WorkspaceTypeProject,
+							RoleInfo:       models.RoleInfo{ID: "roles/viewer", Name: "Viewer"},
+						},
+					},
+					NextToken: &token,
+					Total:     2,
+				}), nil
+			}
+			p, ok := params.(map[string]string)
+			if !ok || p["nextToken"] != token {
+				t.Errorf("expected nextToken=%q on call %d, got %v", token, callCount, params)
+			}
+			return jsonResponse(models.EligibilityResponse{
+				Response: []models.EligibleTarget{
+					{
+						OrganizationID: "123456789012",
+						WorkspaceID:    "folders/42",
+						WorkspaceName:  "Engineering",
+						WorkspaceType:  models.WorkspaceTypeFolder,
+						RoleInfo:       models.RoleInfo{ID: "roles/editor", Name: "Editor"},
+					},
+				},
+				NextToken: nil,
+				Total:     2,
+			}), nil
+		},
+	}
+
+	svc := &SCAAccessService{httpClient: mock}
+	result, err := svc.ListEligibility(t.Context(), models.CSPGCP)
+
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if callCount != 2 {
+		t.Errorf("expected 2 API calls for pagination, got %d", callCount)
+	}
+	for _, route := range routes {
+		if route != "/api/access/GCP/eligibility" {
+			t.Errorf("route = %q, want %q", route, "/api/access/GCP/eligibility")
+		}
+	}
+	if len(result.Response) != 2 {
+		t.Fatalf("expected 2 targets across pages, got %d", len(result.Response))
+	}
+	if result.Response[0].WorkspaceType != models.WorkspaceTypeProject {
+		t.Errorf("WorkspaceType = %q, want %q", result.Response[0].WorkspaceType, models.WorkspaceTypeProject)
+	}
+	if result.Total != 2 {
+		t.Errorf("Total = %d, want 2", result.Total)
+	}
+}
+
 func TestListSessions_Pagination(t *testing.T) {
 	token := "sesspage2"
 	callCount := 0

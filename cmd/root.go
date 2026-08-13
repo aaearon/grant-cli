@@ -86,6 +86,7 @@ Examples:
   # Specify provider explicitly (cloud targets only)
   grant --provider azure
   grant --provider aws
+  grant --provider gcp
 
   # Bypass eligibility cache and fetch fresh data
   grant --refresh`,
@@ -108,7 +109,7 @@ Examples:
 
 	cmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "enable verbose output")
 	cmd.PersistentFlags().StringVarP(&outputFormat, "output", "o", "text", "Output format: text, json")
-	cmd.Flags().StringP("provider", "p", "", "Cloud provider: azure, aws (omit to show all)")
+	cmd.Flags().StringP("provider", "p", "", "Cloud provider: azure, aws, gcp (omit to show all)")
 	cmd.Flags().StringP("target", "t", "", "Target name (subscription, resource group, etc.)")
 	cmd.Flags().StringP("role", "r", "", "Role name")
 	cmd.Flags().StringP("favorite", "f", "", "Use a saved favorite (see 'grant favorites list')")
@@ -263,7 +264,7 @@ func Execute() {
 }
 
 // supportedCSPs lists the cloud providers supported for elevation.
-var supportedCSPs = []models.CSP{models.CSPAzure, models.CSPAWS}
+var supportedCSPs = []models.CSP{models.CSPAzure, models.CSPAWS, models.CSPGCP}
 
 // fetchEligibility retrieves eligible targets. When provider is empty, all
 // supported CSPs are queried and results merged. When set, only that CSP is queried.
@@ -362,8 +363,8 @@ type elevationResult struct {
 //
 // preElevate, when non-nil, is called with the resolved target immediately
 // before the elevation request is issued. Returning an error aborts the flow
-// without creating a session — used by 'grant env' to reject targets whose
-// provider returns no credentials before burning a real elevation.
+// without creating a session — used by 'grant env' to reject non-AWS targets
+// before burning a real elevation.
 func resolveAndElevate(
 	flags *elevateFlags,
 	profile *sdkmodels.IdsecProfile,
@@ -872,6 +873,8 @@ func runElevateWithDeps(
 		}
 	case models.CSPAzure:
 		fmt.Fprintf(cmd.OutOrStdout(), "\n  Your az CLI session now has the elevated permissions.\n")
+	case models.CSPGCP:
+		fmt.Fprintf(cmd.OutOrStdout(), "\n  The elevated permissions now apply to your GCP session.\n")
 	}
 
 	return nil

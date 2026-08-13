@@ -216,8 +216,12 @@ func confirmSubmit() (bool, error) {
 func runRequestSubmit(cmd *cobra.Command, svc accessRequestService) error {
 	provider, _ := cmd.Flags().GetString("provider")
 	if provider != "" {
-		if _, err := parseProvider(provider); err != nil {
+		csp, err := parseProvider(provider)
+		if err != nil {
 			return err
+		}
+		if csp == models.CSPGCP {
+			return errors.New("grant request submit is not supported for GCP")
 		}
 	}
 
@@ -577,6 +581,9 @@ func buildOnDemandRequest(ws *submitWorkspace) (models.OnDemandRequest, error) {
 				ensureLeadingSlash(ws.WorkspaceID),
 			},
 		}, nil
+	case "PROJECT", "FOLDER", "GCP_ORGANIZATION":
+		return models.OnDemandRequest{}, errors.New(
+			"grant request submit is not supported for GCP workspaces")
 	default:
 		return models.OnDemandRequest{}, fmt.Errorf(
 			"interactive role selection not supported for workspace type %q; use --role-id",

@@ -21,8 +21,8 @@ func newEnvCommand(runFn func(*cobra.Command, []string) error) *cobra.Command {
 Runs the full elevation flow, then prints only shell export statements
 suitable for eval. No human-readable messages are printed to stdout.
 
-Only AWS is supported: other providers return no credentials — their
-elevation applies to your existing native CLI session, so use 'grant'.
+Only AWS is supported: Azure and GCP elevations return no credentials —
+they apply to your existing az/gcloud CLI session, so use 'grant' instead.
 
 Usage:
   eval $(grant env --provider aws --target "Account" --role "AdminAccess")
@@ -99,6 +99,8 @@ func cliForCSP(csp models.CSP) string {
 	switch csp {
 	case models.CSPAzure:
 		return "az"
+	case models.CSPGCP:
+		return "gcloud"
 	default:
 		return "cloud provider"
 	}

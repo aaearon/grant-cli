@@ -9,6 +9,7 @@ type CSP string
 const (
 	CSPAzure CSP = "AZURE"
 	CSPAWS   CSP = "AWS"
+	CSPGCP   CSP = "GCP"
 )
 
 // WorkspaceType represents the type of cloud workspace.
@@ -21,6 +22,11 @@ const (
 	WorkspaceTypeManagementGroup WorkspaceType = "MANAGEMENT_GROUP"
 	WorkspaceTypeDirectory       WorkspaceType = "DIRECTORY"
 	WorkspaceTypeAccount         WorkspaceType = "account" // Lowercase per AWS API spec
+
+	// GCP workspace types, per the GCPEligibleTarget schema.
+	WorkspaceTypeProject         WorkspaceType = "PROJECT"
+	WorkspaceTypeFolder          WorkspaceType = "FOLDER"
+	WorkspaceTypeGCPOrganization WorkspaceType = "GCP_ORGANIZATION"
 )
 
 // RoleInfo contains the ID and name of a role.

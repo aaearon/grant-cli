@@ -659,6 +659,42 @@ func TestStatusCommandIntegration(t *testing.T) {
 }
 
 
+func TestParseProvider(t *testing.T) {
+	tests := []struct {
+		name     string
+		provider string
+		want     scamodels.CSP
+		wantErr  bool
+	}{
+		{name: "azure lowercase", provider: "azure", want: scamodels.CSPAzure},
+		{name: "aws lowercase", provider: "aws", want: scamodels.CSPAWS},
+		{name: "gcp lowercase", provider: "gcp", want: scamodels.CSPGCP},
+		{name: "GCP uppercase", provider: "GCP", want: scamodels.CSPGCP},
+		{name: "unsupported", provider: "oracle", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseProvider(tt.provider)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error for provider %q", tt.provider)
+				}
+				if !strings.Contains(err.Error(), "must be one of: azure, aws, gcp") {
+					t.Errorf("error = %v, want it to list azure, aws, gcp", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("parseProvider(%q) = %q, want %q", tt.provider, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestStatusCommand_CachedEligibility(t *testing.T) {
 	now := time.Now()
 	expiresIn := commonmodels.IdsecRFC3339Time(now.Add(1 * time.Hour))

@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- GCP support for `grant`, `grant list`, `grant status` and `grant revoke`: `--provider gcp`, GCP included in the multi-provider fan-out, and the `PROJECT`/`FOLDER`/`GCP_ORGANIZATION` workspace types rendered in the interactive selector. `grant env` stays AWS-only (the SCA API spec defines no GCP credential shape) and `grant request submit` explicitly rejects GCP. Not yet verified against a live GCP tenant
+
 ### Fixed
 
 - `grant env` no longer performs an elevation before validating the provider. Previously `grant env --provider azure` created a real SCA session and recorded a session timestamp before failing with "no credentials returned", leaving an unwanted active session behind. The provider is now validated before the elevation request is issued

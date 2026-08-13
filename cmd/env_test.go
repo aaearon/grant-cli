@@ -93,6 +93,7 @@ func TestEnvDoesNotElevateForNonAWSProvider(t *testing.T) {
 		provider string
 	}{
 		{name: "azure", provider: "azure"},
+		{name: "gcp", provider: "gcp"},
 	}
 
 	for _, tt := range tests {
