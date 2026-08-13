@@ -7,6 +7,13 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - Rebranded user-facing references from CyberArk to Idira (formerly CyberArk) in the README and CLI help/prompt text, following the Palo Alto Networks rebrand. No functional or API changes; SDK import paths (`github.com/cyberark/idsec-sdk-golang`), `*.cyberark.cloud` URLs, and environment variables are unchanged.
+- `grant update` no longer depends on the abandoned `github.com/rhysd/go-github-selfupdate` (last commit Jan 2021). Release discovery, asset selection, checksum verification and archive extraction are now implemented in-house in `internal/selfupdate/`; the binary replacement (atomic rename, fsync, Windows rename dance, rollback) is delegated to `github.com/minio/selfupdate` v0.6.0
+- Dependency graph shrinks from 39 to 33 modules: removed `blang/semver`, `rhysd/go-github-selfupdate`, `google/go-github/v30`, `google/go-querystring`, `golang.org/x/oauth2` (a Nov 2018 pseudo-version), `golang/protobuf`, `google.golang.org/appengine`, `tcnksm/go-gitconfig`, `inconshreveable/go-update` and `ulikunitz/xz`; added `github.com/minio/selfupdate` and its single new transitive `aead.dev/minisign`
+
+### Security
+
+- `grant update` now verifies the downloaded archive's SHA-256 against the release's `checksums.txt` before replacing the binary. Previously no validation was performed at all (`selfupdate.DefaultUpdater()` ships a nil `Validator`). Note the trust model: `checksums.txt` is fetched from the same origin as the archive, so this protects against corrupted or tampered downloads in transit, not against a compromised GitHub account or release pipeline
+- Removes `golang.org/x/crypto/openpgp` from the build graph, clearing advisory GO-2026-5932 (unmaintained package, no fix available). Dropping `ulikunitz/xz` also clears GO-2025-3922
 
 ## [0.7.0] - 2026-04-21
 

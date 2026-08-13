@@ -82,6 +82,8 @@ sudo mv grant /usr/local/bin/
 grant update
 ```
 
+`grant update` checks GitHub Releases for a newer version, verifies the downloaded archive's SHA-256 against the release's `checksums.txt`, and replaces the running binary in place (with rollback on failure). It refuses to run on dev builds — install a release build or download from the releases page. Because `checksums.txt` is published alongside the archive, verification protects against corrupted or tampered downloads, not against a compromised release pipeline.
+
 **Windows:** Download `grant-cli_<version>_windows_<arch>.zip` from [releases](https://github.com/aaearon/grant-cli/releases) and extract to a directory in your PATH.
 
 ### Go Install

@@ -3,7 +3,7 @@
 ## Project
 - **Language:** Go 1.25+
 - **Module:** `github.com/aaearon/grant-cli`
-- **Sole dependency:** `github.com/cyberark/idsec-sdk-golang` — zero new Go module deps (all libs reused from SDK dep tree)
+- **Dependencies:** `github.com/cyberark/idsec-sdk-golang` is the primary dependency; zero-new-Go-module-deps is a goal, not an absolute rule. Documented exception: `github.com/minio/selfupdate` (+ its one transitive `aead.dev/minisign`) for `grant update`, adopted to remove the abandoned `rhysd/go-github-selfupdate` and advisory GO-2026-5932. Net effect was 39 -> 33 modules
 
 ## SDK Import Conventions
 ```go
@@ -82,7 +82,14 @@ Custom `SCAAccessService` follows SDK conventions:
 - `grant request cancel [id]` — cancel an open request; optional `--reason`. Omitting `<id>` in a TTY opens a picker scoped to STARTING/RUNNING/PENDING requests you created (role=CREATOR)
 - `grant request approve [id]` / `grant request reject [id]` — finalize a request; optional `--reason`. Omitting `<id>` in a TTY opens a picker scoped to PENDING requests assigned to you (role=APPROVER)
 - Request picker: `internal/ui/request_selector.go` mirrors the role-selector Format/Build/Select quartet; `resolveRequestIDFn` in `cmd/request_picker.go` is injectable for tests. Non-TTY invocation without `<id>` returns `ErrNotInteractive` with a hint to run `grant request list`
-- `grant update` — self-update binary via GitHub Releases (`rhysd/go-github-selfupdate`); guards against dev builds
+- `grant update` — self-update binary via GitHub Releases; guards against dev builds. Implemented in `internal/selfupdate/`:
+  - Discovery: `GET https://api.github.com/repos/aaearon/grant-cli/releases/latest` (`apiBaseURL` field injectable for tests)
+  - Version compare: in-house `MAJOR.MINOR.PATCH` parser (`ParseVersion`/`CompareVersions`) — grant only emits GoReleaser-style tags, so no semver library
+  - Asset selection: `grant-cli_<version>_<goos>_<goarch>.tar.gz` (`.zip` on windows) — must stay in sync with `.goreleaser.yaml`
+  - Integrity: SHA-256 of the archive checked against the release's `checksums.txt`. **Trust model:** `checksums.txt` comes from the same origin as the archive, so it defends against corrupted/tampered downloads in transit, **not** against a compromised GitHub account or release pipeline. Signature verification would be needed for that
+  - Extraction: `archive/tar`+`compress/gzip` / `archive/zip`, rejecting absolute and `..` paths (gosec G305) and capped at 128 MiB via `io.LimitReader` (gosec G110)
+  - Apply: `github.com/minio/selfupdate` v0.6.0 owns the atomic replace, fsync, Windows rename dance and rollback — do not hand-roll this. Seam: `applyWithOptions` in `internal/selfupdate/apply.go`
+  - `selfUpdater` in `cmd/interfaces.go` is defined over grant-owned types: `UpdateSelf(ctx, current string) (newVersion string, updated bool, err error)`
 - `--groups` flag on root command shows only Entra ID groups in the interactive selector
 - `--group` / `-g` flag on root command for direct group membership elevation (`grant --group "Cloud Admins"`)
 - Root command unified selector shows both cloud roles and Entra ID groups; groups use `/eligibility/groups` and `/elevate/groups` API endpoints
