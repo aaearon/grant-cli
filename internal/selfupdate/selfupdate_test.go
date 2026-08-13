@@ -565,8 +565,11 @@ func TestUpdateSelf(t *testing.T) {
 	})
 }
 
-// withSmallCap shrinks the download/decompression cap for a test.
-func withSmallCap(t *testing.T, limit int64) {
+// withMaxDownloadBytes shrinks the download/decompression cap for one test and
+// restores it via t.Cleanup, so an early t.Fatal cannot leak the change into
+// another test. maxDownloadBytes is package-global mutable state: callers of
+// this helper MUST NOT call t.Parallel().
+func withMaxDownloadBytes(t *testing.T, limit int64) {
 	t.Helper()
 	orig := maxDownloadBytes
 	maxDownloadBytes = limit
@@ -613,7 +616,7 @@ func TestReadCappedDetectsOversize(t *testing.T) {
 // checksum-valid archive whose *decompressed* binary exceeds the cap must be
 // rejected, not silently truncated and installed.
 func TestExtractBinaryRejectsOversizedEntry(t *testing.T) {
-	withSmallCap(t, 64)
+	withMaxDownloadBytes(t, 64)
 	big := strings.Repeat("A", 300)
 
 	t.Run("tar.gz", func(t *testing.T) {
@@ -680,7 +683,7 @@ func TestExtractBinaryRejectsTruncatedEntry(t *testing.T) {
 
 // TestDownloadRejectsOversizeBody pins the same boundary on the HTTP path.
 func TestDownloadRejectsOversizeBody(t *testing.T) {
-	withSmallCap(t, 32)
+	withMaxDownloadBytes(t, 32)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, strings.Repeat("x", 4096))
@@ -696,7 +699,7 @@ func TestDownloadRejectsOversizeBody(t *testing.T) {
 // TestUpdateSelfRejectsOversizedBinary is the end-to-end guard: the archive
 // checksum is valid, but the binary inside is too big, so nothing is applied.
 func TestUpdateSelfRejectsOversizedBinary(t *testing.T) {
-	withSmallCap(t, 128)
+	withMaxDownloadBytes(t, 128)
 
 	archiveName := "grant-cli_0.7.0_linux_amd64.tar.gz"
 	archive := buildTarGz(t, [][2]string{{"grant", strings.Repeat("A", 4096)}})

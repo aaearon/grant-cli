@@ -44,7 +44,13 @@ const (
 )
 
 // maxDownloadBytes caps every download and every decompressed entry, guarding
-// against decompression bombs (gosec G110). A variable so tests can shrink it.
+// against decompression bombs (gosec G110).
+//
+// It is a var ONLY so tests can shrink it; nothing in production code may
+// assign to it. Because it is package-global mutable state, any test that
+// changes it MUST NOT call t.Parallel(), and MUST go through
+// withMaxDownloadBytes so the value is restored via t.Cleanup even on an early
+// t.Fatal.
 var maxDownloadBytes int64 = 128 << 20 // 128 MiB
 
 // httpDoer allows injecting a stub transport in tests.
