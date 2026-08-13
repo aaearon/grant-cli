@@ -83,7 +83,7 @@ func TestBuildRequestOptions_SortedCorrectlyWithOffsets(t *testing.T) {
 	// String sort would put +02:00 after Z; time sort must put 09:30Z first.
 	reqs := []wfmodels.AccessRequest{
 		{RequestID: "offset", CreatedAt: "2026-04-20T10:00:00+02:00"}, // 08:00 UTC
-		{RequestID: "utc", CreatedAt: "2026-04-20T09:30:00Z"},          // 09:30 UTC (more recent)
+		{RequestID: "utc", CreatedAt: "2026-04-20T09:30:00Z"},         // 09:30 UTC (more recent)
 	}
 	_, sorted := BuildRequestOptions(reqs)
 	if sorted[0].RequestID != "utc" {

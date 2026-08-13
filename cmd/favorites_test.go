@@ -814,9 +814,9 @@ func TestFavoritesAddInteractiveMode(t *testing.T) {
 				cfg := config.DefaultConfig()
 				_ = config.Save(cfg, path)
 			},
-			eligLister: nil,
-			selector:   nil,
-			args:       []string{"--target", "sub-123", "--role", "Contributor"},
+			eligLister:  nil,
+			selector:    nil,
+			args:        []string{"--target", "sub-123", "--role", "Contributor"},
 			wantContain: []string{"name is required"},
 			wantErr:     true,
 		},

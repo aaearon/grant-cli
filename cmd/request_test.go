@@ -26,8 +26,8 @@ func TestRequestListCommand(t *testing.T) {
 			svc: &mockAccessRequestService{
 				listItems: []wfmodels.AccessRequest{
 					{
-						RequestID:    "req-1",
-						RequestState: wfmodels.RequestStatePending,
+						RequestID:     "req-1",
+						RequestState:  wfmodels.RequestStatePending,
 						RequestResult: wfmodels.RequestResultUnknown,
 						RequestDetails: map[string]interface{}{
 							"workspaceName": "Azure Subscription",
@@ -48,13 +48,13 @@ func TestRequestListCommand(t *testing.T) {
 			svc: &mockAccessRequestService{
 				listItems: []wfmodels.AccessRequest{
 					{
-						RequestID:    "req-1",
-						RequestState: wfmodels.RequestStatePending,
+						RequestID:     "req-1",
+						RequestState:  wfmodels.RequestStatePending,
 						RequestResult: wfmodels.RequestResultUnknown,
-						CreatedBy:    "user@test.com",
-						CreatedAt:    "t",
-						UpdatedBy:    "SYSTEM",
-						UpdatedAt:    "t",
+						CreatedBy:     "user@test.com",
+						CreatedAt:     "t",
+						UpdatedBy:     "SYSTEM",
+						UpdatedAt:     "t",
 					},
 				},
 				listTotalCount: 1,
@@ -112,9 +112,9 @@ func TestRequestGetCommand(t *testing.T) {
 			name: "get request text",
 			svc: &mockAccessRequestService{
 				getResult: &wfmodels.AccessRequest{
-					RequestID:    "req-1",
-					RequestState: wfmodels.RequestStateFinished,
-					RequestResult: wfmodels.RequestResultApproved,
+					RequestID:      "req-1",
+					RequestState:   wfmodels.RequestStateFinished,
+					RequestResult:  wfmodels.RequestResultApproved,
 					TargetCategory: "CLOUD_CONSOLE",
 					RequestDetails: map[string]interface{}{
 						"workspaceName": "Azure Sub",
@@ -136,13 +136,13 @@ func TestRequestGetCommand(t *testing.T) {
 			name: "get request JSON",
 			svc: &mockAccessRequestService{
 				getResult: &wfmodels.AccessRequest{
-					RequestID:    "req-1",
-					RequestState: wfmodels.RequestStateFinished,
+					RequestID:     "req-1",
+					RequestState:  wfmodels.RequestStateFinished,
 					RequestResult: wfmodels.RequestResultApproved,
-					CreatedBy:    "user@test.com",
-					CreatedAt:    "t",
-					UpdatedBy:    "SYSTEM",
-					UpdatedAt:    "t",
+					CreatedBy:     "user@test.com",
+					CreatedAt:     "t",
+					UpdatedBy:     "SYSTEM",
+					UpdatedAt:     "t",
 				},
 			},
 			args:        []string{"get", "req-1", "--output", "json"},
@@ -328,8 +328,8 @@ func TestRequestListJSON(t *testing.T) {
 	svc := &mockAccessRequestService{
 		listItems: []wfmodels.AccessRequest{
 			{
-				RequestID:    "req-1",
-				RequestState: wfmodels.RequestStatePending,
+				RequestID:     "req-1",
+				RequestState:  wfmodels.RequestStatePending,
 				RequestResult: wfmodels.RequestResultUnknown,
 				RequestDetails: map[string]interface{}{
 					"priority": "High",
@@ -370,8 +370,8 @@ func TestRequestListJSON(t *testing.T) {
 
 func TestValidateSubmitFields(t *testing.T) {
 	tests := []struct {
-		name   string
-		fields *submitFields
+		name    string
+		fields  *submitFields
 		wantErr bool
 	}{
 		{"valid", &submitFields{"need access", "High", "2026-04-21", "America/New_York", "09:00", "17:00"}, false},

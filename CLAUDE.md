@@ -3,7 +3,7 @@
 ## Project
 - **Language:** Go 1.25+
 - **Module:** `github.com/aaearon/grant-cli`
-- **Sole dependency:** `github.com/cyberark/idsec-sdk-golang` — zero new Go module deps (all libs reused from SDK dep tree)
+- **Dependencies:** `github.com/cyberark/idsec-sdk-golang` is the primary dependency; zero-new-Go-module-deps is a goal, not an absolute rule. Documented exception: `github.com/minio/selfupdate` (+ its one transitive `aead.dev/minisign`) for `grant update`, adopted to remove the abandoned `rhysd/go-github-selfupdate` and advisory GO-2026-5932. Net effect: build graph (`go list -deps`) 39 -> 33 modules, `go.mod` requires 47 -> 39, full module graph (`go list -m all`) 110 -> 95
 
 ## SDK Import Conventions
 ```go
@@ -79,6 +79,7 @@ Custom `SCAAccessService` follows SDK conventions:
 - `httptest.NewServer` for service mocks
 - `httpClient` interface for DI
 - Test files co-located as `_test.go`
+- Tests that swap a package-level var (e.g. `ui.IsTerminalFunc`, `recordSessionTimestamp`, `getAuth`) MUST NOT call `t.Parallel()` — `-race` flags concurrent access to the global. Mark them with a `// Not parallel: mutates the package-global X.` comment. This is why the `cmd` package tests are all serial.
 
 ## CLI
 - `spf13/cobra` for CLI framework
@@ -95,7 +96,15 @@ Custom `SCAAccessService` follows SDK conventions:
 - `grant request cancel [id]` — cancel an open request; optional `--reason`. Omitting `<id>` in a TTY opens a picker scoped to STARTING/RUNNING/PENDING requests you created (role=CREATOR)
 - `grant request approve [id]` / `grant request reject [id]` — finalize a request; optional `--reason`. Omitting `<id>` in a TTY opens a picker scoped to PENDING requests assigned to you (role=APPROVER)
 - Request picker: `internal/ui/request_selector.go` mirrors the role-selector Format/Build/Select quartet; `resolveRequestIDFn` in `cmd/request_picker.go` is injectable for tests. Non-TTY invocation without `<id>` returns `ErrNotInteractive` with a hint to run `grant request list`
-- `grant update` — self-update binary via GitHub Releases (`rhysd/go-github-selfupdate`); guards against dev builds
+- `grant update` — self-update binary via GitHub Releases; guards against dev builds. Implemented in `internal/selfupdate/`:
+  - Discovery: `GET https://api.github.com/repos/aaearon/grant-cli/releases/latest` (`apiBaseURL` field injectable for tests)
+  - Version compare: in-house SemVer 2.0.0 parser (`ParseVersion`/`CompareVersions`). Handles pre-release and build metadata (GoReleaser can emit both) with SemVer precedence: build metadata ignored for ordering, pre-release sorts before its release. A leading `v`/`V` is tolerated; leading zeroes are rejected
+  - Asset selection: `grant-cli_<version>_<goos>_<goarch>.tar.gz` (`.zip` on windows) — must stay in sync with `.goreleaser.yaml`
+  - Integrity: SHA-256 of the archive checked against the release's `checksums.txt` (GNU `*filename` binary marker tolerated). **Trust model:** `checksums.txt` comes from the same origin as the archive, so it defends against corrupted/tampered downloads in transit, **not** against a compromised GitHub account or release pipeline. Signature verification would be needed for that. Note the checksum covers the *archive*, not the extracted binary — hence the independent size checks below
+  - Extraction: `archive/tar`+`compress/gzip` / `archive/zip`. Rejects absolute, drive-absolute (`C:\`), UNC and `..` paths (gosec G305); accepts only a single `grant`/`grant.exe` at the archive root (nested entries and duplicate candidates are errors). Size cap is 128 MiB (`maxDownloadBytes`), enforced by `readCapped`, which probes one byte past the cap — a bare `io.LimitReader` reports a *successful* short read and would silently install a truncated binary (gosec G110). `maxDownloadBytes` is a var only so tests can shrink it — mutate it exclusively through the `withMaxDownloadBytes(t, n)` helper (restores via `t.Cleanup`), and never call `t.Parallel()` in a test that does
+  - Apply: `github.com/minio/selfupdate` v0.6.0 owns the staged-file write, the two-rename swap including the Windows path, and rollback — do not hand-roll this. grant adds the `fsync` of the staged file (minio does not sync) plus a best-effort directory sync. Seams: `applyWithOptions`, `prepareFn`, `commitFn` in `internal/selfupdate/apply.go`
+  - **Atomicity, precisely:** each rename is atomic, so the installed binary is never partially written. The *pair* is not: a kill between the two renames, or a failed second rename whose rollback also fails, leaves the binary path absent with `.grant.old`/`.grant.new` beside it. `InterruptedUpdate()` detects that state and `recoveryHint()` prints the `mv` command that fixes it. Do not describe this as fully atomic
+  - `selfUpdater` in `cmd/interfaces.go` is defined over grant-owned types: `UpdateSelf(ctx, current string) (newVersion string, updated bool, err error)`
 - `--groups` flag on root command shows only Entra ID groups in the interactive selector
 - `--group` / `-g` flag on root command for direct group membership elevation (`grant --group "Cloud Admins"`)
 - Root command unified selector shows both cloud roles and Entra ID groups; groups use `/eligibility/groups` and `/elevate/groups` API endpoints
@@ -142,7 +151,8 @@ Custom `SCAAccessService` follows SDK conventions:
 
 ## Config
 - App config: `~/.grant/config.yaml`
-- SDK profile: `~/.idsec_profiles/grant`
+- SDK profile: `~/.idsec/profiles/grant` (default; override via `IDSEC_PROFILES_FOLDER`)
+- Always resolve the profile directory with `profiles.GetProfilesFolder()` (SDK) — never hand-roll it. The SDK reads `os.Getenv("HOME")`, not `os.UserHomeDir()`; on Windows `HOME` is frequently unset, so it resolves to a **relative** `.idsec/profiles` under the process CWD. Any code that prints or computes the profile path must agree with the loader, so reproduce the SDK's behavior rather than "correcting" it
 
 ## Authentication
 - Use the `/grant-login` skill when you need to authenticate to the grant CLI (e.g., before manual testing)
@@ -151,8 +161,9 @@ Custom `SCAAccessService` follows SDK conventions:
 
 ## Lint
 - Config: `.golangci.yml` (golangci-lint v1 format)
-- 19 linters enabled: defaults (errcheck, gosimple, govet, ineffassign, staticcheck, unused) + bodyclose, errorlint, noctx, gosec (G101 excluded), errname, gocritic, misspell, revive, gocognit (threshold 40), perfsprint, unconvert, usetesting
-- Test files excluded from gosec, gocognit, bodyclose
+- 20 linters enabled: defaults (errcheck, gosimple, govet, ineffassign, staticcheck, unused) + bodyclose, errorlint, noctx, gosec (G101 excluded), errname, gocritic, misspell, revive, gocognit (threshold 40), perfsprint, unconvert, usetesting, gofmt (`simplify: true`)
+- Test files excluded from gosec, gocognit, bodyclose — `gofmt` has no exclusion, formatting is universal
+- Run `gofmt -s -w .` before committing; `gofumpt` was rejected because the codebase is not gofumpt-clean
 - `revive/unused-parameter` and `revive/exported` disabled (Cobra signatures, established API names)
 - Use `errors.New` for static error strings (perfsprint enforced); `fmt.Errorf` only with `%` verbs
 - Use `t.Context()` instead of `context.Background()` in tests (usetesting enforced)

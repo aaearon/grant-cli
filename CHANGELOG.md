@@ -12,7 +12,6 @@ All notable changes to this project will be documented in this file.
   - `github.com/spf13/cobra` v1.9.1 → v1.10.2
   - `github.com/spf13/pflag` v1.0.6 → v1.0.10 (indirect)
   - `github.com/mattn/go-isatty` v0.0.20 → v0.0.24
-  - `github.com/ulikunitz/xz` v0.5.9 → v0.5.16 (indirect)
   - `golang.org/x/crypto` v0.45.0 → v0.55.0 (indirect)
   - `golang.org/x/net` v0.47.0 → v0.58.0 (indirect)
   - `github.com/dvsekhvalnov/jose2go` v1.5.0 → v1.7.0 (indirect)
@@ -22,14 +21,27 @@ All notable changes to this project will be documented in this file.
   - `golang.org/x/text` v0.31.0 → v0.41.0 (indirect)
 - SDK v0.8.1 enables automatic retries on HTTP 429 and transient transport errors by default. `grant` disables these on its SCA and UAR service clients (see the retry-policy change) because `Elevate` and `SubmitRequest` are non-idempotent POSTs with no idempotency header.
 - SDK v0.8.1 changes 401 / re-authentication handling: the rejected response is drained, a token refresh is forced, a concurrently-refreshed token is adopted rather than duplicated, and cookie-decode errors that were previously silently ignored are now propagated.
-- No new modules enter the compiled binary: `go list -e -deps` reports 38 → 38 external modules (0 delta) and 309 → 310 packages, the single addition being the SDK's own `pkg/common/pvwa`. `go list -m all` grows 110 → 124 selected modules, but none of the additions are in the linked graph. Binary size 13,529,380 → 13,652,260 bytes (+0.91%).
 - Disabled the SDK v0.8.1 automatic transient-retry on both the SCA and Access Requests (UAR) HTTP clients (`internal/sdkclient.DisableTransientRetry`). The SDK retries HTTP 429 with no method filter and bare `EOF` transport errors for any method including POST, which could replay non-idempotent requests (duplicate elevation or a duplicate access request in an approver's queue). Read paths lose automatic rate-limit retry; a 429 now surfaces as an error
-- Reduced `govulncheck` findings from 34 vulnerabilities across 4 modules to 26 (25 of which are Go standard library issues fixed in go1.25.x patch releases, plus the unmaintained `golang.org/x/crypto/openpgp` pulled in by `rhysd/go-github-selfupdate`)
+- `grant update` no longer depends on the abandoned `github.com/rhysd/go-github-selfupdate` (last commit Jan 2021). Release discovery, version comparison, asset selection, checksum verification and archive extraction are now implemented in-house in `internal/selfupdate/`; the binary swap (staged sibling file, the two-rename dance including the Windows path, and rollback) is delegated to `github.com/minio/selfupdate` v0.6.0, with grant adding an `fsync` of the staged file before the swap
+- **Replacement guarantees, stated precisely.** Each rename is individually atomic, so the installed binary is never a partially written file. The *pair* of renames is not atomic: if the process is killed between them, or if the second rename and the rollback both fail, the binary path is left absent with `.grant.old` and `.grant.new` beside it. grant now detects that state and prints the exact `mv` command that restores the previous binary
+- Dependency graph, after the selfupdate replacement and the SDK upgrade together. Build graph (`go list -deps`, the modules actually compiled in): 39 → 33. `go.mod` require directives: 47 → 39 (indirect 40 → 33). Full module graph (`go list -m all`): 110 → 109 — the selfupdate replacement removed 15 and SDK v0.8.1 adds 14 back, but none of the SDK's additions are in the linked graph. The only genuinely new module paths in the build graph are `github.com/minio/selfupdate` and `aead.dev/minisign`. Removed `blang/semver`, `rhysd/go-github-selfupdate`, `google/go-github/v30`, `google/go-querystring`, `golang.org/x/oauth2` (a Nov 2018 pseudo-version), `golang/protobuf`, `google.golang.org/appengine`, `tcnksm/go-gitconfig`, `inconshreveable/go-update` and `ulikunitz/xz`
+
+### Security
+
+- `grant update` now verifies the downloaded archive's SHA-256 against the release's `checksums.txt` before replacing the binary. Previously no validation was performed at all (`selfupdate.DefaultUpdater()` ships a nil `Validator`). Note the trust model: `checksums.txt` is fetched from the same origin as the archive, so this protects against corrupted or tampered downloads in transit, not against a compromised GitHub account or release pipeline
+- Archive extraction now rejects oversized entries instead of silently truncating them at the 128 MiB cap, rejects drive-absolute (`C:\...`) and UNC archive paths alongside `..` traversal, and only accepts the binary at the archive root (never a nested entry, never two candidates)
+- Removes `golang.org/x/crypto/openpgp` from the build graph, clearing advisory GO-2026-5932 (unmaintained package, no fix available). Dropping `ulikunitz/xz` also clears GO-2025-3922
+- `govulncheck` findings drop from 34 vulnerabilities across 4 modules to 25, all of which are Go standard library issues fixed in go1.25.x patch releases. No third-party module in the build graph has a called vulnerability
+
+### Fixed
+
+- `grant configure` no longer reports a stale SDK profile location. The help text and the "Profile saved to" success message printed `~/.idsec_profiles/grant`, which has been wrong since the SDK upgrade in v0.7.0. The path is now resolved with the SDK's own `profiles.GetProfilesFolder()`, so it always matches the directory the profile loader reads (`~/.idsec/profiles/grant` by default, or `IDSEC_PROFILES_FOLDER` when set).
 
 ## [0.7.0] - 2026-04-21
 
 ### Changed
 
+- **Profile location moved.** As a side effect of the SDK upgrade, the SDK profile directory changed from `~/.idsec_profiles/` to `~/.idsec/profiles/` (override with `IDSEC_PROFILES_FOLDER`). Users upgrading from v0.6.x or earlier must either re-run `grant configure` (recommended) or move the old file into place. If a profile already exists at the new location it is the current one and must win, so use the no-clobber form (`-n` is supported by both GNU and BSD/macOS `mv`): `mkdir -p ~/.idsec/profiles && mv -n ~/.idsec_profiles/grant ~/.idsec/profiles/grant`.
 - Upgraded `github.com/cyberark/idsec-sdk-golang` from v0.1.14 to v0.2.3. `isp.FromISPAuth` now takes a retry-strategy argument; we pass `nil` to preserve v0.1.14 behavior (which itself defaulted to nil internally). No new direct Go module dependencies; indirect dep set is smaller
 - `--output json` is now a pure serialisation flag; it no longer forces non-interactive mode. Interactive pickers and prompts (e.g. `grant request get -o json` with no ID, `grant request submit -o json` without `--target`/`--role`) work in a TTY, writing prompts to stderr and JSON to stdout.
 

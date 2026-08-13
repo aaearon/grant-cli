@@ -65,6 +65,6 @@ func (t *EligibleTarget) UnmarshalJSON(data []byte) error {
 // EligibilityResponse is the response from GET /api/access/{CSP}/eligibility.
 type EligibilityResponse struct {
 	Response  []EligibleTarget `json:"response"`
-	NextToken *string               `json:"nextToken"`
-	Total     int                   `json:"total"`
+	NextToken *string          `json:"nextToken"`
+	Total     int              `json:"total"`
 }

@@ -6,10 +6,8 @@ import (
 	"github.com/aaearon/grant-cli/internal/sca/models"
 	"github.com/aaearon/grant-cli/internal/workflows"
 	wfmodels "github.com/aaearon/grant-cli/internal/workflows/models"
-	"github.com/blang/semver"
 	sdkmodels "github.com/cyberark/idsec-sdk-golang/pkg/models"
 	authmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
-	"github.com/rhysd/go-github-selfupdate/selfupdate"
 )
 
 // authLoader interface for loading authentication
@@ -87,9 +85,10 @@ type unifiedSelector interface {
 	SelectItem(items []selectionItem) (*selectionItem, error)
 }
 
-// selfUpdater interface for self-updating the binary via GitHub Releases
+// selfUpdater interface for self-updating the binary via GitHub Releases.
+// Returns the latest published version and whether the binary was replaced.
 type selfUpdater interface {
-	UpdateSelf(current semver.Version, slug string) (*selfupdate.Release, error)
+	UpdateSelf(ctx context.Context, current string) (newVersion string, updated bool, err error)
 }
 
 // accessRequestService interface for access request operations
@@ -100,4 +99,3 @@ type accessRequestService interface {
 	CancelRequest(ctx context.Context, requestID string, reason *string) (*wfmodels.AccessRequest, error)
 	FinalizeRequest(ctx context.Context, requestID string, result string, reason *string) (*wfmodels.AccessRequest, error)
 }
-
