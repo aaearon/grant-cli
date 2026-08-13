@@ -3,6 +3,7 @@ package cache
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -92,6 +93,9 @@ func TestSet_CreatesDirectory(t *testing.T) {
 
 func TestSet_FilePermissions(t *testing.T) {
 	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("Go synthesizes 0666/0444 for Windows files; POSIX permission bits are not modeled there")
+	}
 	dir := t.TempDir()
 	s := NewStore(dir, 4*time.Hour)
 

@@ -11,7 +11,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
-- Skipped two Unix-only assertions in `internal/config` tests (POSIX permission bits, `HOME`) on Windows.
+- Made the test suite pass on Windows: skipped Unix-only assertions in `internal/config` (POSIX permission bits, `HOME`) and `internal/cache` (`0600` cache-file mode, which Go reports as `0666` on Windows), and reworked `cmd`'s `config save error` case to block the write with a path under an existing regular file instead of a hardcoded `/dev/null` path.
 
 ## [0.7.0] - 2026-04-21
 
