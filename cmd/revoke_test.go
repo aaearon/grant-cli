@@ -358,7 +358,7 @@ func TestRevokeCommand(t *testing.T) {
 			setupLister: func() *mockSessionLister {
 				return &mockSessionLister{sessions: activeSessions}
 			},
-			setupElig: func() *mockEligibilityLister { return &mockEligibilityLister{} },
+			setupElig:    func() *mockEligibilityLister { return &mockEligibilityLister{} },
 			setupRevoker: func() *mockSessionRevoker { return &mockSessionRevoker{} },
 			setupSelector: func() *mockSessionSelector {
 				return &mockSessionSelector{selectErr: errors.New("prompt interrupted")}

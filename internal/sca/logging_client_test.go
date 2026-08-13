@@ -209,10 +209,10 @@ func TestLoggingClient_DebugLogsHeaders(t *testing.T) {
 
 func TestRedactHeaders(t *testing.T) {
 	tests := []struct {
-		name     string
-		headers  http.Header
-		wantHas  string
-		wantNot  string
+		name    string
+		headers http.Header
+		wantHas string
+		wantNot string
 	}{
 		{
 			name: "redacts Authorization",

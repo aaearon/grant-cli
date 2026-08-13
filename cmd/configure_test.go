@@ -373,4 +373,3 @@ func TestValidateTenantURL(t *testing.T) {
 		})
 	}
 }
-

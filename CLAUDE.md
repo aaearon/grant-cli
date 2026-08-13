@@ -139,8 +139,9 @@ Custom `SCAAccessService` follows SDK conventions:
 
 ## Lint
 - Config: `.golangci.yml` (golangci-lint v1 format)
-- 19 linters enabled: defaults (errcheck, gosimple, govet, ineffassign, staticcheck, unused) + bodyclose, errorlint, noctx, gosec (G101 excluded), errname, gocritic, misspell, revive, gocognit (threshold 40), perfsprint, unconvert, usetesting
-- Test files excluded from gosec, gocognit, bodyclose
+- 20 linters enabled: defaults (errcheck, gosimple, govet, ineffassign, staticcheck, unused) + bodyclose, errorlint, noctx, gosec (G101 excluded), errname, gocritic, misspell, revive, gocognit (threshold 40), perfsprint, unconvert, usetesting, gofmt (`simplify: true`)
+- Test files excluded from gosec, gocognit, bodyclose — `gofmt` has no exclusion, formatting is universal
+- Run `gofmt -s -w .` before committing; `gofumpt` was rejected because the codebase is not gofumpt-clean
 - `revive/unused-parameter` and `revive/exported` disabled (Cobra signatures, established API names)
 - Use `errors.New` for static error strings (perfsprint enforced); `fmt.Errorf` only with `%` verbs
 - Use `t.Context()` instead of `context.Background()` in tests (usetesting enforced)

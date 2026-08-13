@@ -301,4 +301,3 @@ func (c *countingEligibilityLister) CallCount(csp models.CSP) int {
 	defer c.mu.Unlock()
 	return c.counts[csp]
 }
-
