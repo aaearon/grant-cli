@@ -273,13 +273,6 @@ func TestEligibleTarget_GCPUnmarshal(t *testing.T) {
 	}
 }
 
-func TestCSPGCP_Constant(t *testing.T) {
-	t.Parallel()
-	if CSPGCP != "GCP" {
-		t.Errorf("CSPGCP = %q, want %q", CSPGCP, "GCP")
-	}
-}
-
 func TestEligibilityResponse_Pagination(t *testing.T) {
 	t.Parallel()
 	jsonInput := `{

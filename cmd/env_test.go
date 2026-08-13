@@ -156,6 +156,40 @@ func TestEnvDoesNotElevateForNonAWSProvider(t *testing.T) {
 	}
 }
 
+// TestRequireAWSTarget pins the pre-flight decision for each CSP, including
+// the fail-closed behavior for an unresolved CSP.
+func TestRequireAWSTarget(t *testing.T) {
+	tests := []struct {
+		name        string
+		csp         models.CSP
+		wantErr     bool
+		wantContain string
+	}{
+		{name: "aws passes", csp: models.CSPAWS},
+		{name: "azure rejected", csp: models.CSPAzure, wantErr: true, wantContain: "az CLI session"},
+		{name: "gcp rejected", csp: models.CSPGCP, wantErr: true, wantContain: "gcloud CLI session"},
+		{name: "unresolved CSP fails closed", csp: "", wantErr: true, wantContain: "could not determine the cloud provider"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := requireAWSTarget(&models.EligibleTarget{
+				CSP:           tt.csp,
+				WorkspaceName: "Some Workspace",
+			})
+			if tt.wantErr && err == nil {
+				t.Fatalf("expected error for CSP %q", tt.csp)
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("unexpected error for CSP %q: %v", tt.csp, err)
+			}
+			if tt.wantContain != "" && !strings.Contains(err.Error(), tt.wantContain) {
+				t.Errorf("error %q missing %q", err.Error(), tt.wantContain)
+			}
+		})
+	}
+}
+
 // TestEnvElevatesOnceForAWS is the companion to the pre-flight validation test.
 func TestEnvElevatesOnceForAWS(t *testing.T) {
 	credsJSON := `{"aws_access_key":"ASIAXXX","aws_secret_access_key":"secret","aws_session_token":"tok"}`

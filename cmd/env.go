@@ -81,12 +81,18 @@ func NewEnvCommandWithDeps(
 	})
 }
 
-// requireAWSTarget rejects non-AWS targets before an elevation is performed.
-// An unresolved CSP is allowed through, so the post-elevation credential check
-// remains the fallback.
+// requireAWSTarget rejects any target that is not known to be AWS before an
+// elevation is performed. It fails closed: an unresolved CSP is rejected rather
+// than elevated speculatively, since the whole point of the pre-flight check is
+// to avoid creating a session we cannot use.
 func requireAWSTarget(target *models.EligibleTarget) error {
-	if target.CSP == "" || target.CSP == models.CSPAWS {
+	switch target.CSP {
+	case models.CSPAWS:
 		return nil
+	case "":
+		return fmt.Errorf(
+			"could not determine the cloud provider for target %q; grant env is only supported for AWS — run 'grant --provider aws' or pass --provider",
+			target.WorkspaceName)
 	}
 	provider := strings.ToLower(string(target.CSP))
 	return fmt.Errorf(

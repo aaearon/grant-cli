@@ -950,6 +950,80 @@ func TestRunRequestSubmit_GCPUnsupported(t *testing.T) {
 	}
 }
 
+// TestRunRequestSubmit_GCPWorkspaceWithRoleIDRejected covers the bypass around
+// the --provider guard: no --provider, a GCP workspace picked by target
+// resolution, and --role-id supplied so interactive role discovery (and its
+// own GCP guard) never runs. The request must still be rejected, and never
+// submitted.
+func TestRunRequestSubmit_GCPWorkspaceWithRoleIDRejected(t *testing.T) {
+	tests := []struct {
+		name string
+		ws   *submitWorkspace
+	}{
+		{
+			name: "CSP tagged by multi-provider fan-out",
+			ws: &submitWorkspace{
+				WorkspaceName:  "My GCP Project",
+				WorkspaceID:    "proj-1",
+				WorkspaceType:  models.WorkspaceTypeProject,
+				CSP:            models.CSPGCP,
+				OrganizationID: "123456789012",
+			},
+		},
+		{
+			name: "CSP untagged, GCP workspace type only",
+			ws: &submitWorkspace{
+				WorkspaceName:  "Engineering",
+				WorkspaceID:    "folders/42",
+				WorkspaceType:  models.WorkspaceTypeFolder,
+				OrganizationID: "123456789012",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			originalResolve := resolveSubmitTargetFn
+			originalRole := resolveRoleFn
+			defer func() {
+				resolveSubmitTargetFn = originalResolve
+				resolveRoleFn = originalRole
+			}()
+
+			resolveSubmitTargetFn = func(_ context.Context, provider, _ string, _ bool) (*submitWorkspace, error) {
+				if provider != "" {
+					t.Errorf("expected empty provider, got %q", provider)
+				}
+				return tt.ws, nil
+			}
+			resolveRoleFn = func(_ context.Context, _ *submitWorkspace, _ bool) (string, string, error) {
+				t.Fatal("role resolution should not run for a GCP workspace")
+				return "", "", nil
+			}
+
+			svc := &mockAccessRequestService{}
+			cmd := NewRequestCommandWithDeps(svc)
+			root := newTestRootCommand()
+			root.AddCommand(cmd)
+
+			_, err := executeCommand(root, "request", "submit",
+				"--role-id", "roles/editor",
+				"--reason", "test", "--date", "2026-04-21",
+				"--timezone", "UTC", "--from", "09:00", "--to", "17:00",
+				"--yes")
+			if err == nil {
+				t.Fatal("expected error for GCP workspace")
+			}
+			if !strings.Contains(err.Error(), "not supported for GCP") {
+				t.Errorf("error %q does not say GCP is unsupported", err.Error())
+			}
+			if svc.submitRequest != nil {
+				t.Errorf("request must not be submitted, got %+v", svc.submitRequest)
+			}
+		})
+	}
+}
+
 func TestRunRequestSubmit_ConfirmationDenied(t *testing.T) {
 	original := resolveSubmitTargetFn
 	originalConfirm := confirmSubmitFn

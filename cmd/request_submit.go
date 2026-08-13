@@ -221,7 +221,7 @@ func runRequestSubmit(cmd *cobra.Command, svc accessRequestService) error {
 			return err
 		}
 		if csp == models.CSPGCP {
-			return errors.New("grant request submit is not supported for GCP")
+			return errGCPRequestUnsupported
 		}
 	}
 
@@ -236,6 +236,13 @@ func runRequestSubmit(cmd *cobra.Command, svc accessRequestService) error {
 	// 1. Workspace
 	workspace, err := resolveSubmitTargetFn(ctx, provider, targetName, refresh)
 	if err != nil {
+		return err
+	}
+
+	// GCP is out of scope for access requests. This is the authoritative check:
+	// it runs whether or not --provider was given, and before the role is
+	// resolved, so --role-id cannot skip it.
+	if err := rejectGCPWorkspace(workspace); err != nil {
 		return err
 	}
 
@@ -356,6 +363,25 @@ func resolveSubmitFields(cmd *cobra.Command) (*submitFields, error) {
 		f.timeTo = prompted.timeTo
 	}
 	return f, nil
+}
+
+// errGCPRequestUnsupported is returned for any GCP workspace reaching
+// 'grant request submit'.
+var errGCPRequestUnsupported = errors.New("grant request submit is not supported for GCP")
+
+// rejectGCPWorkspace rejects GCP workspaces. It matches on the CSP tag (set by
+// the multi-provider fan-out) and on the GCP workspace types, so a workspace is
+// caught even when eligibility was fetched for a single provider and left the
+// CSP field empty.
+func rejectGCPWorkspace(ws *submitWorkspace) error {
+	if ws.CSP == models.CSPGCP {
+		return errGCPRequestUnsupported
+	}
+	switch ws.WorkspaceType {
+	case models.WorkspaceTypeProject, models.WorkspaceTypeFolder, models.WorkspaceTypeGCPOrganization:
+		return errGCPRequestUnsupported
+	}
+	return nil
 }
 
 func resolveSubmitTarget(ctx context.Context, provider, targetName string, refresh bool) (*submitWorkspace, error) {
