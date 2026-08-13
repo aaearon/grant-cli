@@ -7,15 +7,31 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - Rebranded user-facing references from CyberArk to Idira (formerly CyberArk) in the README and CLI help/prompt text, following the Palo Alto Networks rebrand. No functional or API changes; SDK import paths (`github.com/cyberark/idsec-sdk-golang`), `*.cyberark.cloud` URLs, and environment variables are unchanged.
+- Upgraded dependencies:
+  - `github.com/cyberark/idsec-sdk-golang` v0.2.3 → v0.8.1
+  - `github.com/spf13/cobra` v1.9.1 → v1.10.2
+  - `github.com/spf13/pflag` v1.0.6 → v1.0.10 (indirect)
+  - `github.com/mattn/go-isatty` v0.0.20 → v0.0.24
+  - `golang.org/x/crypto` v0.45.0 → v0.55.0 (indirect)
+  - `golang.org/x/net` v0.47.0 → v0.58.0 (indirect)
+  - `github.com/dvsekhvalnov/jose2go` v1.5.0 → v1.7.0 (indirect)
+  - `github.com/golang-jwt/jwt/v5` v5.2.2 → v5.3.1 (indirect)
+  - `golang.org/x/sys` v0.38.0 → v0.47.0 (indirect)
+  - `golang.org/x/term` v0.37.0 → v0.45.0 (indirect)
+  - `golang.org/x/text` v0.31.0 → v0.41.0 (indirect)
+- SDK v0.8.1 enables automatic retries on HTTP 429 and transient transport errors by default. `grant` disables these on its SCA and UAR service clients (see the retry-policy change) because `Elevate` and `SubmitRequest` are non-idempotent POSTs with no idempotency header.
+- SDK v0.8.1 changes 401 / re-authentication handling: the rejected response is drained, a token refresh is forced, a concurrently-refreshed token is adopted rather than duplicated, and cookie-decode errors that were previously silently ignored are now propagated.
+- Disabled the SDK v0.8.1 automatic transient-retry on both the SCA and Access Requests (UAR) HTTP clients (`internal/sdkclient.DisableTransientRetry`). The SDK retries HTTP 429 with no method filter and bare `EOF` transport errors for any method including POST, which could replay non-idempotent requests (duplicate elevation or a duplicate access request in an approver's queue). Read paths lose automatic rate-limit retry; a 429 now surfaces as an error
 - `grant update` no longer depends on the abandoned `github.com/rhysd/go-github-selfupdate` (last commit Jan 2021). Release discovery, version comparison, asset selection, checksum verification and archive extraction are now implemented in-house in `internal/selfupdate/`; the binary swap (staged sibling file, the two-rename dance including the Windows path, and rollback) is delegated to `github.com/minio/selfupdate` v0.6.0, with grant adding an `fsync` of the staged file before the swap
 - **Replacement guarantees, stated precisely.** Each rename is individually atomic, so the installed binary is never a partially written file. The *pair* of renames is not atomic: if the process is killed between them, or if the second rename and the rollback both fail, the binary path is left absent with `.grant.old` and `.grant.new` beside it. grant now detects that state and prints the exact `mv` command that restores the previous binary
-- Dependency graph shrinks. Build graph (`go list -deps`, the modules actually compiled in): 39 -> 33. `go.mod` require directives: 47 -> 39 (indirect 40 -> 33). Full module graph (`go list -m all`): 110 -> 95. The only genuinely new module paths are `github.com/minio/selfupdate` and `aead.dev/minisign`. Removed `blang/semver`, `rhysd/go-github-selfupdate`, `google/go-github/v30`, `google/go-querystring`, `golang.org/x/oauth2` (a Nov 2018 pseudo-version), `golang/protobuf`, `google.golang.org/appengine`, `tcnksm/go-gitconfig`, `inconshreveable/go-update` and `ulikunitz/xz`
+- Dependency graph, after the selfupdate replacement and the SDK upgrade together. Build graph (`go list -deps`, the modules actually compiled in): 39 → 33. `go.mod` require directives: 47 → 39 (indirect 40 → 33). Full module graph (`go list -m all`): 110 → 109 — the selfupdate replacement removed 15 and SDK v0.8.1 adds 14 back, but none of the SDK's additions are in the linked graph. The only genuinely new module paths in the build graph are `github.com/minio/selfupdate` and `aead.dev/minisign`. Removed `blang/semver`, `rhysd/go-github-selfupdate`, `google/go-github/v30`, `google/go-querystring`, `golang.org/x/oauth2` (a Nov 2018 pseudo-version), `golang/protobuf`, `google.golang.org/appengine`, `tcnksm/go-gitconfig`, `inconshreveable/go-update` and `ulikunitz/xz`
 
 ### Security
 
 - `grant update` now verifies the downloaded archive's SHA-256 against the release's `checksums.txt` before replacing the binary. Previously no validation was performed at all (`selfupdate.DefaultUpdater()` ships a nil `Validator`). Note the trust model: `checksums.txt` is fetched from the same origin as the archive, so this protects against corrupted or tampered downloads in transit, not against a compromised GitHub account or release pipeline
 - Archive extraction now rejects oversized entries instead of silently truncating them at the 128 MiB cap, rejects drive-absolute (`C:\...`) and UNC archive paths alongside `..` traversal, and only accepts the binary at the archive root (never a nested entry, never two candidates)
 - Removes `golang.org/x/crypto/openpgp` from the build graph, clearing advisory GO-2026-5932 (unmaintained package, no fix available). Dropping `ulikunitz/xz` also clears GO-2025-3922
+- `govulncheck` findings drop from 34 vulnerabilities across 4 modules to 25, all of which are Go standard library issues fixed in go1.25.x patch releases. No third-party module in the build graph has a called vulnerability
 
 ### Fixed
 

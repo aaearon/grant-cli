@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/aaearon/grant-cli/internal/sdkclient"
 	"github.com/aaearon/grant-cli/internal/workflows/models"
 	"github.com/cyberark/idsec-sdk-golang/pkg/auth"
 	"github.com/cyberark/idsec-sdk-golang/pkg/common"
@@ -56,6 +57,12 @@ func NewAccessRequestService(authenticators ...auth.IdsecAuth) (*AccessRequestSe
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ISP client: %w", err)
 	}
+
+	// Disable the SDK's automatic transient retry. SDK v0.8.1 retries 429s with
+	// no method filter (idsec_client.go:865-885) and bare EOF transport errors
+	// for any method including POST (:1252-1266); a replayed submit would put a
+	// duplicate access request in front of approvers.
+	sdkclient.DisableTransientRetry(client.IdsecClient)
 
 	svc.httpClient = newLoggingClient(client, common.GetLogger("grant", -1))
 
