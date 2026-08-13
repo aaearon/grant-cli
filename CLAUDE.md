@@ -66,6 +66,7 @@ Custom `SCAAccessService` follows SDK conventions:
 - `httptest.NewServer` for service mocks
 - `httpClient` interface for DI
 - Test files co-located as `_test.go`
+- Tests that swap a package-level var (e.g. `ui.IsTerminalFunc`, `recordSessionTimestamp`, `getAuth`) MUST NOT call `t.Parallel()` — `-race` flags concurrent access to the global. Mark them with a `// Not parallel: mutates the package-global X.` comment. This is why the `cmd` package tests are all serial.
 
 ## CLI
 - `spf13/cobra` for CLI framework
