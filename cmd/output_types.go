@@ -2,11 +2,11 @@ package cmd
 
 // cloudElevationOutput is the JSON representation of a cloud elevation result.
 type cloudElevationOutput struct {
-	Type        string              `json:"type"`
-	Provider    string              `json:"provider"`
-	SessionID   string              `json:"sessionId"`
-	Target      string              `json:"target"`
-	Role        string              `json:"role"`
+	Type        string               `json:"type"`
+	Provider    string               `json:"provider"`
+	SessionID   string               `json:"sessionId"`
+	Target      string               `json:"target"`
+	Role        string               `json:"role"`
 	Credentials *awsCredentialOutput `json:"credentials,omitempty"`
 }
 

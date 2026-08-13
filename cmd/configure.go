@@ -8,11 +8,11 @@ import (
 	"path/filepath"
 	"strings"
 
+	survey "github.com/Iilun/survey/v2"
 	"github.com/aaearon/grant-cli/internal/config"
 	"github.com/cyberark/idsec-sdk-golang/pkg/models"
 	authmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
 	"github.com/cyberark/idsec-sdk-golang/pkg/profiles"
-	survey "github.com/Iilun/survey/v2"
 	"github.com/spf13/cobra"
 )
 

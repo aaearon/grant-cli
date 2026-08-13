@@ -43,10 +43,10 @@ type AccessRequest struct {
 
 // Entity represents a user or approver identity.
 type Entity struct {
-	EntityID            string           `json:"entityId"`
-	EntityName          string           `json:"entityName"`
-	EntityDisplayName   string           `json:"entityDisplayName,omitempty"`
-	EntityEmail         string           `json:"entityEmail,omitempty"`
+	EntityID              string           `json:"entityId"`
+	EntityName            string           `json:"entityName"`
+	EntityDisplayName     string           `json:"entityDisplayName,omitempty"`
+	EntityEmail           string           `json:"entityEmail,omitempty"`
 	EntityDirectorySource *DirectorySource `json:"entityDirectorySource,omitempty"`
 }
 
