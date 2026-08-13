@@ -46,6 +46,7 @@ All notable changes to this project will be documented in this file.
 
 - `grant configure` no longer reports a stale SDK profile location. The help text and the "Profile saved to" success message printed `~/.idsec_profiles/grant`, which has been wrong since the SDK upgrade in v0.7.0. The path is now resolved with the SDK's own `profiles.GetProfilesFolder()`, so it always matches the directory the profile loader reads (`~/.idsec/profiles/grant` by default, or `IDSEC_PROFILES_FOLDER` when set).
 - Made the test suite pass on Windows: skipped Unix-only assertions in `internal/config` (POSIX permission bits, `HOME`) and `internal/cache` (`0600` cache-file mode, which Go reports as `0666` on Windows), and reworked `cmd`'s `config save error` case to block the write with a path under an existing regular file instead of a hardcoded `/dev/null` path.
+- Made `internal/selfupdate` pass on Windows: the `unwritable target directory` case is skipped (a `0500` chmod does not deny directory writes there), and the recovery-hint assertion now compares against the `%q`-quoted path, which escapes the backslashes in a Windows path.
 
 ## [0.7.0] - 2026-04-21
 
