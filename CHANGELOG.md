@@ -7,6 +7,23 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - Rebranded user-facing references from CyberArk to Idira (formerly CyberArk) in the README and CLI help/prompt text, following the Palo Alto Networks rebrand. No functional or API changes; SDK import paths (`github.com/cyberark/idsec-sdk-golang`), `*.cyberark.cloud` URLs, and environment variables are unchanged.
+- Upgraded dependencies:
+  - `github.com/cyberark/idsec-sdk-golang` v0.2.3 → v0.8.1
+  - `github.com/spf13/cobra` v1.9.1 → v1.10.2
+  - `github.com/spf13/pflag` v1.0.6 → v1.0.10 (indirect)
+  - `github.com/mattn/go-isatty` v0.0.20 → v0.0.24
+  - `github.com/ulikunitz/xz` v0.5.9 → v0.5.16 (indirect)
+  - `golang.org/x/crypto` v0.45.0 → v0.55.0 (indirect)
+  - `golang.org/x/net` v0.47.0 → v0.58.0 (indirect)
+  - `github.com/dvsekhvalnov/jose2go` v1.5.0 → v1.7.0 (indirect)
+  - `github.com/golang-jwt/jwt/v5` v5.2.2 → v5.3.1 (indirect)
+  - `golang.org/x/sys` v0.38.0 → v0.47.0 (indirect)
+  - `golang.org/x/term` v0.37.0 → v0.45.0 (indirect)
+  - `golang.org/x/text` v0.31.0 → v0.41.0 (indirect)
+- SDK v0.8.1 enables automatic retries on HTTP 429 and transient transport errors by default. `grant` disables these on its SCA and UAR service clients (see the retry-policy change) because `Elevate` and `SubmitRequest` are non-idempotent POSTs with no idempotency header.
+- SDK v0.8.1 changes 401 / re-authentication handling: the rejected response is drained, a token refresh is forced, a concurrently-refreshed token is adopted rather than duplicated, and cookie-decode errors that were previously silently ignored are now propagated.
+- No new modules enter the compiled binary: `go list -e -deps` reports 38 → 38 external modules (0 delta) and 309 → 310 packages, the single addition being the SDK's own `pkg/common/pvwa`. `go list -m all` grows 110 → 124 selected modules, but none of the additions are in the linked graph. Binary size 13,529,380 → 13,652,260 bytes (+0.91%).
+- Reduced `govulncheck` findings from 34 vulnerabilities across 4 modules to 26 (25 of which are Go standard library issues fixed in go1.25.x patch releases, plus the unmaintained `golang.org/x/crypto/openpgp` pulled in by `rhysd/go-github-selfupdate`)
 
 ## [0.7.0] - 2026-04-21
 
