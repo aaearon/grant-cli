@@ -66,6 +66,7 @@ Custom `SCAAccessService` follows SDK conventions:
 - `httptest.NewServer` for service mocks
 - `httpClient` interface for DI
 - Test files co-located as `_test.go`
+- Tests that swap a package-level var (e.g. `ui.IsTerminalFunc`, `recordSessionTimestamp`, `getAuth`) MUST NOT call `t.Parallel()` — `-race` flags concurrent access to the global. Mark them with a `// Not parallel: mutates the package-global X.` comment. This is why the `cmd` package tests are all serial.
 
 ## CLI
 - `spf13/cobra` for CLI framework
@@ -137,7 +138,8 @@ Custom `SCAAccessService` follows SDK conventions:
 
 ## Config
 - App config: `~/.grant/config.yaml`
-- SDK profile: `~/.idsec_profiles/grant`
+- SDK profile: `~/.idsec/profiles/grant` (default; override via `IDSEC_PROFILES_FOLDER`)
+- Always resolve the profile directory with `profiles.GetProfilesFolder()` (SDK) — never hand-roll it. The SDK reads `os.Getenv("HOME")`, not `os.UserHomeDir()`; on Windows `HOME` is frequently unset, so it resolves to a **relative** `.idsec/profiles` under the process CWD. Any code that prints or computes the profile path must agree with the loader, so reproduce the SDK's behavior rather than "correcting" it
 
 ## Authentication
 - Use the `/grant-login` skill when you need to authenticate to the grant CLI (e.g., before manual testing)
@@ -146,8 +148,9 @@ Custom `SCAAccessService` follows SDK conventions:
 
 ## Lint
 - Config: `.golangci.yml` (golangci-lint v1 format)
-- 19 linters enabled: defaults (errcheck, gosimple, govet, ineffassign, staticcheck, unused) + bodyclose, errorlint, noctx, gosec (G101 excluded), errname, gocritic, misspell, revive, gocognit (threshold 40), perfsprint, unconvert, usetesting
-- Test files excluded from gosec, gocognit, bodyclose
+- 20 linters enabled: defaults (errcheck, gosimple, govet, ineffassign, staticcheck, unused) + bodyclose, errorlint, noctx, gosec (G101 excluded), errname, gocritic, misspell, revive, gocognit (threshold 40), perfsprint, unconvert, usetesting, gofmt (`simplify: true`)
+- Test files excluded from gosec, gocognit, bodyclose — `gofmt` has no exclusion, formatting is universal
+- Run `gofmt -s -w .` before committing; `gofumpt` was rejected because the codebase is not gofumpt-clean
 - `revive/unused-parameter` and `revive/exported` disabled (Cobra signatures, established API names)
 - Use `errors.New` for static error strings (perfsprint enforced); `fmt.Errorf` only with `%` verbs
 - Use `t.Context()` instead of `context.Background()` in tests (usetesting enforced)

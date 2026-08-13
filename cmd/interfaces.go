@@ -99,4 +99,3 @@ type accessRequestService interface {
 	CancelRequest(ctx context.Context, requestID string, reason *string) (*wfmodels.AccessRequest, error)
 	FinalizeRequest(ctx context.Context, requestID string, result string, reason *string) (*wfmodels.AccessRequest, error)
 }
-

@@ -106,9 +106,9 @@ func runEnvWithDeps(
 
 	if isJSONOutput() {
 		return writeJSON(cmd.OutOrStdout(), awsCredentialOutput{
-			AccessKeyID:    awsCreds.AccessKeyID,
+			AccessKeyID:     awsCreds.AccessKeyID,
 			SecretAccessKey: awsCreds.SecretAccessKey,
-			SessionToken:   awsCreds.SessionToken,
+			SessionToken:    awsCreds.SessionToken,
 		})
 	}
 

@@ -132,10 +132,10 @@ var rootCmd = newRootCommand(runElevateProduction)
 // bootstrap memoization state — shared auth/profile across all service
 // bootstraps within a single process invocation so we authenticate exactly once.
 var (
-	bootstrapOnce        = new(sync.Once)
-	bootstrapISPAuthVal  auth.IdsecAuth
-	bootstrapProfileVal  *sdkmodels.IdsecProfile
-	errBootstrap         error
+	bootstrapOnce       = new(sync.Once)
+	bootstrapISPAuthVal auth.IdsecAuth
+	bootstrapProfileVal *sdkmodels.IdsecProfile
+	errBootstrap        error
 )
 
 // bootstrapImpl is the function that performs the profile load + authentication.
@@ -893,9 +893,9 @@ func writeElevationJSON(cmd *cobra.Command, cloudRes *elevationResult, groupRes 
 			return fmt.Errorf("failed to parse access credentials: %w", err)
 		}
 		out.Credentials = &awsCredentialOutput{
-			AccessKeyID:    awsCreds.AccessKeyID,
+			AccessKeyID:     awsCreds.AccessKeyID,
 			SecretAccessKey: awsCreds.SecretAccessKey,
-			SessionToken:   awsCreds.SessionToken,
+			SessionToken:    awsCreds.SessionToken,
 		}
 	}
 
