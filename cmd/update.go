@@ -18,7 +18,7 @@ var updateTimeout = 5 * time.Minute
 
 // NewUpdateCommand creates the update command with production dependencies
 func NewUpdateCommand() *cobra.Command {
-	return NewUpdateCommandWithDeps(selfupdate.New(updateSlug))
+	return NewUpdateCommandWithDeps(selfupdate.New(updateSlug, version))
 }
 
 // NewUpdateCommandWithDeps creates the update command with injected dependencies

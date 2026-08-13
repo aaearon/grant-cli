@@ -87,18 +87,28 @@ type Updater struct {
 	client     httpDoer
 	goos       string
 	goarch     string
+	// userAgent is sent on every request; GitHub's API rejects requests
+	// without one ("Must provide a User-Agent header", 403).
+	userAgent string
 	// applyFn replaces the running executable; injectable for tests.
 	applyFn func(newBinary []byte) error
 }
 
-// New creates an Updater for the given "owner/repo" slug.
-func New(slug string) *Updater {
+// New creates an Updater for the given "owner/repo" slug. version is the
+// running build's version, used only for the User-Agent; an empty value
+// becomes "dev".
+func New(slug, version string) *Updater {
+	v := strings.TrimPrefix(version, "v")
+	if v == "" {
+		v = "dev"
+	}
 	return &Updater{
 		slug:       slug,
 		apiBaseURL: defaultAPIBaseURL,
 		client:     &http.Client{Timeout: downloadTimeout},
 		goos:       runtime.GOOS,
 		goarch:     runtime.GOARCH,
+		userAgent:  projectName + "/" + v,
 		applyFn:    applyBinary,
 	}
 }
@@ -171,6 +181,7 @@ func (u *Updater) fetchLatestRelease(ctx context.Context) (*ghRelease, error) {
 		return nil, fmt.Errorf("failed to build release request: %w", err)
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", u.userAgent)
 
 	resp, err := u.client.Do(req)
 	if err != nil {
@@ -203,6 +214,7 @@ func (u *Updater) download(ctx context.Context, url string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to build download request: %w", err)
 	}
+	req.Header.Set("User-Agent", u.userAgent)
 
 	resp, err := u.client.Do(req)
 	if err != nil {
@@ -372,14 +384,16 @@ func extractFromTarGz(archive []byte) ([]byte, error) {
 		if err := checkArchivePath(hdr.Name); err != nil {
 			return nil, err
 		}
+		// Checked for every entry, not just the binary: skipped entries are
+		// still decompressed by the next Next() call.
+		if hdr.Size > maxDownloadBytes {
+			return nil, fmt.Errorf("%s in archive declares %d bytes, over the %d byte limit", hdr.Name, hdr.Size, maxDownloadBytes)
+		}
 		if hdr.Typeflag != tar.TypeReg || !isBinaryEntry(hdr.Name) {
 			continue
 		}
 		if found != nil {
 			return nil, fmt.Errorf("archive contains more than one %s binary", binaryName)
-		}
-		if hdr.Size > maxDownloadBytes {
-			return nil, fmt.Errorf("%s in archive declares %d bytes, over the %d byte limit", hdr.Name, hdr.Size, maxDownloadBytes)
 		}
 		data, err := readCapped(tr, maxDownloadBytes, hdr.Name) // gosec G110
 		if err != nil {

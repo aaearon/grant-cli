@@ -98,7 +98,7 @@ func TestFetchLatestRelease(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			u := New("aaearon/grant-cli")
+			u := New("aaearon/grant-cli", "v0.6.1")
 			u.apiBaseURL = srv.URL
 
 			rel, err := u.fetchLatestRelease(t.Context())
@@ -465,7 +465,7 @@ func TestUpdateSelf(t *testing.T) {
 
 	t.Run("already up to date", func(t *testing.T) {
 		srv := newFixtureServer(t, archiveName, archive, checksumsFor(archiveName, archive))
-		u := New("aaearon/grant-cli")
+		u := New("aaearon/grant-cli", "v0.6.1")
 		u.apiBaseURL = srv.URL
 		u.goos, u.goarch = "linux", "amd64"
 
@@ -489,7 +489,7 @@ func TestUpdateSelf(t *testing.T) {
 
 	t.Run("newer version applied", func(t *testing.T) {
 		srv := newFixtureServer(t, archiveName, archive, checksumsFor(archiveName, archive))
-		u := New("aaearon/grant-cli")
+		u := New("aaearon/grant-cli", "v0.6.1")
 		u.apiBaseURL = srv.URL
 		u.goos, u.goarch = "linux", "amd64"
 
@@ -514,7 +514,7 @@ func TestUpdateSelf(t *testing.T) {
 	t.Run("checksum mismatch aborts before apply", func(t *testing.T) {
 		bad := checksumsFor(archiveName, []byte("different bytes entirely"))
 		srv := newFixtureServer(t, archiveName, archive, bad)
-		u := New("aaearon/grant-cli")
+		u := New("aaearon/grant-cli", "v0.6.1")
 		u.apiBaseURL = srv.URL
 		u.goos, u.goarch = "linux", "amd64"
 
@@ -531,7 +531,7 @@ func TestUpdateSelf(t *testing.T) {
 
 	t.Run("no asset for platform", func(t *testing.T) {
 		srv := newFixtureServer(t, archiveName, archive, checksumsFor(archiveName, archive))
-		u := New("aaearon/grant-cli")
+		u := New("aaearon/grant-cli", "v0.6.1")
 		u.apiBaseURL = srv.URL
 		u.goos, u.goarch = "plan9", "386"
 		u.applyFn = func(b []byte) error { return nil }
@@ -543,7 +543,7 @@ func TestUpdateSelf(t *testing.T) {
 
 	t.Run("invalid current version", func(t *testing.T) {
 		srv := newFixtureServer(t, archiveName, archive, checksumsFor(archiveName, archive))
-		u := New("aaearon/grant-cli")
+		u := New("aaearon/grant-cli", "v0.6.1")
 		u.apiBaseURL = srv.URL
 		u.applyFn = func(b []byte) error { return nil }
 
@@ -554,7 +554,7 @@ func TestUpdateSelf(t *testing.T) {
 
 	t.Run("apply error propagated", func(t *testing.T) {
 		srv := newFixtureServer(t, archiveName, archive, checksumsFor(archiveName, archive))
-		u := New("aaearon/grant-cli")
+		u := New("aaearon/grant-cli", "v0.6.1")
 		u.apiBaseURL = srv.URL
 		u.goos, u.goarch = "linux", "amd64"
 		u.applyFn = func(b []byte) error { return errTestApply }
@@ -690,7 +690,7 @@ func TestDownloadRejectsOversizeBody(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	u := New("aaearon/grant-cli")
+	u := New("aaearon/grant-cli", "v0.6.1")
 	if _, err := u.download(t.Context(), srv.URL); err == nil {
 		t.Fatal("expected an error for an oversized download, got nil")
 	}
@@ -705,7 +705,7 @@ func TestUpdateSelfRejectsOversizedBinary(t *testing.T) {
 	archive := buildTarGz(t, [][2]string{{"grant", strings.Repeat("A", 4096)}})
 	srv := newFixtureServer(t, archiveName, archive, checksumsFor(archiveName, archive))
 
-	u := New("aaearon/grant-cli")
+	u := New("aaearon/grant-cli", "v0.6.1")
 	u.apiBaseURL = srv.URL
 	u.goos, u.goarch = "linux", "amd64"
 
@@ -727,7 +727,7 @@ func TestUpdateSelfPrereleaseCanUpdate(t *testing.T) {
 	archive := buildTarGz(t, [][2]string{{"grant", "new binary"}})
 	srv := newFixtureServer(t, archiveName, archive, checksumsFor(archiveName, archive))
 
-	u := New("aaearon/grant-cli")
+	u := New("aaearon/grant-cli", "v0.6.1")
 	u.apiBaseURL = srv.URL
 	u.goos, u.goarch = "linux", "amd64"
 	u.applyFn = func(b []byte) error { return nil }
@@ -741,5 +741,65 @@ func TestUpdateSelfPrereleaseCanUpdate(t *testing.T) {
 	}
 	if latest != "0.7.0" {
 		t.Errorf("latest = %q, want 0.7.0", latest)
+	}
+}
+
+// TestRequestsSendUserAgent guards against GitHub's 403 "Must provide a
+// User-Agent header": every request the updater makes — the release lookup and
+// both asset downloads — must carry one.
+func TestRequestsSendUserAgent(t *testing.T) {
+	archiveName := "grant-cli_0.7.0_linux_amd64.tar.gz"
+	archive := buildTarGz(t, [][2]string{{"grant", "new binary"}})
+
+	seen := map[string]string{}
+	mux := http.NewServeMux()
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	checksums := checksumsFor(archiveName, archive)
+
+	mux.HandleFunc("/repos/aaearon/grant-cli/releases/latest", func(w http.ResponseWriter, r *http.Request) {
+		seen[r.URL.Path] = r.Header.Get("User-Agent")
+		fmt.Fprintf(w, `{"tag_name":"v0.7.0","assets":[
+			{"name":"checksums.txt","browser_download_url":"%[1]s/download/checksums.txt"},
+			{"name":%[2]q,"browser_download_url":"%[1]s/download/%[2]s"}
+		]}`, srv.URL, archiveName)
+	})
+	mux.HandleFunc("/download/checksums.txt", func(w http.ResponseWriter, r *http.Request) {
+		seen[r.URL.Path] = r.Header.Get("User-Agent")
+		w.Write(checksums) //nolint:errcheck // test server
+	})
+	mux.HandleFunc("/download/"+archiveName, func(w http.ResponseWriter, r *http.Request) {
+		seen[r.URL.Path] = r.Header.Get("User-Agent")
+		w.Write(archive) //nolint:errcheck // test server
+	})
+
+	u := New("aaearon/grant-cli", "v0.6.1")
+	u.apiBaseURL = srv.URL
+	u.goos, u.goarch = "linux", "amd64"
+	u.applyFn = func(b []byte) error { return nil }
+
+	if _, _, err := u.UpdateSelf(t.Context(), "0.6.1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	wantPaths := []string{
+		"/repos/aaearon/grant-cli/releases/latest",
+		"/download/checksums.txt",
+		"/download/" + archiveName,
+	}
+	for _, p := range wantPaths {
+		got, ok := seen[p]
+		if !ok {
+			t.Fatalf("%s was never requested", p)
+		}
+		if got != "grant-cli/0.6.1" {
+			t.Errorf("User-Agent for %s = %q, want %q", p, got, "grant-cli/0.6.1")
+		}
+	}
+}
+
+func TestNewUserAgentFallsBackToDev(t *testing.T) {
+	if got := New("aaearon/grant-cli", "").userAgent; got != "grant-cli/dev" {
+		t.Errorf("userAgent = %q, want %q", got, "grant-cli/dev")
 	}
 }
