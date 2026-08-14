@@ -13,10 +13,20 @@ import (
 // access-control meaning on this platform.
 const posixPermissions = true
 
-// openNoFollowFlag makes an open() refuse to traverse a final symlink, so a
-// path can be opened and then inspected via its file descriptor without a
-// window for the path to be swapped underneath.
-const openNoFollowFlag = syscall.O_NOFOLLOW
+// openNoFollowRead opens path for reading and refuses to traverse a final
+// symlink, so the path can be inspected through the resulting descriptor
+// without leaving a window for it to be swapped underneath.
+func openNoFollowRead(path string) (*os.File, error) {
+	return os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0) //nolint:gosec // callers pass a path they own
+}
+
+// isSymlinkOpenError reports whether an openNoFollowRead failure means the path
+// was a symlink, as opposed to any other I/O failure.
+//
+// Linux reports ELOOP; the BSDs report EMLINK for O_NOFOLLOW specifically.
+func isSymlinkOpenError(err error) bool {
+	return errors.Is(err, syscall.ELOOP) || errors.Is(err, syscall.EMLINK)
+}
 
 // checkPrivateToCurrentUser rejects a file or directory that is accessible to
 // anyone but its owner, or that is owned by another user.

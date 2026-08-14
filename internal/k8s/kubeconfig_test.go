@@ -431,23 +431,71 @@ func TestBackupOnceIsExclusive(t *testing.T) {
 	}
 }
 
+// TestBackupOnceRefusesNonRegularSource runs on every platform, Windows
+// included. BackupOnce documents that it refuses a symlinked kubeconfig rather
+// than dereferencing it; that promise was false on Windows while this test
+// skipped there.
 func TestBackupOnceRefusesNonRegularSource(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("symlink semantics differ on Windows")
-	}
-
 	dir := t.TempDir()
 	realPath := filepath.Join(dir, "real")
 	link := filepath.Join(dir, "link")
 	if err := os.WriteFile(realPath, []byte(existingKubeconfig), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(realPath, link); err != nil {
-		t.Fatal(err)
-	}
+	mustSymlink(t, realPath, link)
 
 	if _, err := BackupOnce(link); err == nil {
 		t.Fatal("expected a symlinked kubeconfig to be refused")
+	}
+	// The backup must not have been created from the dereferenced target.
+	if _, err := os.Lstat(link + ".grant.bak"); !os.IsNotExist(err) {
+		t.Error("a symlinked kubeconfig was backed up anyway")
+	}
+}
+
+// TestBackupOnceLeavesNoPartialBackup covers the integrity gap: a backup that
+// exists is treated as complete by every later run (BackupOnce returns early on
+// os.IsExist, and the kubeconfig command then replaces the real file believing
+// a good copy is on disk). A write that fails halfway must therefore leave
+// nothing behind rather than a truncated file wearing the backup's name.
+func TestBackupOnceLeavesNoPartialBackup(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config")
+	if err := os.WriteFile(path, []byte(existingKubeconfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	original := backupWrite
+	t.Cleanup(func() { backupWrite = original })
+	backupWrite = func(f *os.File, data []byte) error {
+		// A short write, as a full disk or a killed NFS mount would produce.
+		_, _ = f.Write(data[:len(data)/2])
+		_ = f.Close()
+		return errors.New("no space left on device")
+	}
+
+	if _, err := BackupOnce(path); err == nil {
+		t.Fatal("expected the failed backup write to be reported")
+	}
+	if _, err := os.Lstat(path + ".grant.bak"); !os.IsNotExist(err) {
+		t.Fatal("a partial backup was left on disk; the next run would mistake it for a complete one")
+	}
+
+	// And the next attempt, with a working writer, produces a complete backup.
+	backupWrite = original
+	created, err := BackupOnce(path)
+	if err != nil {
+		t.Fatalf("BackupOnce: %v", err)
+	}
+	if !created {
+		t.Fatal("expected the retry to create the backup")
+	}
+	data, err := os.ReadFile(path + ".grant.bak")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != existingKubeconfig {
+		t.Errorf("backup content = %q, want the full kubeconfig", string(data))
 	}
 }
 

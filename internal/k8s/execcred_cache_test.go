@@ -308,11 +308,11 @@ func TestCredentialCacheRefusesLooseDirectory(t *testing.T) {
 	}
 }
 
+// TestCredentialCacheRefusesSymlinkedEntry runs on every platform, Windows
+// included. It used to skip there, which is precisely how openNoFollowFlag = 0
+// went unnoticed: the contract said symlinked entries are refused, and the only
+// test that checked it declined to run on the platform where it was false.
 func TestCredentialCacheRefusesSymlinkedEntry(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("symlink semantics differ on Windows")
-	}
-
 	dir := t.TempDir()
 	// t.TempDir() is 0755 on some systems; tighten it so this test exercises the
 	// symlink check rather than the directory-permission check.
@@ -327,9 +327,7 @@ func TestCredentialCacheRefusesSymlinkedEntry(t *testing.T) {
 	if err := os.WriteFile(target, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(target, path); err != nil {
-		t.Fatal(err)
-	}
+	mustSymlink(t, target, path)
 
 	if _, ok := c.Get(testKey()); ok {
 		t.Fatal("a symlinked cache entry must not be followed")
@@ -472,6 +470,65 @@ func TestCredentialCacheDoesNotWarnOnOrdinaryMiss(t *testing.T) {
 	}
 	if len(warnings) != 0 {
 		t.Errorf("an absent entry must not warn, got %v", warnings)
+	}
+}
+
+// TestCredentialCacheIsQuietOnFirstUse covers the case the test above misses:
+// it creates the cache directory first, so it never exercises a fresh install.
+// CacheDir() returns ~/.grant/cache without creating it, so the very first
+// kubectl call on a new machine found no directory at all — and greeted the
+// user with a security-flavored warning about their cache being "not usable".
+func TestCredentialCacheIsQuietOnFirstUse(t *testing.T) {
+	// Never created: exactly what a fresh install looks like.
+	c := NewCredentialCache(filepath.Join(t.TempDir(), "grant", "cache"))
+
+	var warnings []string
+	c.Warn = func(msg string) { warnings = append(warnings, msg) }
+
+	if _, ok := c.Get(testKey()); ok {
+		t.Fatal("expected a miss")
+	}
+	if len(warnings) != 0 {
+		t.Errorf("a cache directory that does not exist yet is a first run, not a security event; got %v", warnings)
+	}
+}
+
+// TestCredentialCacheKeepsEntryOnTransientOpenError pins the failure mode that
+// used to delete valid credentials: readEntry treated every non-ENOENT open
+// error as "symlink, or not a regular file", removed the entry, and threw the
+// real cause away. Descriptor exhaustion or a blip on a network filesystem would
+// destroy a perfectly good credential.
+func TestCredentialCacheKeepsEntryOnTransientOpenError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("directory permissions do not gate opens on Windows")
+	}
+	if os.Getuid() == 0 {
+		t.Skip("root ignores the permission bits this test relies on")
+	}
+
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	c := NewCredentialCache(dir)
+	path := c.pathFor(testKey())
+
+	data, _ := json.Marshal(credWithExpiry(time.Now().Add(time.Hour)))
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Unreadable, but present and perfectly valid — an EACCES on open, standing
+	// in for any transient I/O failure.
+	if err := os.Chmod(path, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
+
+	if _, ok := c.Get(testKey()); ok {
+		t.Fatal("expected a miss when the entry cannot be read")
+	}
+	if _, err := os.Lstat(path); err != nil {
+		t.Fatalf("the entry was deleted over a transient open failure: %v", err)
 	}
 }
 

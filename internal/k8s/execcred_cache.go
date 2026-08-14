@@ -80,7 +80,12 @@ func (c *CredentialCache) Get(key CredentialKey) (*k8smodels.IdsecSCAK8sExecCred
 	path := c.pathFor(key)
 
 	if err := c.checkDirSecure(); err != nil {
-		c.warn("ignoring the credential cache: %s is not usable (%v); re-authenticating instead", c.dir, err)
+		// A cache directory that does not exist yet is the first run, not a
+		// security event. Warning about it would greet every new install with a
+		// scary message on the very first kubectl call.
+		if !os.IsNotExist(err) {
+			c.warn("ignoring the credential cache: %s is not usable (%v); re-authenticating instead", c.dir, err)
+		}
 		return nil, false
 	}
 
@@ -191,15 +196,24 @@ func writeAndSecure(f *os.File, data []byte) error {
 //
 // Entries that fail validation are removed. os.Remove on a symlink removes the
 // link, never its target.
+//
+// Only a symlink earns removal. An earlier version treated *every* non-ENOENT
+// open failure as "symlink, or not a regular file" and deleted the entry, so
+// descriptor exhaustion or a transient I/O error would destroy a perfectly good
+// credential and discard the real cause with it. Those errors now propagate
+// untouched; the caller reports them and re-authenticates for this one run.
 func (c *CredentialCache) readEntry(path string) ([]byte, error) {
-	f, err := os.OpenFile(path, os.O_RDONLY|openNoFollowFlag, 0) //nolint:gosec // path is a hashed key inside the cache dir
+	f, err := openNoFollowRead(path)
 	if err != nil {
-		// O_NOFOLLOW turns a symlink into ELOOP rather than opening the target.
-		if !os.IsNotExist(err) {
+		switch {
+		case os.IsNotExist(err):
+			return nil, err
+		case isSymlinkOpenError(err):
 			_ = os.Remove(path)
-			return nil, errors.New("it is not a regular file, or is a symlink")
+			return nil, errors.New("it is a symlink")
+		default:
+			return nil, err
 		}
-		return nil, err
 	}
 	defer func() { _ = f.Close() }()
 

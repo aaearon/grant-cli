@@ -417,14 +417,15 @@ func BackupOnce(path string) (bool, error) {
 	// checked is the file that is read. A path-based Lstat followed by a read
 	// would let the path be swapped in between, and unlike the credential cache
 	// this directory has no privacy guarantee to lean on.
-	src, err := os.OpenFile(path, os.O_RDONLY|openNoFollowFlag, 0) //nolint:gosec // path is the user's chosen kubeconfig
+	src, err := openNoFollowRead(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
 		}
-		// O_NOFOLLOW surfaces a symlinked target as an open error rather than
-		// silently dereferencing it.
-		return false, fmt.Errorf("failed to open %s for backup (it must be a regular file, not a symlink): %w", path, err)
+		if isSymlinkOpenError(err) {
+			return false, fmt.Errorf("refusing to back up %s: it is a symlink, and grant will not dereference one", path)
+		}
+		return false, fmt.Errorf("failed to open %s for backup: %w", path, err)
 	}
 	defer func() { _ = src.Close() }()
 
@@ -449,12 +450,31 @@ func BackupOnce(path string) (bool, error) {
 		}
 		return false, fmt.Errorf("failed to write %s: %w", backup, err)
 	}
-	defer func() { _ = f.Close() }()
 
-	if _, err := f.Write(data); err != nil {
+	// A backup that exists is treated as complete by the next run (the O_EXCL
+	// above returns early on os.IsExist), and cmd/k8s_kubeconfig.go will then
+	// happily replace the kubeconfig believing a good copy is on disk. So a
+	// backup that was not written in full must not be left behind: remove it and
+	// report, rather than leaving a truncated file wearing the name of a backup.
+	if err := backupWrite(f, data); err != nil {
+		_ = os.Remove(backup)
 		return false, fmt.Errorf("failed to write %s: %w", backup, err)
 	}
 	return true, nil
+}
+
+// backupWrite writes and durably closes the backup file. It is a package var so
+// tests can inject a mid-write failure, which is otherwise unreachable.
+var backupWrite = func(f *os.File, data []byte) error {
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 // --- yaml.Node helpers ---
