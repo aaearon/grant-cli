@@ -620,19 +620,28 @@ ls -l ./grant                                                              # rec
 govulncheck ./...                                                          # expect an increase; record the new baseline
 ```
 
-### PAUSED — 2026-08-13 (PR #55, branch `feat/k8s-clusters`, head `6ca6d64`)
+### PAUSED — updated 2026-08-14 (PR #55, branch `feat/k8s-clusters`, head `633a5ba`)
 
-Implementation is complete and green (`make test`, `make lint`, `make build`, `make test-integration`) but **PR #55 is converted to draft and must not ship**. Paused after three Codex review cycles, each of which found defects the previous cycle missed — including defects introduced by the previous cycle's fixes.
+**PR #55 is still a draft and must not ship**: nothing has been validated against a real Kubernetes tenant. But both blockers recorded on 2026-08-13 are now addressed, and the branch is rebased onto post-v0.9.0 `main` (`f14e2b9`), so CI runs on it — both the `ubuntu-latest` and `windows-latest` legs are green at `633a5ba`.
 
-Two blockers remain:
-1. **stdout contamination in `exec-credential`** — `ReserveStdoutForData()` does not cover the SDK's Survey prompts (PIN, MFA selection, OOB, username/password), which default to `os.Stdout`. Fix structurally: the command should dup the stdout fd at entry, redirect `os.Stdout` to stderr for the duration, and write the `ExecCredential` JSON to the saved fd.
-2. **Windows symlink checks bypassed** — `openNoFollowFlag` is `0` on Windows, so the exec-cred cache and `BackupOnce` follow symlinks and skip ownership/mode validation. This regressed the earlier `Lstat` rejection. Fix with platform-specific secure-open primitives.
+Blocker status:
 
-Plus three lower-severity items (first-use false security warning from an uncreated `~/.grant/cache`; partial-backup integrity in `BackupOnce`; error swallowing in `readEntry`) and a stale `--fqdn` hint in `internal/ui/cluster_selector.go:59`.
+1. **stdout contamination in `exec-credential` — reduced, not eliminated.** `cmd/stdout_guard.go` takes the boundary rather than the writers: it dups the descriptor behind stdout, re-points it at stderr, sets `os.Stdout = os.Stderr`, and writes the `ExecCredential` JSON to the saved descriptor. The guard is installed **before Cobra's pre-run** — installing it inside `RunE` was too late, because `PersistentPreRunE` emits the `--verbose` WSL keyring notice through an SDK logger built on `os.Stdout`. **Residual gap:** writers that captured `os.Stdout` at init (`pkg/browser`'s `Stdout` var, grant's own `log` var) are uncontained on Windows, where a handle cannot be re-pointed and `SetStdHandle` does not affect an already-built `*os.File`. This is not platform parity.
+2. **Windows symlink checks — fixed and CI-verified.** `openNoFollowRead` is `O_NOFOLLOW` on POSIX and `CreateFile` with `FILE_FLAG_OPEN_REPARSE_POINT` plus a reparse-attribute check on Windows, so links, junctions and mount points are refused with no TOCTOU window. It uses `golang.org/x/sys/windows`, already in the Windows build graph, so no module was added. The symlink tests no longer skip on Windows — `TestOpenNoFollowRead{RefusesSymlink,OpensRegularFile,ReportsMissingFile}` all **run and pass** on the `windows-latest` leg.
 
-Nothing was validated against a real k8s tenant — no such tenant was available. The SDK token providers (AWS STS presign, Azure CLI, DPA JWE) have never executed. Note also that PR #55 is stacked on #47 and has never been run by CI, since `ci.yml` only triggers on PRs targeting `main`.
+The three lower-severity items (first-use false security warning, partial-backup integrity in `BackupOnce`, error swallowing in `readEntry`) and the stale `--fqdn` hint are all fixed. Two POSIX-mode tests that were *failing* rather than skipping on Windows are now platform-qualified and confirmed correct on the Windows leg.
 
-Full handoff, with file:line references for every finding, is the pinned comment on PR #55.
+**Known gap, deliberately open:** `checkPrivateToCurrentUser` is a no-op on Windows, so the credential cache's ownership checks do not run there; confidentiality rests on the default `%USERPROFILE%` ACLs.
+
+To resume, re-verify in this order:
+
+1. Confirm the stdout boundary end to end — a real WSL `grant --verbose k8s exec-credential`, plus init-time `os.Stdout` capturers on Windows where layer 2 does not apply.
+2. Run the complete Windows CI suite against the head being resumed from, rather than assuming from the Linux run.
+3. Exercise the DPA-generated kubeconfig shape and the `exec.command` rewrite against a real tenant.
+4. Run an actual `kubectl` round-trip for both the direct and proxy paths, including AWS IdC and the Azure CLI identity binding.
+5. Validate Windows cache ACL ownership and privacy before treating cached credentials there as equivalently protected to POSIX.
+
+The SDK token providers (AWS STS presign, Azure CLI, DPA JWE) sit behind an injected seam and have never executed. Full handoff, with file:line references for every finding, is the pinned comment on PR #55.
 
 ---
 
