@@ -219,6 +219,8 @@ make test-all           # All tests
 make lint               # Lint (golangci-lint)
 ```
 
+`make build` stamps the version as `dev`, and `grant update` refuses to update a dev build. To try `grant update` locally, build with an explicit version older than the latest release: `make build VERSION=0.7.0`.
+
 ## Contributing
 
 Contributions welcome! Please follow existing patterns, write tests (TDD preferred), update docs, and use conventional commits.

@@ -3,7 +3,7 @@
 ## Project
 - **Language:** Go 1.25+
 - **Module:** `github.com/aaearon/grant-cli`
-- **Dependencies:** `github.com/cyberark/idsec-sdk-golang` is the primary dependency; zero-new-Go-module-deps is a goal, not an absolute rule. Documented exception: `github.com/minio/selfupdate` (+ its one transitive `aead.dev/minisign`) for `grant update`, adopted to remove the abandoned `rhysd/go-github-selfupdate` and advisory GO-2026-5932. Net effect: build graph (`go list -deps`) 39 -> 33 modules, `go.mod` requires 47 -> 39, full module graph (`go list -m all`) 110 -> 95
+- **Dependencies:** `github.com/cyberark/idsec-sdk-golang` is the primary dependency; zero-new-Go-module-deps is a goal, not an absolute rule. Documented exception: `github.com/minio/selfupdate` (+ its one transitive `aead.dev/minisign`) for `grant update`, adopted to remove the abandoned `rhysd/go-github-selfupdate` and advisory GO-2026-5932. It was a net *reduction* in every dependency measure — the exception cost nothing. Measure with `go list -deps` / `go list -m all` if a current figure is needed; do not record one here
 
 ## SDK Import Conventions
 ```go
@@ -125,7 +125,7 @@ Custom `SCAAccessService` follows SDK conventions:
 - `internal/ui/tty.go` — `IsTerminalFunc` (overridable), `IsInteractive()`, `ErrNotInteractive`
 - All interactive prompts (`SelectTarget`, `SelectSessions`, `ConfirmRevocation`, `SelectGroup`, `uiUnifiedSelector.SelectItem`, `surveyNamePrompter.PromptName`) fail fast with `ErrNotInteractive` when stdin is not a TTY
 - Error messages suggest the appropriate non-interactive flag (e.g., `--target/--role`, `--all`, `--yes`, `--group`, `--favorite`)
-- `go-isatty` v0.0.20 is a direct dependency (promoted from indirect via survey)
+- `go-isatty` is a direct dependency (promoted from indirect via survey); see `go.mod` for the pinned version
 
 ## JSON Output
 - `--output` / `-o` persistent flag on root command: `text` (default) or `json`
@@ -191,7 +191,7 @@ Custom `SCAAccessService` follows SDK conventions:
 
 ## Lint
 - Config: `.golangci.yml` (golangci-lint v1 format)
-- 20 linters enabled: defaults (errcheck, gosimple, govet, ineffassign, staticcheck, unused) + bodyclose, errorlint, noctx, gosec (G101 excluded), errname, gocritic, misspell, revive, gocognit (threshold 40), perfsprint, unconvert, usetesting, gofmt (`simplify: true`)
+- Linters enabled (`disable-all: true`, so this list is exhaustive): defaults (errcheck, gosimple, govet, ineffassign, staticcheck, unused) + bodyclose, errorlint, noctx, gosec (G101 excluded), errname, gocritic, misspell, revive, gocognit (threshold 40), perfsprint, unconvert, usetesting, gofmt (`simplify: true`)
 - Test files excluded from gosec, gocognit, bodyclose — `gofmt` has no exclusion, formatting is universal
 - Run `gofmt -s -w .` before committing; `gofumpt` was rejected because the codebase is not gofumpt-clean
 - `revive/unused-parameter` and `revive/exported` disabled (Cobra signatures, established API names)
@@ -208,6 +208,8 @@ make lint               # Run linter (golangci-lint)
 make clean              # Clean build artifacts
 ```
 - `-trimpath` used in both `Makefile` and `.goreleaser.yaml` for reproducible builds
+- `VERSION ?= dev` (`Makefile:2`) is injected as `-X ...cmd.version=$(VERSION)` (`Makefile:5-8`), so a plain `make build` stamps `version=dev`. `runUpdate` refuses `""`/`"dev"` (`cmd/update.go:38-39`, "cannot update a dev build"), so `grant update` can never succeed on a default local build
+- To exercise `grant update` locally: `make build VERSION=0.7.0`, then `./grant update`. Use a version *older* than the latest release so an update is actually found
 - `.goreleaser.yaml` uses `CommitDate` (not build date) and `mod_timestamp` for reproducibility
 
 ## CI
@@ -218,6 +220,14 @@ make clean              # Clean build artifacts
 - Lint (`golangci-lint-action`) runs on Linux only — a second pass on Windows adds minutes and finds nothing new
 - Tests must be OS-portable. Never assert POSIX permission bits without a `runtime.GOOS == "windows"` skip: Go synthesizes `0666`/`0777` for Windows files and `os.Chmod` there only toggles the read-only attribute. Current skips: `internal/config/config_test.go` (`TestLoadConfig_PermissionError`, `TestConfigDir_Error` — chmod 0000 and `HOME`) and `internal/cache/cache_test.go` (`TestSet_FilePermissions`)
 - Prefer a portable construction over a skip where one exists. To force a write failure, point at a path whose parent component is an existing regular file (`MkdirAll` fails with ENOTDIR on POSIX and ERROR_DIRECTORY on Windows) rather than a hardcoded `/dev/null/...` path, which is an ordinary writable location on Windows
+
+## CHANGELOG Style
+Entries are short and concise. This applies to `[Unreleased]` and everything added from now on; already-released sections are published history and are not rewritten.
+- One line per entry — a single sentence, ideally under ~120 characters.
+- Say WHAT changed and, where it isn't obvious, the user-visible effect. Not the mechanism, not the root cause, not measurements, not `file:line` references.
+- Rationale, evidence, benchmarks, dependency counts and advisory analysis go in the PR description. Durable architecture and policy go in CLAUDE.md.
+- Keep the Keep-a-Changelog section headings: `Added` / `Changed` / `Fixed` / `Security`.
+- A breaking or behaviour-changing entry may add a short second clause naming the impact. Brevity must never hide a behavioural break from someone skimming before an upgrade.
 
 ## Release Process
 1. Move `[Unreleased]` entries in `CHANGELOG.md` to a new `[X.Y.Z] - YYYY-MM-DD` section (leave `[Unreleased]` header empty)
