@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-08-14
+
 ### Added
 
 - End-to-end self-update tests that replace a real, running binary, covering both the success and rollback paths (build tag `selfupdate_e2e`)
