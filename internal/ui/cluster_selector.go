@@ -56,7 +56,10 @@ func FindClusterByDisplay(clusters []k8s.Cluster, display string) (*k8s.Cluster,
 // SelectCluster presents an interactive selector for choosing a cluster.
 func SelectCluster(clusters []k8s.Cluster) (*k8s.Cluster, error) {
 	if !IsInteractive() {
-		return nil, fmt.Errorf("%w; pass a cluster name or --fqdn, or run 'grant k8s list' to see eligible clusters", ErrNotInteractive)
+		// The cluster is a positional argument, not a flag. --fqdn exists only on
+		// the hidden exec-credential command, so naming it here sent users to a
+		// flag that does not exist on the command they were running.
+		return nil, fmt.Errorf("%w; pass a cluster name, or run 'grant k8s list' to see eligible clusters", ErrNotInteractive)
 	}
 
 	if len(clusters) == 0 {
