@@ -3,7 +3,7 @@
 ## Project
 - **Language:** Go 1.25+
 - **Module:** `github.com/aaearon/grant-cli`
-- **Dependencies:** `github.com/cyberark/idsec-sdk-golang` is the primary dependency; zero-new-Go-module-deps is a goal, not an absolute rule. Documented exception: `github.com/minio/selfupdate` (+ its one transitive `aead.dev/minisign`) for `grant update`, adopted to remove the abandoned `rhysd/go-github-selfupdate` and advisory GO-2026-5932. Net effect: build graph (`go list -deps`) 39 -> 33 modules, `go.mod` requires 47 -> 39, full module graph (`go list -m all`) 110 -> 95
+- **Dependencies:** `github.com/cyberark/idsec-sdk-golang` is the primary dependency; zero-new-Go-module-deps is a goal, not an absolute rule. Documented exception: `github.com/minio/selfupdate` (+ its one transitive `aead.dev/minisign`) for `grant update`, adopted to remove the abandoned `rhysd/go-github-selfupdate` and advisory GO-2026-5932. It was a net *reduction* in every dependency measure — the exception cost nothing. Measure with `go list -deps` / `go list -m all` if a current figure is needed; do not record one here
 
 ## SDK Import Conventions
 ```go
@@ -125,7 +125,7 @@ Custom `SCAAccessService` follows SDK conventions:
 - `internal/ui/tty.go` — `IsTerminalFunc` (overridable), `IsInteractive()`, `ErrNotInteractive`
 - All interactive prompts (`SelectTarget`, `SelectSessions`, `ConfirmRevocation`, `SelectGroup`, `uiUnifiedSelector.SelectItem`, `surveyNamePrompter.PromptName`) fail fast with `ErrNotInteractive` when stdin is not a TTY
 - Error messages suggest the appropriate non-interactive flag (e.g., `--target/--role`, `--all`, `--yes`, `--group`, `--favorite`)
-- `go-isatty` v0.0.20 is a direct dependency (promoted from indirect via survey)
+- `go-isatty` is a direct dependency (promoted from indirect via survey); see `go.mod` for the pinned version
 
 ## JSON Output
 - `--output` / `-o` persistent flag on root command: `text` (default) or `json`
@@ -191,7 +191,7 @@ Custom `SCAAccessService` follows SDK conventions:
 
 ## Lint
 - Config: `.golangci.yml` (golangci-lint v1 format)
-- 20 linters enabled: defaults (errcheck, gosimple, govet, ineffassign, staticcheck, unused) + bodyclose, errorlint, noctx, gosec (G101 excluded), errname, gocritic, misspell, revive, gocognit (threshold 40), perfsprint, unconvert, usetesting, gofmt (`simplify: true`)
+- Linters enabled (`disable-all: true`, so this list is exhaustive): defaults (errcheck, gosimple, govet, ineffassign, staticcheck, unused) + bodyclose, errorlint, noctx, gosec (G101 excluded), errname, gocritic, misspell, revive, gocognit (threshold 40), perfsprint, unconvert, usetesting, gofmt (`simplify: true`)
 - Test files excluded from gosec, gocognit, bodyclose — `gofmt` has no exclusion, formatting is universal
 - Run `gofmt -s -w .` before committing; `gofumpt` was rejected because the codebase is not gofumpt-clean
 - `revive/unused-parameter` and `revive/exported` disabled (Cobra signatures, established API names)
