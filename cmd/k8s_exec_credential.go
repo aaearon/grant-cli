@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -107,31 +108,26 @@ func defaultCredentialCache() *k8s.CredentialCache {
 	return k8s.NewCredentialCache(dir)
 }
 
-// reserveStdoutForProtocol keeps everything except the ExecCredential JSON off
-// os.Stdout for the duration of this command. There are two independent writers
-// to shut up, and both must be handled:
+// quietenSDKChannels is the second-line defense behind the stdout guard.
 //
-//  1. Loggers. The SDK logger is constructed with log.New(os.Stdout, ...) and
-//     resolves its level from IDSEC_LOG_LEVEL on every call, so
-//     `grant --verbose k8s exec-credential` would interleave log lines with the
-//     credential JSON. Forcing CRITICAL silences every such logger at the source.
-//  2. Interactive auth prompts. On a cache miss with stdin available we can reach
-//     Authenticate, and the SDK prints its browser-redirect message to os.Stdout
-//     unless config.IsStdoutReservedForData() is true — see
-//     pkg/auth/identity/idsec_identity.go:546-556. ReserveStdoutForData exists
-//     for exactly this case and flips that message to stderr.
+// The guard in stdout_guard.go is what actually makes the protocol safe: no
+// writer reaches the real standard output once it is installed. These switches
+// exist so the SDK's own chatter does not merely get rerouted onto the user's
+// stderr in a torrent, and so the SDK's browser-redirect message takes the
+// stderr branch it already knows about. Nothing here is load-bearing for
+// protocol correctness — do not re-introduce per-writer silencing as if it
+// were, which is how stdout contamination survived two review cycles.
 //
 // When the user asked for verbose output we switch on the SDK's kubectl-login
-// diagnostics channel instead, which writes to stderr by design.
+// diagnostics channel, which writes to stderr by design.
 //
 // Concurrency note: IDSEC_LOG_LEVEL, IDSEC_KUBELOGIN_LOG_LEVEL and the SDK's
 // stdout reservation are all process-global. That is safe here because the CLI
 // runs a single command per process (same assumption as the `verbose` var in
-// root.go). One caveat survives it: a goroutine abandoned by
-// k8s.runWithContext can outlive this restore and log late, after the level has
-// gone back to INFO. That would land on stdout — but only after the command has
-// already written its JSON and returned, so kubectl has its response either way.
-func reserveStdoutForProtocol(wantDiagnostics bool) func() {
+// root.go). A goroutine abandoned by k8s.runWithContext can outlive this
+// restore and log late — with the guard in place that lands on stderr, not on
+// kubectl's stdout.
+func quietenSDKChannels(wantDiagnostics bool) func() {
 	prevLevel, hadLevel := os.LookupEnv(sdkconfig.IdsecLogLevelEnvVar)
 	sdkconfig.DisableVerboseLogging()
 
@@ -171,7 +167,24 @@ func runK8sExecCredential(
 	credCache *k8s.CredentialCache,
 	rawExecInfo string,
 ) error {
-	restore := reserveStdoutForProtocol(verbose)
+	// Decide this before the guard moves os.Stdout: a caller that supplied its
+	// own writer (tests, or a future embedding) keeps it.
+	usesProcessStdout := cmd.OutOrStdout() == io.Writer(os.Stdout)
+
+	// Take the stdout boundary before anything else runs. Everything below —
+	// including any SDK authentication prompt — is inside the guard.
+	//
+	// The protocol payload has to be written to the descriptor the guard saved,
+	// not to cmd.OutOrStdout(), which now resolves to stderr. Redirect the
+	// command's own writer at it, unless a caller already supplied one.
+	guard := reserveStdout()
+	defer guard.Release()
+	if usesProcessStdout {
+		cmd.SetOut(guard.Data)
+		defer cmd.SetOut(nil)
+	}
+
+	restore := quietenSDKChannels(verbose)
 	defer restore()
 
 	info, err := parseExecInfo(rawExecInfo)
