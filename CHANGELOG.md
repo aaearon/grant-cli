@@ -4,18 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- End-to-end self-update tests that replace a real, running binary, covering both the success and rollback paths (build tag `selfupdate_e2e`)
+- CI runs the self-update end-to-end tests on both `ubuntu-latest` and `windows-latest`
+- `grant revoke --output json` gains a per-session `outcome` field
+
 ### Fixed
 
 - `grant login` no longer hangs on WSL2; grant now detects WSL and forces the file-based keyring. A token stored in the OS keyring becomes invisible — re-run `grant login` if prompted
-
-### Added
-
-- End-to-end self-update tests that replace a real, running binary (`internal/selfupdate/e2e_test.go`, build tag `selfupdate_e2e`). They compile two fixture binaries from a dependency-free module, execute one, and swap it through grant's own apply path while a process is still running from that image — so the Windows file-locking semantics behind the two-rename swap are actually exercised, not just the bookkeeping. Success and rollback paths are both covered, and the rolled-back binary is asserted to still run. No network access is required
-- CI runs the new self-update end-to-end tests on **both** `ubuntu-latest` and `windows-latest`, closing the gap left by the Windows CI leg added in 0.8.0, which only ran `go build` and `go test` and never exercised a binary replacing itself on Windows
-
-### Fixed
-
-- `grant revoke` now exits 1 when the service refused, returned an unrecognized status for, or returned no result at all for any requested session, instead of reporting success; accepted-but-`in_progress` revocations still exit 0, and `--output json` gains a per-session `outcome` field — check scripts relying on exit 0.
+- `grant revoke` now exits 1 when any requested session was not accepted for revocation, instead of reporting success — check scripts relying on exit 0
 
 ## [0.8.0] - 2026-08-14
 
