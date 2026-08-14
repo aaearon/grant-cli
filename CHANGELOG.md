@@ -4,17 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-08-14
+
 ### Added
 
 - GCP support for `grant`, `grant list`, `grant status` and `grant revoke`: `--provider gcp`, GCP included in the multi-provider fan-out, and the `PROJECT`/`FOLDER`/`GCP_ORGANIZATION` workspace types rendered in the interactive selector. `grant env` stays AWS-only (the SCA API spec defines no GCP credential shape) and `grant request submit` explicitly rejects GCP. Not yet verified against a live GCP tenant
 
-### Fixed
-
-- `grant env` no longer performs an elevation before validating the provider. Previously `grant env --provider azure` created a real SCA session and recorded a session timestamp before failing with "no credentials returned", leaving an unwanted active session behind. The provider is now validated before the elevation request is issued
-
 ### Changed
 
 - Rebranded user-facing references from CyberArk to Idira (formerly CyberArk) in the README and CLI help/prompt text, following the Palo Alto Networks rebrand. No functional or API changes; SDK import paths (`github.com/cyberark/idsec-sdk-golang`), `*.cyberark.cloud` URLs, and environment variables are unchanged.
+- Enabled the `gofmt` linter in `.golangci.yml` and reformatted the existing tree to match
 - CI now runs the build and race-enabled test suite on both `ubuntu-latest` and `windows-latest` (`fail-fast: false`). The Windows leg invokes `go build` / `go test` directly because GitHub's Windows runners have no GNU make; lint still runs on Linux only.
 - Upgraded dependencies:
   - `github.com/cyberark/idsec-sdk-golang` v0.2.3 → v0.8.1
@@ -35,18 +34,20 @@ All notable changes to this project will be documented in this file.
 - **Replacement guarantees, stated precisely.** Each rename is individually atomic, so the installed binary is never a partially written file. The *pair* of renames is not atomic: if the process is killed between them, or if the second rename and the rollback both fail, the binary path is left absent with `.grant.old` and `.grant.new` beside it. grant now detects that state and prints the exact `mv` command that restores the previous binary
 - Dependency graph, after the selfupdate replacement and the SDK upgrade together. Build graph (`go list -deps`, the modules actually compiled in): 39 → 33. `go.mod` require directives: 47 → 39 (indirect 40 → 33). Full module graph (`go list -m all`): 110 → 109 — the selfupdate replacement removed 15 and SDK v0.8.1 adds 14 back, but none of the SDK's additions are in the linked graph. The only genuinely new module paths in the build graph are `github.com/minio/selfupdate` and `aead.dev/minisign`. Removed `blang/semver`, `rhysd/go-github-selfupdate`, `google/go-github/v30`, `google/go-querystring`, `golang.org/x/oauth2` (a Nov 2018 pseudo-version), `golang/protobuf`, `google.golang.org/appengine`, `tcnksm/go-gitconfig`, `inconshreveable/go-update` and `ulikunitz/xz`
 
+### Fixed
+
+- `grant env` no longer performs an elevation before validating the provider. Previously `grant env --provider azure` created a real SCA session and recorded a session timestamp before failing with "no credentials returned", leaving an unwanted active session behind. The provider is now validated before the elevation request is issued
+- `grant configure` no longer reports a stale SDK profile location. The help text and the "Profile saved to" success message printed `~/.idsec_profiles/grant`, which has been wrong since the SDK upgrade in v0.7.0. The path is now resolved with the SDK's own `profiles.GetProfilesFolder()`, so it always matches the directory the profile loader reads (`~/.idsec/profiles/grant` by default, or `IDSEC_PROFILES_FOLDER` when set).
+- Made the test suite pass on Windows: skipped Unix-only assertions in `internal/config` (POSIX permission bits, `HOME`) and `internal/cache` (`0600` cache-file mode, which Go reports as `0666` on Windows), and reworked `cmd`'s `config save error` case to block the write with a path under an existing regular file instead of a hardcoded `/dev/null` path.
+- Made `internal/selfupdate` pass on Windows: the `unwritable target directory` case is skipped (a `0500` chmod does not deny directory writes there), and the recovery-hint assertion now compares against the `%q`-quoted path, which escapes the backslashes in a Windows path.
+- Fixed a data race in the `internal/ui` parallel tests, which mutated shared package state while running under `t.Parallel()`.
+
 ### Security
 
 - `grant update` now verifies the downloaded archive's SHA-256 against the release's `checksums.txt` before replacing the binary. Previously no validation was performed at all (`selfupdate.DefaultUpdater()` ships a nil `Validator`). Note the trust model: `checksums.txt` is fetched from the same origin as the archive, so this protects against corrupted or tampered downloads in transit, not against a compromised GitHub account or release pipeline
 - Archive extraction now rejects oversized entries instead of silently truncating them at the 128 MiB cap, rejects drive-absolute (`C:\...`) and UNC archive paths alongside `..` traversal, and only accepts the binary at the archive root (never a nested entry, never two candidates)
 - Removes `golang.org/x/crypto/openpgp` from the build graph, clearing advisory GO-2026-5932 (unmaintained package, no fix available). Dropping `ulikunitz/xz` also clears GO-2025-3922
 - `govulncheck` findings drop from 34 vulnerabilities across 4 modules to 25, all of which are Go standard library issues fixed in go1.25.x patch releases. No third-party module in the build graph has a called vulnerability
-
-### Fixed
-
-- `grant configure` no longer reports a stale SDK profile location. The help text and the "Profile saved to" success message printed `~/.idsec_profiles/grant`, which has been wrong since the SDK upgrade in v0.7.0. The path is now resolved with the SDK's own `profiles.GetProfilesFolder()`, so it always matches the directory the profile loader reads (`~/.idsec/profiles/grant` by default, or `IDSEC_PROFILES_FOLDER` when set).
-- Made the test suite pass on Windows: skipped Unix-only assertions in `internal/config` (POSIX permission bits, `HOME`) and `internal/cache` (`0600` cache-file mode, which Go reports as `0666` on Windows), and reworked `cmd`'s `config save error` case to block the write with a path under an existing regular file instead of a hardcoded `/dev/null` path.
-- Made `internal/selfupdate` pass on Windows: the `unwritable target directory` case is skipped (a `0500` chmod does not deny directory writes there), and the recovery-hint assertion now compares against the `%q`-quoted path, which escapes the backslashes in a Windows path.
 
 ## [0.7.0] - 2026-04-21
 
