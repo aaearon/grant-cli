@@ -97,7 +97,10 @@ func (d Detector) wslSignal() (string, bool) {
 	// Then the kernel strings, case-insensitively — the case sensitivity is the
 	// SDK's actual bug. The token sets differ deliberately:
 	//   - osrelease is short and structured ("6.18.33.2-microsoft-standard-WSL2"),
-	//     so matching "wsl" there is safe. This is what systemd and npm's is-wsl do.
+	//     so matching "wsl" there is safe. systemd does this (Microsoft||WSL on
+	//     osrelease). npm's is-wsl does NOT: it matches only "microsoft", on
+	//     os.release() and then /proc/version, before falling back to the two
+	//     filesystem markers below — all gated behind !isInsideContainer().
 	//   - /proc/version is free-form and carries the kernel build user, build
 	//     host and full compiler banner, so a bare "wsl" would match a plain
 	//     Linux box built by user "wsl" or on host "wsl-builder". "microsoft"

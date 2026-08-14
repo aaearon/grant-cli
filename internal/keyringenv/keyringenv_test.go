@@ -47,7 +47,62 @@ func TestDetectorIsWSL(t *testing.T) {
 		exists []string
 		env    map[string]string
 		want   bool
+		// wantSignal, when set, pins which signal wslSignal reports. It is what
+		// locks the documented precedence order; asserting only the boolean would
+		// let the order silently change.
+		wantSignal string
 	}{
+		{
+			// Every signal present at once: /run/WSL must win.
+			name: "precedence: /run/WSL beats everything",
+			goos: "linux",
+			files: map[string]string{
+				procVersionPath:   "Linux version 6.18.33.2-microsoft-standard-WSL2",
+				procOSReleasePath: "6.18.33.2-microsoft-standard-WSL2",
+			},
+			exists:     []string{runWSLPath, wslInteropPath},
+			env:        map[string]string{"WSL_DISTRO_NAME": "Ubuntu-22.04", "WSL_INTEROP": "/run/WSL/424_interop"},
+			want:       true,
+			wantSignal: runWSLPath,
+		},
+		{
+			name: "precedence: WSLInterop beats the strings and env",
+			goos: "linux",
+			files: map[string]string{
+				procVersionPath:   "Linux version 6.18.33.2-microsoft-standard-WSL2",
+				procOSReleasePath: "6.18.33.2-microsoft-standard-WSL2",
+			},
+			exists:     []string{wslInteropPath},
+			env:        map[string]string{"WSL_DISTRO_NAME": "Ubuntu-22.04"},
+			want:       true,
+			wantSignal: wslInteropPath,
+		},
+		{
+			name: "precedence: osrelease beats /proc/version and env",
+			goos: "linux",
+			files: map[string]string{
+				procVersionPath:   "Linux version 6.18.33.2-microsoft-standard-WSL2",
+				procOSReleasePath: "6.18.33.2-microsoft-standard-WSL2",
+			},
+			env:        map[string]string{"WSL_DISTRO_NAME": "Ubuntu-22.04"},
+			want:       true,
+			wantSignal: procOSReleasePath,
+		},
+		{
+			name:       "precedence: /proc/version beats env",
+			goos:       "linux",
+			files:      map[string]string{procVersionPath: "Linux version 6.18.33.2-microsoft-standard-WSL2"},
+			env:        map[string]string{"WSL_DISTRO_NAME": "Ubuntu-22.04"},
+			want:       true,
+			wantSignal: procVersionPath,
+		},
+		{
+			name:       "precedence: WSL_DISTRO_NAME beats WSL_INTEROP",
+			goos:       "linux",
+			env:        map[string]string{"WSL_DISTRO_NAME": "Ubuntu-22.04", "WSL_INTEROP": "/run/WSL/424_interop"},
+			want:       true,
+			wantSignal: "WSL_DISTRO_NAME",
+		},
 		{
 			// Verbatim string from the WSL2 host that exposed the bug. It carries
 			// both tokens, so it proves the end-to-end regression is caught but not
@@ -161,7 +216,7 @@ func TestDetectorIsWSL(t *testing.T) {
 			want: false,
 		},
 		{
-			name:   "non-linux GOOS never touches the filesystem",
+			name:   "non-linux GOOS never touches the filesystem or environment",
 			goos:   "windows",
 			files:  map[string]string{procVersionPath: "microsoft"},
 			exists: []string{runWSLPath},
@@ -172,24 +227,30 @@ func TestDetectorIsWSL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			fsTouched := false
+			accessed := false
 			d := Detector{
 				ReadFile: func(name string) ([]byte, error) {
-					fsTouched = true
+					accessed = true
 					return fakeFS(tt.files)(name)
 				},
 				Exists: func(path string) bool {
-					fsTouched = true
+					accessed = true
 					return fakeExists(tt.exists...)(path)
 				},
-				LookupEnv: fakeEnv(tt.env),
-				GOOS:      tt.goos,
+				LookupEnv: func(key string) (string, bool) {
+					accessed = true
+					return fakeEnv(tt.env)(key)
+				},
+				GOOS: tt.goos,
 			}
 			if got := d.IsWSL(); got != tt.want {
 				t.Errorf("IsWSL() = %v, want %v", got, tt.want)
 			}
-			if tt.goos != "linux" && fsTouched {
-				t.Error("IsWSL() touched the filesystem on non-linux GOOS; expected short-circuit")
+			if signal, ok := d.wslSignal(); tt.wantSignal != "" && (!ok || signal != tt.wantSignal) {
+				t.Errorf("wslSignal() = %q (found=%v), want %q — precedence order changed", signal, ok, tt.wantSignal)
+			}
+			if tt.goos != "linux" && accessed {
+				t.Error("IsWSL() read the filesystem or environment on non-linux GOOS; expected short-circuit")
 			}
 		})
 	}
@@ -286,11 +347,22 @@ func TestDetectorApply(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var setKey, setVal string
 			setCalls := 0
+			accessed := false
 			d := Detector{
-				ReadFile:  fakeFS(tt.files),
-				Exists:    fakeExists(),
-				LookupEnv: fakeEnv(tt.env),
+				ReadFile: func(name string) ([]byte, error) {
+					accessed = true
+					return fakeFS(tt.files)(name)
+				},
+				Exists: func(path string) bool {
+					accessed = true
+					return fakeExists()(path)
+				},
+				LookupEnv: func(key string) (string, bool) {
+					accessed = true
+					return fakeEnv(tt.env)(key)
+				},
 				Setenv: func(k, v string) error {
+					accessed = true
 					setCalls++
 					setKey, setVal = k, v
 					return tt.setenvErr
@@ -316,6 +388,9 @@ func TestDetectorApply(t *testing.T) {
 				if setKey != envVar || setVal != "1" {
 					t.Errorf("Setenv(%q, %q), want (%q, %q)", setKey, setVal, envVar, "1")
 				}
+			}
+			if tt.goos != "linux" && accessed {
+				t.Error("Apply() read the filesystem or environment, or wrote an env var, on non-linux GOOS; expected short-circuit")
 			}
 			if tt.reasonHas != "" && !strings.Contains(reason, tt.reasonHas) {
 				t.Errorf("reason = %q, want it to contain %q", reason, tt.reasonHas)
