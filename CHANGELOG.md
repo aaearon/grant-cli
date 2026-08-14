@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- `grant login` (and any other command that touches the token cache) no longer hangs forever on WSL2. The SDK detects WSL by matching `Microsoft` case-sensitively against `/proc/version`; modern WSL2 kernels report `-microsoft-standard-WSL2`, so detection failed and — because WSLg sets `DBUS_SESSION_BUS_ADDRESS` — the OS-provided D-Bus keyring was selected, where the call can block indefinitely. The SDK's fallbacks only fire on a returned *error*, so a hang was unrecoverable. grant now detects WSL itself (case-insensitive `/proc/version` and `/proc/sys/kernel/osrelease`, plus `WSL_DISTRO_NAME`/`WSL_INTEROP`) and sets `IDSEC_BASIC_KEYRING=1` before any keyring access. An existing non-empty `IDSEC_BASIC_KEYRING` is always preserved. Note that switching backends makes a token previously stored in the OS keyring invisible; worst case, re-run `grant login`
+
 ### Added
 
 - End-to-end self-update tests that replace a real, running binary (`internal/selfupdate/e2e_test.go`, build tag `selfupdate_e2e`). They compile two fixture binaries from a dependency-free module, execute one, and swap it through grant's own apply path while a process is still running from that image — so the Windows file-locking semantics behind the two-rename swap are actually exercised, not just the bookkeeping. Success and rollback paths are both covered, and the rolled-back binary is asserted to still run. No network access is required

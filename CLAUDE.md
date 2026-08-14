@@ -157,6 +157,16 @@ Custom `SCAAccessService` follows SDK conventions:
 - SDK profile: `~/.idsec/profiles/grant` (default; override via `IDSEC_PROFILES_FOLDER`)
 - Always resolve the profile directory with `profiles.GetProfilesFolder()` (SDK) — never hand-roll it. The SDK reads `os.Getenv("HOME")`, not `os.UserHomeDir()`; on Windows `HOME` is frequently unset, so it resolves to a **relative** `.idsec/profiles` under the process CWD. Any code that prints or computes the profile path must agree with the loader, so reproduce the SDK's behavior rather than "correcting" it
 
+## Keyring
+- The SDK stores the auth token via `pkg/common/keyring`. `GetKeyring(enforceBasic bool)` (`idsec_keyring.go:117-131`) picks: basic (file) keyring if Docker **or** its own `isWSL()` **or** `IDSEC_BASIC_KEYRING != ""` **or** `enforceBasic`; else the OS keyring on windows/darwin, and on linux the OS-provided (D-Bus/libsecret) keyring whenever `DBUS_SESSION_BUS_ADDRESS` is non-empty; else basic
+- **SDK bug (v0.8.1):** `isWSL()` (`:90-95`) matches `"Microsoft"` **case-sensitively** against `/proc/version`. Modern WSL2 reports `-microsoft-standard-WSL2`, so it returns false. Under WSLg `DBUS_SESSION_BUS_ADDRESS` is set, the D-Bus keyring is chosen, and the call can block forever against an unresponsive `gnome-keyring-daemon`
+- **The SDK's fallbacks cannot save you.** Both the OS-keyring wrapper and `SaveToken` (`:154-171`) fall back to the basic keyring only when the underlying call returns an **error**. A hang is not an error, so the fallback is unreachable. The hang is also not write-only — `LoadToken`/`GetPassword` can wedge before anything is ever written
+- **`IDSEC_BASIC_KEYRING` semantics:** the SDK tests `os.Getenv(...) != ""`, so **any** non-empty value forces the file keyring, `0` and `false` included. Only unset/empty selects the OS keyring
+- **grant's override:** `internal/keyringenv` detects WSL (case-insensitive `/proc/version` + `/proc/sys/kernel/osrelease`, plus non-empty `WSL_DISTRO_NAME`/`WSL_INTEROP`; no-op off linux) and sets `IDSEC_BASIC_KEYRING=1`. A non-empty existing value is preserved; an explicitly **empty** value is overwritten on WSL, because empty is precisely the dangerous setting
+- Applied in `executeWithKeyringOverride` (`cmd/root.go`), called from `Execute()` before `rootCmd.Execute()` — the single deterministic entry point for the binary, ahead of every keyring access (`cmd/login.go`, `cmd/root.go`, `cmd/logout.go`). It **fails closed**: a `Setenv` error aborts before any command runs
+- The applied notice is stashed in `keyringEnvNotice` and emitted from `PersistentPreRunE` inside the `if verbose` branch, so it is verbose-only and unit-testable with `spyLogger` (gating on `IDSEC_LOG_LEVEL` alone would be invisible to the spy)
+- Backend switch caveat: a token written to the OS keyring is invisible to the file keyring. Worst case the user re-runs `grant login`
+
 ## Authentication
 - Use the `/grant-login` skill when you need to authenticate to the grant CLI (e.g., before manual testing)
 - Skill definition: `.claude/skills/grant-login/SKILL.md`

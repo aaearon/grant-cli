@@ -14,6 +14,7 @@ import (
 	survey "github.com/Iilun/survey/v2"
 	"github.com/aaearon/grant-cli/internal/cache"
 	"github.com/aaearon/grant-cli/internal/config"
+	"github.com/aaearon/grant-cli/internal/keyringenv"
 	"github.com/aaearon/grant-cli/internal/sca"
 	"github.com/aaearon/grant-cli/internal/sca/models"
 	"github.com/aaearon/grant-cli/internal/ui"
@@ -38,6 +39,15 @@ var verbose bool
 // If an arg/flag validation error occurs, PersistentPreRunE never runs,
 // so this stays false — allowing Execute() to suppress the verbose hint.
 var passedArgValidation bool
+
+// keyringApply forces the SDK's file-based keyring backend when running under
+// WSL. Injectable for tests.
+var keyringApply = keyringenv.Apply
+
+// keyringEnvNotice holds the diagnostic produced when the keyring override is
+// applied. It is stashed at startup (before --verbose is parsed) and emitted
+// from PersistentPreRunE once the flag is known.
+var keyringEnvNotice string
 
 // elevateFlags holds the command-line flags for elevation
 type elevateFlags struct {
@@ -96,6 +106,9 @@ Examples:
 			passedArgValidation = true
 			if verbose {
 				sdkconfig.EnableVerboseLogging("INFO")
+				if keyringEnvNotice != "" {
+					log.Info("%s", keyringEnvNotice)
+				}
 			} else {
 				sdkconfig.DisableVerboseLogging()
 			}
@@ -252,9 +265,25 @@ func NewRootCommandWithDeps(
 	})
 }
 
+// executeWithKeyringOverride applies the WSL keyring override before running
+// cmd, so no keyring access can happen against a backend that may hang.
+//
+// It fails closed: if the override cannot be applied the command never runs,
+// because continuing would walk the user into an unbounded D-Bus hang.
+func executeWithKeyringOverride(cmd *cobra.Command) error {
+	applied, reason, err := keyringApply()
+	if err != nil {
+		return fmt.Errorf("could not force the file-based keyring backend: %w (set IDSEC_BASIC_KEYRING=1 manually and retry)", err)
+	}
+	if applied {
+		keyringEnvNotice = reason
+	}
+	return cmd.Execute()
+}
+
 func Execute() {
 	passedArgValidation = false
-	if err := rootCmd.Execute(); err != nil {
+	if err := executeWithKeyringOverride(rootCmd); err != nil {
 		fmt.Fprintln(rootCmd.ErrOrStderr(), err)
 		if !verbose && passedArgValidation {
 			fmt.Fprintln(rootCmd.ErrOrStderr(), "Hint: re-run with --verbose for more details")
