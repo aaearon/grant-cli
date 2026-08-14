@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -252,7 +253,10 @@ func TestKubeconfigFilePermissionsAndBackup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fi.Mode().Perm() != 0o600 {
+	// The mode half is POSIX-only: Go synthesizes Windows FileMode bits from a
+	// single read-only attribute, so every ordinary file reads as 0666 there.
+	// The backup half below is portable and keeps running on every platform.
+	if runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
 		t.Errorf("mode = %o, want 0600", fi.Mode().Perm())
 	}
 

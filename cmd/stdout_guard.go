@@ -3,6 +3,8 @@ package cmd
 import (
 	"io"
 	"os"
+
+	"github.com/spf13/cobra"
 )
 
 // stdoutGuard gives a command exclusive ownership of the process's standard
@@ -56,8 +58,63 @@ func (g *stdoutGuard) Release() {
 	g.release = nil
 }
 
+// stdoutOwnershipAnnotation marks a command whose stdout is a machine protocol
+// rather than human output, so Execute can hand it the stdout boundary before
+// Cobra runs anything at all. Driving this off an annotation rather than a
+// command path keeps the decision on the command itself.
+const stdoutOwnershipAnnotation = "grant.stdout"
+
+// stdoutOwnershipProtocol is the annotation value that requests the guard.
+const stdoutOwnershipProtocol = "protocol"
+
+// installProtocolStdoutGuard reserves stdout when the command named by args
+// owns it as a protocol, and returns nil otherwise. The returned guard is safe
+// to Release when nil.
+//
+// This runs before PersistentPreRunE, which matters: the root pre-run emits the
+// WSL keyring notice through the SDK logger on --verbose, and that logger is
+// built on os.Stdout. A guard installed in RunE arrives after that line has
+// already been written into kubectl's stdout.
+//
+// Find only resolves the subcommand path (it strips flags itself) and executes
+// nothing, so this cannot change how any command runs. A resolution failure
+// simply means no guard: the command then reserves stdout in its own RunE, as
+// before.
+func installProtocolStdoutGuard(root *cobra.Command, args []string) *stdoutGuard {
+	target, _, err := root.Find(args)
+	if err != nil || target == nil {
+		return nil
+	}
+	if target.Annotations[stdoutOwnershipAnnotation] != stdoutOwnershipProtocol {
+		return nil
+	}
+	return reserveStdout()
+}
+
+// activeStdoutGuard is the installed guard, if any. It exists so a command's
+// RunE can ask for the reservation without caring whether Execute already made
+// it — nesting yields the same Data and a no-op Release, leaving the outer
+// owner responsible for restoring stdout.
+var activeStdoutGuard *stdoutGuard
+
 // reserveStdout is the seam tests replace to observe the guard.
-var reserveStdout = defaultReserveStdout
+var reserveStdout = nestingReserveStdout
+
+func nestingReserveStdout() *stdoutGuard {
+	if activeStdoutGuard != nil {
+		// Nested: same writer, nil release.
+		return &stdoutGuard{Data: activeStdoutGuard.Data}
+	}
+
+	g := defaultReserveStdout()
+	activeStdoutGuard = g
+	inner := g.release
+	g.release = func() {
+		activeStdoutGuard = nil
+		inner()
+	}
+	return g
+}
 
 func defaultReserveStdout() *stdoutGuard {
 	original := os.Stdout

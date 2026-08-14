@@ -173,7 +173,9 @@ grant k8s kubeconfig                    # merge into your existing kubeconfig
 kubectl --context grant-aws-prod get ns
 ```
 
-`grant k8s kubeconfig` is a **merge**, not an overwrite. Only entries grant owns — named `grant-<provider>-<name>` — are added or replaced; every other cluster, user and context in your kubeconfig is left alone, and `current-context` is not changed unless you pass `--set-current-context`. The file is written atomically at mode `0600`, and the first merge into a pre-existing kubeconfig leaves a `<target>.grant.bak` copy behind. Use `--stdout` to print without touching any file, or `--file <path>` to target a different one.
+`grant k8s kubeconfig` is a **merge**, not an overwrite. Only entries grant owns — named `grant-<provider>-<name>` — are added or replaced; every other cluster, user and context in your kubeconfig is left alone, and `current-context` is not changed unless you pass `--set-current-context`. The file is written atomically, and the first merge into a pre-existing kubeconfig leaves a `<target>.grant.bak` copy behind. Use `--stdout` to print without touching any file, or `--file <path>` to target a different one.
+
+**A note on file permissions.** On Linux and macOS, the kubeconfig and the cached cluster credentials are written at mode `0600` and grant refuses to read a cached credential that is owned by another user or readable beyond you. On Windows none of that applies: Go reports a synthesized `0666` for every file, `chmod` there only toggles the read-only attribute, and grant does **not** inspect ACLs or file ownership. Confidentiality on Windows rests entirely on the default permissions of your user profile directory. Symlinked kubeconfigs and cache entries are refused on every platform.
 
 The generated kubeconfig authenticates through a hidden `grant k8s exec-credential` plugin that kubectl invokes for you.
 

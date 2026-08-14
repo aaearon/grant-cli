@@ -80,6 +80,11 @@ all diagnostics go to stderr.`,
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE:          runFn,
+
+		// Stdout is kubectl's protocol channel, not human output. Execute reads
+		// this to take the stdout boundary before Cobra's pre-run hooks get a
+		// chance to write anything there.
+		Annotations: map[string]string{stdoutOwnershipAnnotation: stdoutOwnershipProtocol},
 	}
 
 	cmd.Flags().String("csp", "", "Cloud provider: aws, azure")

@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -379,6 +380,14 @@ func TestExecCredentialCachesAndRefetchesAfterExpiry(t *testing.T) {
 }
 
 func TestExecCredentialCacheFilePermissions(t *testing.T) {
+	// POSIX-only, like every other mode assertion in this tree. Go synthesizes
+	// Windows FileMode bits from a single read-only attribute, so every ordinary
+	// file reports 0666 there and this assertion fails rather than skipping.
+	// internal/k8s guards its equivalents the same way.
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX file modes are not meaningful on Windows")
+	}
+
 	dir := t.TempDir()
 	credCache := k8s.NewCredentialCache(dir)
 	provider := &mockCredentialProvider{cred: sampleCredential(time.Now().Add(time.Hour))}
