@@ -91,9 +91,15 @@ type mockSessionRevoker struct {
 	revokeFunc func(ctx context.Context, req *models.RevokeRequest) (*models.RevokeResponse, error)
 	response   *models.RevokeResponse
 	revokeErr  error
+	// calls records the session IDs sent on every invocation, so batching
+	// behavior can be asserted.
+	calls [][]string
 }
 
 func (m *mockSessionRevoker) RevokeSessions(ctx context.Context, req *models.RevokeRequest) (*models.RevokeResponse, error) {
+	if req != nil {
+		m.calls = append(m.calls, append([]string(nil), req.SessionIDs...))
+	}
 	if m.revokeFunc != nil {
 		return m.revokeFunc(ctx, req)
 	}

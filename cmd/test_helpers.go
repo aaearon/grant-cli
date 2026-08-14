@@ -37,6 +37,21 @@ func executeCommand(cmd *cobra.Command, args ...string) (string, error) {
 	return buf.String(), err
 }
 
+// executeCommandStreams executes a command keeping stdout and stderr apart and
+// writing no error text into either. Use it when a test needs to assert on the
+// exact stdout payload (e.g. valid JSON) *and* on a returned error, which
+// executeCommand cannot express because it merges the streams and appends the
+// error text.
+func executeCommandStreams(cmd *cobra.Command, args ...string) (stdout, stderr string, err error) {
+	var outBuf, errBuf bytes.Buffer
+	cmd.SetOut(&outBuf)
+	cmd.SetErr(&errBuf)
+	cmd.SetArgs(args)
+
+	err = cmd.Execute()
+	return outBuf.String(), errBuf.String(), err
+}
+
 // executeWithHint simulates Execute() logic without os.Exit, returning the error output.
 // Used for testing the verbose hint behavior.
 func executeWithHint(cmd *cobra.Command, args []string) string {

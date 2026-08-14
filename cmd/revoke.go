@@ -12,6 +12,20 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// errRevocationIncomplete is returned when the service did not accept
+// revocation for every requested session.
+//
+// Exit policy, precisely. A non-zero exit means at least one requested session
+// was refused (REVOCATION_NOT_APPLICABLE), carried an unrecognized status, or
+// had no result returned for it at all — unrecognized and missing statuses fail
+// closed. A zero exit means every requested session was *accepted*, which
+// includes REVOCATION_IN_PROGRESS: the service took the command and will act,
+// but has not confirmed the access is gone. That is a documented asynchronous
+// success state, so treating it as a failure would make legitimate revocations
+// look broken; the per-session breakdown still distinguishes it from a
+// confirmed revocation, and `grant status` shows what is still live.
+var errRevocationIncomplete = errors.New("not all requested sessions were revoked")
+
 // uiSessionSelector wraps ui.SelectSessions to implement sessionSelector
 type uiSessionSelector struct{}
 
@@ -123,94 +137,103 @@ func runRevoke(
 		return fmt.Errorf("not authenticated, run 'grant login' first: %w", err)
 	}
 
-	// Determine session IDs to revoke
-	var sessionIDs []string
-
-	if len(args) > 0 {
-		// Direct mode: session IDs provided as arguments
-		sessionIDs = args
-	} else {
-		// All or interactive mode: need to list sessions first
-		ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
-		defer cancel()
-
-		sessions, err := lister.ListSessions(ctx, cspFilter)
-		if err != nil {
-			return fmt.Errorf("failed to list sessions: %w", err)
-		}
-
-		if len(sessions.Response) == 0 {
-			fmt.Fprintln(cmd.OutOrStdout(), "No active sessions to revoke.")
-			return nil
-		}
-
-		if allFlag {
-			// Collect all session IDs
-			for _, s := range sessions.Response {
-				sessionIDs = append(sessionIDs, s.SessionID)
-			}
-
-			// Confirm unless --yes
-			if !yesFlag {
-				confirmed, err := confirmer.ConfirmRevocation(len(sessionIDs))
-				if err != nil {
-					return fmt.Errorf("confirmation failed: %w", err)
-				}
-				if !confirmed {
-					fmt.Fprintln(cmd.OutOrStdout(), "Revocation canceled.")
-					return nil
-				}
-			}
-		} else {
-			// Interactive mode
-			nameMap := buildWorkspaceNameMap(ctx, elig, sessions.Response)
-
-			selected, err := selector.SelectSessions(sessions.Response, nameMap)
-			if err != nil {
-				return fmt.Errorf("session selection failed: %w", err)
-			}
-
-			for _, s := range selected {
-				sessionIDs = append(sessionIDs, s.SessionID)
-			}
-
-			// Confirm
-			if !yesFlag {
-				confirmed, err := confirmer.ConfirmRevocation(len(sessionIDs))
-				if err != nil {
-					return fmt.Errorf("confirmation failed: %w", err)
-				}
-				if !confirmed {
-					fmt.Fprintln(cmd.OutOrStdout(), "Revocation canceled.")
-					return nil
-				}
-			}
-		}
-	}
-
-	// Call revoke API
-	ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
-	defer cancel()
-
-	result, err := revoker.RevokeSessions(ctx, &scamodels.RevokeRequest{
-		SessionIDs: sessionIDs,
-	})
-	if err != nil {
+	// Determine which sessions to revoke.
+	sessionIDs, done, err := resolveRevokeTargets(cmd, args, lister, elig, selector, confirmer, cspFilter, allFlag, yesFlag)
+	if err != nil || done {
 		return err
 	}
 
-	// Display results
+	// The requested set is the source of truth for every count and for the exit
+	// code, so deduplicate it before sending and before reconciling.
+	sessionIDs = dedupeSessionIDs(sessionIDs)
+
+	// A failing batch still returns the results already collected.
+	results, revokeErr := revokeInBatches(context.Background(), revoker, sessionIDs)
+
+	records, unattached := reconcileRevocations(sessionIDs, results)
+
 	if isJSONOutput() {
-		out := make([]revocationOutput, len(result.Response))
-		for i, r := range result.Response {
-			out[i] = revocationOutput{SessionID: r.SessionID, Status: r.RevocationStatus}
+		if err := writeJSON(cmd.OutOrStdout(), buildRevocationJSON(records, unattached)); err != nil {
+			return err
 		}
-		return writeJSON(cmd.OutOrStdout(), out)
+	} else {
+		// Always print the full breakdown before returning an error, so a
+		// non-zero exit is never opaque.
+		renderRevocationResults(cmd.OutOrStdout(), records, unattached)
 	}
 
-	for _, r := range result.Response {
-		fmt.Fprintf(cmd.OutOrStdout(), "  %s: %s\n", r.SessionID, r.RevocationStatus)
+	if revokeErr != nil {
+		return revokeErr
+	}
+
+	if summary := summarizeRevocations(records); !summary.allAccepted() {
+		return fmt.Errorf("%w: %s", errRevocationIncomplete, summaryLine(summary))
 	}
 
 	return nil
+}
+
+// resolveRevokeTargets determines the session IDs to revoke. done reports that
+// the command has already finished (nothing to revoke, or the user declined).
+func resolveRevokeTargets(
+	cmd *cobra.Command,
+	args []string,
+	lister sessionLister,
+	elig eligibilityLister,
+	selector sessionSelector,
+	confirmer confirmPrompter,
+	cspFilter *scamodels.CSP,
+	allFlag, yesFlag bool,
+) (sessionIDs []string, done bool, err error) {
+	if len(args) > 0 {
+		// Direct mode: session IDs provided as arguments.
+		return args, false, nil
+	}
+
+	// All or interactive mode: list sessions first.
+	ctx, cancel := context.WithTimeout(context.Background(), apiTimeout)
+	defer cancel()
+
+	sessions, err := lister.ListSessions(ctx, cspFilter)
+	if err != nil {
+		return nil, true, fmt.Errorf("failed to list sessions: %w", err)
+	}
+
+	if len(sessions.Response) == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "No active sessions to revoke.")
+		return nil, true, nil
+	}
+
+	selected := sessions.Response
+	if !allFlag {
+		nameMap := buildWorkspaceNameMap(ctx, elig, sessions.Response)
+		selected, err = selector.SelectSessions(sessions.Response, nameMap)
+		if err != nil {
+			return nil, true, fmt.Errorf("session selection failed: %w", err)
+		}
+		// Selecting nothing is a deliberate no-op, equivalent to declining the
+		// confirmation. Handled here rather than after the request is built, so
+		// an empty selection can never be revoked as if it were a request.
+		if len(selected) == 0 {
+			fmt.Fprintln(cmd.OutOrStdout(), "No sessions selected.")
+			return nil, true, nil
+		}
+	}
+
+	for _, s := range selected {
+		sessionIDs = append(sessionIDs, s.SessionID)
+	}
+
+	if !yesFlag {
+		confirmed, cerr := confirmer.ConfirmRevocation(len(sessionIDs))
+		if cerr != nil {
+			return nil, true, fmt.Errorf("confirmation failed: %w", cerr)
+		}
+		if !confirmed {
+			fmt.Fprintln(cmd.OutOrStdout(), "Revocation canceled.")
+			return nil, true, nil
+		}
+	}
+
+	return sessionIDs, false, nil
 }

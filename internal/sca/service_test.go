@@ -410,6 +410,34 @@ func TestRevokeSessions_HTTPError(t *testing.T) {
 	}
 }
 
+// TestRevokeSessions_UndocumentedStatusPassesThrough proves the decoder does
+// not normalize or reject statuses outside the spec's enum. REVOCATION_NOT_APPLICABLE
+// is returned by the live API but documented in neither the spec nor the SDK,
+// and classification happens above this layer.
+func TestRevokeSessions_UndocumentedStatusPassesThrough(t *testing.T) {
+	mock := &mockHTTPClient{
+		postResponse: &http.Response{
+			StatusCode: http.StatusOK,
+			Body: io.NopCloser(strings.NewReader(
+				`{"response":[{"sessionId":"session-1","revocationStatus":"REVOCATION_NOT_APPLICABLE"}]}`)),
+		},
+	}
+
+	svc := &SCAAccessService{httpClient: mock}
+	result, err := svc.RevokeSessions(t.Context(), &models.RevokeRequest{
+		SessionIDs: []string{"session-1"},
+	})
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(result.Response) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(result.Response))
+	}
+	if result.Response[0].RevocationStatus != models.RevocationNotApplicable {
+		t.Errorf("status = %q, want it passed through unaltered", result.Response[0].RevocationStatus)
+	}
+}
+
 func TestListSessions_Success(t *testing.T) {
 	resp := models.SessionsResponse{
 		Response: []models.SessionInfo{

@@ -118,10 +118,31 @@ Running `grant` with no subcommand elevates cloud permissions (the core behavior
 | `logout` | Clear cached tokens from keyring |
 | `status` | Show auth state and active sessions |
 | `favorites` | Manage saved role favorites (`add`/`list`/`remove`) |
-| `revoke` | Revoke sessions (interactive, by ID, or `--all`) |
+| `revoke` | Revoke sessions (interactive, by ID, or `--all`) — see exit codes below |
 | `request` | Manage access requests through an approval workflow (see subcommands below) |
 | `update` | Self-update to the latest release from GitHub |
 | `version` | Print version information |
+
+### `grant revoke` exit codes
+
+`revoke` reports its outcome against the sessions you **requested**, not against
+whatever rows the service happened to return.
+
+| Exit | Meaning |
+|------|---------|
+| 0 | The service **accepted** revocation for every requested session. This includes sessions still `in_progress` — accepted is not the same as finished, and `revoke` says which is which per session. |
+| 1 | At least one requested session was refused (`not_applicable`), came back with an unrecognized status, or had no result returned for it at all. The full per-session breakdown is printed before the command exits. |
+
+Precisely: exit 0 does **not** prove every session is gone, only that nothing was
+refused, unrecognized or unaccounted for. An in-progress revocation is a
+documented asynchronous success state, so it does not fail the command; run
+`grant status` to see what is still live. What does fail the command is a
+partial result, so `grant revoke --all && echo safe` cannot print `safe` while a
+session was refused or silently dropped.
+
+With `--output json` each entry carries the raw `status` and a single
+`outcome` field (`revoked`, `in_progress`, `not_applicable`, `unknown`), emitted
+on stdout even on exit 1.
 
 ### `grant request` subcommands
 
@@ -184,6 +205,7 @@ favorites:
 | "No eligible targets found" | Verify SCA policies with your Idira admin; try without `--provider` to see all targets |
 | "Failed to elevate" | Check `grant status` for active sessions; verify target/role names |
 | `grant env` errors for Azure/GCP | `env` is AWS-only — Azure and GCP return no credentials, use `grant` directly |
+| `grant revoke` reports "NOT revoked" | The service returned a status other than a successful or in-progress revocation (the raw value is shown in parentheses, e.g. `REVOCATION_NOT_APPLICABLE`), or returned no result for that session. The session may still be active — check `grant status` and raise the raw status with your Idira admin |
 | Permission denied accessing keyring (Linux) | Install and start `gnome-keyring` or `kwalletmanager` |
 | `grant login` hangs forever with no output (Linux/WSL) | The OS keyring (D-Bus/libsecret) is unresponsive and the call never returns. grant forces the file keyring on WSL automatically — run with `--verbose` to confirm. On other Linux hosts, set `IDSEC_BASIC_KEYRING=1` and retry. Switching backends hides any token already stored in the OS keyring; just re-run `grant login` |
 
