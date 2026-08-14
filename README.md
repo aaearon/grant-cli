@@ -118,10 +118,25 @@ Running `grant` with no subcommand elevates cloud permissions (the core behavior
 | `logout` | Clear cached tokens from keyring |
 | `status` | Show auth state and active sessions |
 | `favorites` | Manage saved role favorites (`add`/`list`/`remove`) |
-| `revoke` | Revoke sessions (interactive, by ID, or `--all`) |
+| `revoke` | Revoke sessions (interactive, by ID, or `--all`) — see exit codes below |
 | `request` | Manage access requests through an approval workflow (see subcommands below) |
 | `update` | Self-update to the latest release from GitHub |
 | `version` | Print version information |
+
+### `grant revoke` exit codes
+
+`revoke` reports its outcome against the sessions you **requested**, not against
+whatever rows the service happened to return.
+
+| Exit | Meaning |
+|------|---------|
+| 0 | Every requested session was **accepted** for revocation. Some may still be in progress — accepted is not the same as finished, and `revoke` says which is which per session. |
+| 1 | At least one requested session was not accepted, or the service returned no result for it. The full per-session breakdown is printed before the command exits. |
+
+A partial result exits 1 on purpose, so `grant revoke --all && echo safe` cannot
+print `safe` while a session survives. With `--output json` the per-session
+outcome (`revoked`, `in_progress`, `not_applicable`, `unknown`) plus the
+`accepted` and `complete` flags are emitted on stdout even on exit 1.
 
 ### `grant request` subcommands
 
@@ -183,6 +198,7 @@ favorites:
 | "No eligible targets found" | Verify SCA policies with your Idira admin; try without `--provider` to see all targets |
 | "Failed to elevate" | Check `grant status` for active sessions; verify target/role names |
 | `grant env` errors for Azure/GCP | `env` is AWS-only — Azure and GCP return no credentials, use `grant` directly |
+| `grant revoke` reports "NOT revoked" | The service returned a status other than a successful or in-progress revocation (the raw value is shown in parentheses, e.g. `REVOCATION_NOT_APPLICABLE`), or returned no result for that session. The session may still be active — check `grant status` and raise the raw status with your Idira admin |
 | Permission denied accessing keyring (Linux) | Install and start `gnome-keyring` or `kwalletmanager` |
 
 ## Development

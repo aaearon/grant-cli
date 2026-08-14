@@ -727,7 +727,7 @@ func TestRevokeCommand_JSONOutput(t *testing.T) {
 	elig := &mockEligibilityLister{}
 	revoker := &mockSessionRevoker{response: &scamodels.RevokeResponse{
 		Response: []scamodels.RevocationResult{
-			{SessionID: "s1", RevocationStatus: "Revoked"},
+			{SessionID: "s1", RevocationStatus: scamodels.RevocationSuccessful},
 		},
 	}}
 	selector := &mockSessionSelector{sessions: []scamodels.SessionInfo{
@@ -754,7 +754,45 @@ func TestRevokeCommand_JSONOutput(t *testing.T) {
 	if parsed[0].SessionID != "s1" {
 		t.Errorf("sessionId = %q, want s1", parsed[0].SessionID)
 	}
+	if parsed[0].Status != scamodels.RevocationSuccessful {
+		t.Errorf("status = %q, want the raw API value", parsed[0].Status)
+	}
+	if parsed[0].Outcome != string(scamodels.OutcomeRevoked) || !parsed[0].Accepted || !parsed[0].Complete {
+		t.Errorf("entry = %+v, want outcome=revoked accepted=true complete=true", parsed[0])
+	}
+}
+
+// TestRevokeCommand_JSONOutput_UndocumentedStatus pins the fail-closed
+// behavior: "Revoked" is not in the API's enum, so it must not read as success.
+func TestRevokeCommand_JSONOutput_UndocumentedStatus(t *testing.T) {
+	now := time.Now()
+	expiresIn := commonmodels.IdsecRFC3339Time(now.Add(1 * time.Hour))
+
+	auth := &mockAuthLoader{token: &authmodels.IdsecToken{Token: "jwt", Username: "user", ExpiresIn: expiresIn}}
+	revoker := &mockSessionRevoker{response: &scamodels.RevokeResponse{
+		Response: []scamodels.RevocationResult{
+			{SessionID: "s1", RevocationStatus: "Revoked"},
+		},
+	}}
+
+	cmd := NewRevokeCommandWithDeps(auth, &mockSessionLister{}, &mockEligibilityLister{},
+		revoker, &mockSessionSelector{}, &mockConfirmPrompter{confirmed: true})
+	root := newTestRootCommand()
+	root.AddCommand(cmd)
+
+	stdout, _, err := executeCommandStreams(root, "revoke", "s1", "--yes", "--output", "json")
+	if err == nil {
+		t.Fatal("expected an error: an undocumented status must fail closed")
+	}
+
+	var parsed []revocationOutput
+	if uerr := json.Unmarshal([]byte(stdout), &parsed); uerr != nil {
+		t.Fatalf("invalid JSON on stdout: %v\n%s", uerr, stdout)
+	}
 	if parsed[0].Status != "Revoked" {
-		t.Errorf("status = %q, want Revoked", parsed[0].Status)
+		t.Errorf("status = %q, want the raw API value preserved", parsed[0].Status)
+	}
+	if parsed[0].Outcome != string(scamodels.OutcomeUnknown) || parsed[0].Accepted || parsed[0].Complete {
+		t.Errorf("entry = %+v, want outcome=unknown accepted=false complete=false", parsed[0])
 	}
 }

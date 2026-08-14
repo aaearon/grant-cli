@@ -116,6 +116,49 @@ func TestRevokeResponse_Mixed(t *testing.T) {
 	}
 }
 
+func TestClassifyRevocationStatus(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		status   string
+		want     RevocationOutcome
+		accepted bool
+		complete bool
+	}{
+		{"documented success", RevocationSuccessful, OutcomeRevoked, true, true},
+		{"documented in progress", RevocationInProgress, OutcomeInProgress, true, false},
+		{"undocumented not applicable", RevocationNotApplicable, OutcomeNotApplicable, false, false},
+		{"empty status fails closed", "", OutcomeUnknown, false, false},
+		{"novel status fails closed", "TOTALLY_NEW_STATUS", OutcomeUnknown, false, false},
+		{"lowercase variant fails closed", "successfully_revoked", OutcomeUnknown, false, false},
+		{"mixed case variant fails closed", "Revoked", OutcomeUnknown, false, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := ClassifyRevocationStatus(tt.status)
+			if got != tt.want {
+				t.Errorf("ClassifyRevocationStatus(%q) = %q, want %q", tt.status, got, tt.want)
+			}
+			if got.Accepted() != tt.accepted {
+				t.Errorf("%q.Accepted() = %v, want %v", got, got.Accepted(), tt.accepted)
+			}
+			if got.Complete() != tt.complete {
+				t.Errorf("%q.Complete() = %v, want %v", got, got.Complete(), tt.complete)
+			}
+		})
+	}
+}
+
+func TestMaxRevokeBatchSize(t *testing.T) {
+	t.Parallel()
+	// The API spec caps sessionIds at maxItems: 100 on the request body.
+	if MaxRevokeBatchSize != 100 {
+		t.Errorf("MaxRevokeBatchSize = %d, want 100", MaxRevokeBatchSize)
+	}
+}
+
 func TestRevokeResponse_SnakeCase(t *testing.T) {
 	t.Parallel()
 	jsonInput := `{

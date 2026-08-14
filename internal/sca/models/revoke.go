@@ -2,10 +2,64 @@ package models
 
 import "encoding/json"
 
+// Revocation status values returned in SessionRevocationInfo.revocationStatus.
+//
+// Only RevocationSuccessful and RevocationInProgress appear in the API spec's
+// enum. RevocationNotApplicable is observed from the live API but documented
+// nowhere (neither the OpenAPI spec nor the SDK), so the status set must be
+// treated as open — see ClassifyRevocationStatus.
 const (
-	RevocationSuccessful = "SUCCESSFULLY_REVOKED"
-	RevocationInProgress = "REVOCATION_IN_PROGRESS"
+	RevocationSuccessful    = "SUCCESSFULLY_REVOKED"
+	RevocationInProgress    = "REVOCATION_IN_PROGRESS"
+	RevocationNotApplicable = "REVOCATION_NOT_APPLICABLE"
 )
+
+// MaxRevokeBatchSize is the maximum number of session IDs accepted in a single
+// revoke request (`sessionIds` has `maxItems: 100` in the API spec).
+const MaxRevokeBatchSize = 100
+
+// RevocationOutcome is the classified result of a revocation attempt for one
+// session. It is deliberately not a boolean: "in progress" means the service
+// accepted the command, not that the access is gone.
+type RevocationOutcome string
+
+const (
+	// OutcomeRevoked means revocation is confirmed complete.
+	OutcomeRevoked RevocationOutcome = "revoked"
+	// OutcomeInProgress means the service accepted the command but has not confirmed completion.
+	OutcomeInProgress RevocationOutcome = "in_progress"
+	// OutcomeNotApplicable means the service declined to act on the session.
+	OutcomeNotApplicable RevocationOutcome = "not_applicable"
+	// OutcomeUnknown covers unrecognized, empty and missing statuses. It fails closed.
+	OutcomeUnknown RevocationOutcome = "unknown"
+)
+
+// ClassifyRevocationStatus maps a raw API status to an outcome. Matching is
+// exact (the API uses SCREAMING_SNAKE_CASE); anything unrecognized, including
+// the empty string and case variants, classifies as OutcomeUnknown so an
+// unexpected value can never be read as success.
+func ClassifyRevocationStatus(status string) RevocationOutcome {
+	switch status {
+	case RevocationSuccessful:
+		return OutcomeRevoked
+	case RevocationInProgress:
+		return OutcomeInProgress
+	case RevocationNotApplicable:
+		return OutcomeNotApplicable
+	default:
+		return OutcomeUnknown
+	}
+}
+
+// Accepted reports whether the service accepted the revocation command.
+func (o RevocationOutcome) Accepted() bool {
+	return o == OutcomeRevoked || o == OutcomeInProgress
+}
+
+// Complete reports whether revocation is confirmed finished.
+func (o RevocationOutcome) Complete() bool {
+	return o == OutcomeRevoked
+}
 
 // RevokeRequest is the request body for POST /api/access/sessions/revoke.
 type RevokeRequest struct {

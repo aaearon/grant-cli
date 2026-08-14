@@ -49,9 +49,18 @@ type statusOutput struct {
 }
 
 // revocationOutput is the JSON representation of a revocation result.
+// There is one entry per *requested* session, in requested order, plus any
+// results the service returned that could not be attributed to a request.
+// There is deliberately no "revoked" boolean: an in-progress revocation is
+// accepted but not complete, and a boolean cannot say that.
 type revocationOutput struct {
-	SessionID string `json:"sessionId"`
-	Status    string `json:"status"`
+	SessionID  string `json:"sessionId"`
+	Status     string `json:"status"`           // raw API value; "" when no row was returned
+	Outcome    string `json:"outcome"`          // revoked | in_progress | not_applicable | unknown
+	Accepted   bool   `json:"accepted"`         // the service accepted the command
+	Complete   bool   `json:"complete"`         // revocation confirmed finished
+	Reason     string `json:"reason,omitempty"` // explanation when not confirmed revoked
+	Unexpected bool   `json:"unexpected,omitempty"`
 }
 
 // favoriteOutput is the JSON representation of a saved favorite.
