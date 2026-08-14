@@ -278,7 +278,7 @@ func TestSelfUpdateE2EReplacesBinary(t *testing.T) {
 			_, backupErr := os.Stat(backup)
 			switch {
 			case runtime.GOOS == "windows" && tt.hold:
-				// Documented Windows behaviour, not a test allowance: minio
+				// Documented Windows behavior, not a test allowance: minio
 				// cannot os.Remove the backup while a process is still running
 				// from that image, so it marks it hidden and leaves it. What
 				// must hold is that it does not accumulate - the next update

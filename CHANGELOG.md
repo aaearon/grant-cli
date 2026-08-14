@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- End-to-end self-update tests that replace a real, running binary (`internal/selfupdate/e2e_test.go`, build tag `selfupdate_e2e`). They compile two fixture binaries from a dependency-free module, execute one, and swap it through grant's own apply path while a process is still running from that image — so the Windows file-locking semantics behind the two-rename swap are actually exercised, not just the bookkeeping. Success and rollback paths are both covered, and the rolled-back binary is asserted to still run. No network access is required
+- CI runs the new self-update end-to-end tests on **both** `ubuntu-latest` and `windows-latest`, closing the gap left by the Windows CI leg added in 0.8.0, which only ran `go build` and `go test` and never exercised a binary replacing itself on Windows
+
 ## [0.8.0] - 2026-08-14
 
 ### Added
