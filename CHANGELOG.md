@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- `grant login` no longer hangs on WSL2; grant now detects WSL and forces the file-based keyring. A token stored in the OS keyring becomes invisible — re-run `grant login` if prompted
+
 ### Added
 
 - End-to-end self-update tests that replace a real, running binary (`internal/selfupdate/e2e_test.go`, build tag `selfupdate_e2e`). They compile two fixture binaries from a dependency-free module, execute one, and swap it through grant's own apply path while a process is still running from that image — so the Windows file-locking semantics behind the two-rename swap are actually exercised, not just the bookkeeping. Success and rollback paths are both covered, and the rolled-back binary is asserted to still run. No network access is required

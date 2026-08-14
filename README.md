@@ -174,6 +174,7 @@ favorites:
 |----------|-------------|---------|
 | `GRANT_CONFIG` | Custom path to app config YAML | `~/.grant/config.yaml` |
 | `IDSEC_LOG_LEVEL` | SDK log level (`DEBUG`, `INFO`, `CRITICAL`) — overrides `--verbose` | Not set |
+| `IDSEC_BASIC_KEYRING` | Store the auth token in the SDK's encrypted file keyring instead of the OS keyring. **Any non-empty value forces file storage — including `0` and `false`.** Empty or unset does not itself force it (the SDK still picks file storage in Docker and in the cases it detects as WSL). grant sets it to `1` automatically when it detects WSL; an existing non-empty value is never overridden | Not set (auto-set to `1` on WSL) |
 
 ## Troubleshooting
 
@@ -184,6 +185,7 @@ favorites:
 | "Failed to elevate" | Check `grant status` for active sessions; verify target/role names |
 | `grant env` errors for Azure/GCP | `env` is AWS-only — Azure and GCP return no credentials, use `grant` directly |
 | Permission denied accessing keyring (Linux) | Install and start `gnome-keyring` or `kwalletmanager` |
+| `grant login` hangs forever with no output (Linux/WSL) | The OS keyring (D-Bus/libsecret) is unresponsive and the call never returns. grant forces the file keyring on WSL automatically — run with `--verbose` to confirm. On other Linux hosts, set `IDSEC_BASIC_KEYRING=1` and retry. Switching backends hides any token already stored in the OS keyring; just re-run `grant login` |
 
 ## Development
 
