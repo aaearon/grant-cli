@@ -114,11 +114,15 @@ func buildRevocationJSON(records []revocationRecord, unattached []unattributedRe
 		})
 	}
 	for _, u := range unattached {
-		outcome := scamodels.ClassifyRevocationStatus(u.Status)
+		// The outcome is always unknown, whatever the raw status says. A row
+		// grant never asked for is not a success by any reading, and reporting
+		// outcome "revoked" alongside accepted=false/complete=false would let
+		// consumers keying on outcome and consumers keying on the axes disagree.
+		// The raw status is preserved for the operator.
 		out = append(out, revocationOutput{
 			SessionID:  u.SessionID,
 			Status:     u.Status,
-			Outcome:    string(outcome),
+			Outcome:    string(scamodels.OutcomeUnknown),
 			Accepted:   false,
 			Complete:   false,
 			Reason:     "result was not requested and satisfies no requested session",

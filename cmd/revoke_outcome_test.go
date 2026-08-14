@@ -338,6 +338,38 @@ func TestRevokeCommand_ExpiryNoteAbsentInDirectMode(t *testing.T) {
 	}
 }
 
+// TestRevokeCommand_EmptySelection: selecting nothing is a no-op, not a
+// revocation of nothing. It must never reach the API.
+func TestRevokeCommand_EmptySelection(t *testing.T) {
+	lister := &mockSessionLister{sessions: &scamodels.SessionsResponse{
+		Response: []scamodels.SessionInfo{
+			{SessionID: "s1", CSP: scamodels.CSPAzure, WorkspaceID: "ws", RoleID: "Admin", SessionDuration: 3600},
+		},
+		Total: 1,
+	}}
+	revoker := &mockSessionRevoker{}
+	confirmer := &mockConfirmPrompter{
+		confirmFunc: func(count int) (bool, error) {
+			t.Error("confirmation must not be requested when nothing was selected")
+			return false, nil
+		},
+	}
+
+	cmd := NewRevokeCommandWithDeps(testAuthLoader(), lister, &mockEligibilityLister{},
+		revoker, &mockSessionSelector{sessions: nil}, confirmer)
+
+	output, err := executeCommand(cmd)
+	if err != nil {
+		t.Fatalf("unexpected error: %v\n%s", err, output)
+	}
+	if !strings.Contains(output, "No sessions selected") {
+		t.Errorf("expected the no-op to be reported, got:\n%s", output)
+	}
+	if len(revoker.calls) != 0 {
+		t.Errorf("made %d revoke calls, want 0", len(revoker.calls))
+	}
+}
+
 func TestRevokeCommand_JSONOutcomes(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -402,6 +434,45 @@ func TestRevokeCommand_JSONOutcomes(t *testing.T) {
 				}
 				if parsed[1].SessionID != "s2" || parsed[1].Status != "" || parsed[1].Outcome != string(scamodels.OutcomeUnknown) {
 					t.Errorf("entry = %+v, want s2 with empty status and outcome unknown", parsed[1])
+				}
+			},
+		},
+		{
+			name:     "unattributed row is never a success, whatever its status",
+			args:     []string{"s1"},
+			response: revokeResponse("s1", scamodels.RevocationSuccessful, "zz", scamodels.RevocationSuccessful),
+			check: func(t *testing.T, parsed []revocationOutput) {
+				if len(parsed) != 2 {
+					t.Fatalf("got %d entries, want the requested session plus the unattributed row", len(parsed))
+				}
+				u := parsed[1]
+				if !u.Unexpected || u.SessionID != "zz" {
+					t.Fatalf("entry = %+v, want the unattributed zz row", u)
+				}
+				// outcome and the accepted/complete axes must agree: a row grant
+				// never requested is not a success by any reading.
+				if u.Outcome != string(scamodels.OutcomeUnknown) {
+					t.Errorf("outcome = %q, want unknown", u.Outcome)
+				}
+				if u.Accepted || u.Complete {
+					t.Errorf("entry = %+v, want accepted=false complete=false", u)
+				}
+				if u.Status != scamodels.RevocationSuccessful {
+					t.Errorf("status = %q, want the raw API value preserved", u.Status)
+				}
+			},
+		},
+		{
+			name:     "unattributed row with an empty session ID is never a success",
+			args:     []string{"s1"},
+			response: revokeResponse("s1", scamodels.RevocationSuccessful, "", scamodels.RevocationInProgress),
+			check: func(t *testing.T, parsed []revocationOutput) {
+				u := parsed[len(parsed)-1]
+				if !u.Unexpected || u.SessionID != "" {
+					t.Fatalf("entry = %+v, want the unattributable empty-ID row", u)
+				}
+				if u.Outcome != string(scamodels.OutcomeUnknown) || u.Accepted || u.Complete {
+					t.Errorf("entry = %+v, want outcome=unknown accepted=false complete=false", u)
 				}
 			},
 		},

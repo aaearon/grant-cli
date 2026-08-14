@@ -164,10 +164,6 @@ func runRevoke(
 	// The requested set is the source of truth for every count and for the exit
 	// code, so deduplicate it before sending and before reconciling.
 	sessionIDs = dedupeSessionIDs(sessionIDs)
-	if len(sessionIDs) == 0 {
-		fmt.Fprintln(cmd.OutOrStdout(), "No sessions selected.")
-		return nil
-	}
 
 	// A failing batch still returns the results already collected.
 	results, revokeErr := revokeInBatches(context.Background(), revoker, sessionIDs)
@@ -250,6 +246,13 @@ func resolveRevokeTargets(
 		selected, err = selector.SelectSessions(sessions.Response, nameMap)
 		if err != nil {
 			return nil, nil, true, fmt.Errorf("session selection failed: %w", err)
+		}
+		// Selecting nothing is a deliberate no-op, equivalent to declining the
+		// confirmation. Handled here rather than after the request is built, so
+		// an empty selection can never be revoked as if it were a request.
+		if len(selected) == 0 {
+			fmt.Fprintln(cmd.OutOrStdout(), "No sessions selected.")
+			return nil, nil, true, nil
 		}
 	}
 
