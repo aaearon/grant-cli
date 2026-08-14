@@ -174,7 +174,7 @@ favorites:
 |----------|-------------|---------|
 | `GRANT_CONFIG` | Custom path to app config YAML | `~/.grant/config.yaml` |
 | `IDSEC_LOG_LEVEL` | SDK log level (`DEBUG`, `INFO`, `CRITICAL`) — overrides `--verbose` | Not set |
-| `IDSEC_BASIC_KEYRING` | Store the auth token in the SDK's encrypted file keyring instead of the OS keyring. **Any non-empty value enables it — including `0` and `false`.** Only unset (or empty) selects the OS keyring. grant sets it to `1` automatically when it detects WSL; an existing non-empty value is never overridden | Not set (auto-set to `1` on WSL) |
+| `IDSEC_BASIC_KEYRING` | Store the auth token in the SDK's encrypted file keyring instead of the OS keyring. **Any non-empty value forces file storage — including `0` and `false`.** Empty or unset does not itself force it (the SDK still picks file storage in Docker and in the cases it detects as WSL). grant sets it to `1` automatically when it detects WSL; an existing non-empty value is never overridden | Not set (auto-set to `1` on WSL) |
 
 ## Troubleshooting
 

@@ -57,21 +57,18 @@ func (d Detector) wslSignal() (string, bool) {
 	if d.GOOS != "linux" {
 		return "", false
 	}
-	for _, f := range []struct {
-		path   string
-		tokens []string
-	}{
-		{procVersionPath, []string{"microsoft", "wsl"}},
-		{procOSReleasePath, []string{"microsoft", "wsl2"}},
-	} {
-		data, err := d.ReadFile(f.path)
+	// Both files are checked for both tokens: "microsoft" catches the standard
+	// kernel strings, "wsl" catches custom kernels that only carry the WSL/WSL2
+	// marker. Matching is case-insensitive — that is the SDK's actual bug.
+	for _, path := range []string{procVersionPath, procOSReleasePath} {
+		data, err := d.ReadFile(path)
 		if err != nil {
 			continue
 		}
 		lower := strings.ToLower(string(data))
-		for _, token := range f.tokens {
+		for _, token := range []string{"microsoft", "wsl"} {
 			if strings.Contains(lower, token) {
-				return f.path, true
+				return path, true
 			}
 		}
 	}

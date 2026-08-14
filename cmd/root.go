@@ -47,6 +47,9 @@ var keyringApply = keyringenv.Apply
 // keyringEnvNotice holds the diagnostic produced when the keyring override is
 // applied. It is stashed at startup (before --verbose is parsed) and emitted
 // from PersistentPreRunE once the flag is known.
+//
+// It is set, never cleared: the binary applies the override exactly once per
+// process. Tests that invoke the wrapper repeatedly must reset it themselves.
 var keyringEnvNotice string
 
 // elevateFlags holds the command-line flags for elevation

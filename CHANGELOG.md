@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
-- `grant login` (and any other command that touches the token cache) no longer hangs forever on WSL2. The SDK detects WSL by matching `Microsoft` case-sensitively against `/proc/version`; modern WSL2 kernels report `-microsoft-standard-WSL2`, so detection failed and — because WSLg sets `DBUS_SESSION_BUS_ADDRESS` — the OS-provided D-Bus keyring was selected, where the call can block indefinitely. The SDK's fallbacks only fire on a returned *error*, so a hang was unrecoverable. grant now detects WSL itself (case-insensitive `/proc/version` and `/proc/sys/kernel/osrelease`, plus `WSL_DISTRO_NAME`/`WSL_INTEROP`) and sets `IDSEC_BASIC_KEYRING=1` before any keyring access. An existing non-empty `IDSEC_BASIC_KEYRING` is always preserved. Note that switching backends makes a token previously stored in the OS keyring invisible; worst case, re-run `grant login`
+- `grant login` no longer hangs on WSL2; grant now detects WSL and forces the file-based keyring. A token stored in the OS keyring becomes invisible — re-run `grant login` if prompted
 
 ### Added
 

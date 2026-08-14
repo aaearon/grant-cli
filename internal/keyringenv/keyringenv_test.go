@@ -36,27 +36,48 @@ func TestDetectorIsWSL(t *testing.T) {
 		want  bool
 	}{
 		{
-			name:  "lowercase microsoft in /proc/version (the regression)",
+			// Verbatim string from the WSL2 host that exposed the bug. It carries
+			// both tokens, so it proves the end-to-end regression is caught but not
+			// which token did it — the isolated cases below do that.
+			name:  "real WSL2 /proc/version (the regression)",
 			goos:  "linux",
 			files: map[string]string{procVersionPath: "Linux version 6.18.33.2-microsoft-standard-WSL2 (root@builder) #1 SMP"},
 			want:  true,
 		},
 		{
-			name:  "uppercase Microsoft in /proc/version (WSL1)",
+			name:  "/proc/version: lowercase microsoft only",
+			goos:  "linux",
+			files: map[string]string{procVersionPath: "Linux version 6.18.33.2-microsoft-standard (root@builder)"},
+			want:  true,
+		},
+		{
+			name:  "/proc/version: uppercase Microsoft only (WSL1)",
 			goos:  "linux",
 			files: map[string]string{procVersionPath: "Linux version 4.4.0-19041-Microsoft (Microsoft@Microsoft.com)"},
 			want:  true,
 		},
 		{
-			name:  "wsl token in /proc/version only",
+			name:  "/proc/version: wsl token only",
 			goos:  "linux",
-			files: map[string]string{procVersionPath: "Linux version 5.15.0-WSL2-custom"},
+			files: map[string]string{procVersionPath: "Linux version 5.15.0-WSL-custom"},
 			want:  true,
 		},
 		{
-			name:  "osrelease only",
+			name:  "osrelease only: microsoft token",
 			goos:  "linux",
-			files: map[string]string{procOSReleasePath: "5.15.0-microsoft-standard-WSL2"},
+			files: map[string]string{procOSReleasePath: "5.15.0-microsoft-standard"},
+			want:  true,
+		},
+		{
+			name:  "osrelease only: wsl token, no microsoft, no WSL2",
+			goos:  "linux",
+			files: map[string]string{procOSReleasePath: "5.15.0-WSL-custom"},
+			want:  true,
+		},
+		{
+			name:  "osrelease only: uppercase WSL2 marker",
+			goos:  "linux",
+			files: map[string]string{procOSReleasePath: "5.15.0-generic-WSL2"},
 			want:  true,
 		},
 		{
