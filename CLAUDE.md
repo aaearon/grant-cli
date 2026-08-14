@@ -208,6 +208,8 @@ make lint               # Run linter (golangci-lint)
 make clean              # Clean build artifacts
 ```
 - `-trimpath` used in both `Makefile` and `.goreleaser.yaml` for reproducible builds
+- `VERSION ?= dev` (`Makefile:2`) is injected as `-X ...cmd.version=$(VERSION)` (`Makefile:5-8`), so a plain `make build` stamps `version=dev`. `runUpdate` refuses `""`/`"dev"` (`cmd/update.go:38-39`, "cannot update a dev build"), so `grant update` can never succeed on a default local build
+- To exercise `grant update` locally: `make build VERSION=0.7.0`, then `./grant update`. Use a version *older* than the latest release so an update is actually found
 - `.goreleaser.yaml` uses `CommitDate` (not build date) and `mod_timestamp` for reproducibility
 
 ## CI
