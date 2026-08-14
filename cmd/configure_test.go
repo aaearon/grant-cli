@@ -182,8 +182,16 @@ func TestConfigureCommand(t *testing.T) {
 				}
 			},
 			setupConfigFn: func() (string, error) {
-				// Return a path in a non-existent directory with restricted permissions
-				return "/dev/null/config.yaml", nil
+				// Return a path whose parent directory component is an existing
+				// regular file, so config.Save's MkdirAll fails. This is portable:
+				// creating a directory under a file errors on POSIX (ENOTDIR) and
+				// on Windows (ERROR_DIRECTORY). A hardcoded /dev/null path does not
+				// work on Windows, where it is just an ordinary writable location.
+				blocker := filepath.Join(t.TempDir(), "not-a-dir")
+				if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+					return "", err
+				}
+				return filepath.Join(blocker, "config.yaml"), nil
 			},
 			wantContain: []string{
 				"failed to save config",

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -127,6 +128,9 @@ func TestApplyBinaryFailsBeforeTouchingTarget(t *testing.T) {
 		{
 			name: "unwritable target directory",
 			setup: func(t *testing.T, target string) {
+				if runtime.GOOS == "windows" {
+					t.Skip("chmod 0500 does not deny directory writes on Windows")
+				}
 				if os.Geteuid() == 0 {
 					t.Skip("running as root: directory permissions are not enforced")
 				}
@@ -246,7 +250,9 @@ func TestApplyBinaryRollbackFailureIsReported(t *testing.T) {
 	if !interrupted {
 		t.Fatal("InterruptedUpdate did not detect the interrupted state")
 	}
-	if !strings.Contains(hint, oldPathFor(path)) || !strings.Contains(hint, path) {
+	// recoveryHint renders the paths with %q, so compare against the quoted
+	// form - on Windows the raw path contains backslashes that %q escapes.
+	if !strings.Contains(hint, strconv.Quote(oldPathFor(path))) || !strings.Contains(hint, strconv.Quote(path)) {
 		t.Errorf("recovery hint does not name both paths: %q", hint)
 	}
 

@@ -181,6 +181,14 @@ make clean              # Clean build artifacts
 - `-trimpath` used in both `Makefile` and `.goreleaser.yaml` for reproducible builds
 - `.goreleaser.yaml` uses `CommitDate` (not build date) and `mod_timestamp` for reproducibility
 
+## CI
+- `.github/workflows/ci.yml` — `test` job runs as a matrix over `ubuntu-latest` and `windows-latest` with `fail-fast: false`
+- Windows runners have no GNU make, so that leg runs the equivalent Go commands directly (`go build -trimpath -o grant.exe .`, `go test -race ./... -v`); Linux keeps `make build` / `make test-race`. Keep the two legs in sync when Makefile targets change
+- `go test -race` works on windows/amd64 because the runner image ships gcc (the race detector needs cgo)
+- Lint (`golangci-lint-action`) runs on Linux only — a second pass on Windows adds minutes and finds nothing new
+- Tests must be OS-portable. Never assert POSIX permission bits without a `runtime.GOOS == "windows"` skip: Go synthesizes `0666`/`0777` for Windows files and `os.Chmod` there only toggles the read-only attribute. Current skips: `internal/config/config_test.go` (`TestLoadConfig_PermissionError`, `TestConfigDir_Error` — chmod 0000 and `HOME`) and `internal/cache/cache_test.go` (`TestSet_FilePermissions`)
+- Prefer a portable construction over a skip where one exists. To force a write failure, point at a path whose parent component is an existing regular file (`MkdirAll` fails with ENOTDIR on POSIX and ERROR_DIRECTORY on Windows) rather than a hardcoded `/dev/null/...` path, which is an ordinary writable location on Windows
+
 ## Release Process
 1. Move `[Unreleased]` entries in `CHANGELOG.md` to a new `[X.Y.Z] - YYYY-MM-DD` section (leave `[Unreleased]` header empty)
 2. Commit: `docs: prepare CHANGELOG for vX.Y.Z release`
