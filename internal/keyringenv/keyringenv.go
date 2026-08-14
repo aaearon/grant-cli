@@ -33,9 +33,13 @@ const (
 	// Launchpad #1991823.
 	runWSLPath = "/run/WSL"
 
-	// wslInteropPath exists only when Windows interop is enabled in wsl.conf,
-	// so it is a supplement to runWSLPath, never a replacement — that
-	// insufficiency is what Launchpad #1991823 documents.
+	// wslInteropPath is a supplement to runWSLPath, never a replacement — that
+	// insufficiency is what Launchpad #1991823 documents. On WSL1 the
+	// per-distro registration is gated on Config.InteropEnabled
+	// (src/linux/init/config.cpp), so disabling interop in wsl.conf removes it;
+	// on WSL2 the entry is registered VM-wide and is kernel-global, so it can
+	// be wiped or shadowed for every distro at once. It is also absent in any
+	// mount namespace that does not mount binfmt_misc.
 	wslInteropPath = "/proc/sys/fs/binfmt_misc/WSLInterop"
 )
 
@@ -83,6 +87,27 @@ func (d Detector) IsWSL() bool {
 }
 
 // wslSignal returns the first WSL indicator found, and whether one was found.
+//
+// All five signals are deliberately kept. The redundancy is about VISIBILITY,
+// not reliability, and that is why "this one is weaker" is never on its own a
+// reason to delete one — they fail independently because each is reached by a
+// different mechanism:
+//
+//   - the filesystem markers are namespace-local: a chroot or mount namespace
+//     with a clean /run, or without binfmt_misc mounted, sees neither, whatever
+//     WSL's init did;
+//   - the two proc paths are independently maskable, being separate
+//     mount-visible paths;
+//   - the env vars are the only signal inherited ACROSS chroot and
+//     mount-namespace boundaries — exactly where every marker above vanishes.
+//
+// Beware the trap that produced (and reverted) commit db73645: content
+// equivalence is not signal redundancy. /proc/version and osrelease provably
+// cannot disagree — the kernel renders both from utsname()->release via the
+// caller's UTS namespace (fs/proc/version.c; kernel/utsname_sysctl.c) — and
+// init sets WSL_DISTRO_NAME and creates /run/WSL in the same unguarded
+// function. Neither fact means a given process can still SEE the other source.
+// Only delete a signal you can show is unreachable-when-the-others-are-not.
 func (d Detector) wslSignal() (string, bool) {
 	if d.GOOS != "linux" {
 		return "", false
