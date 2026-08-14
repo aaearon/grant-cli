@@ -757,8 +757,8 @@ func TestRevokeCommand_JSONOutput(t *testing.T) {
 	if parsed[0].Status != scamodels.RevocationSuccessful {
 		t.Errorf("status = %q, want the raw API value", parsed[0].Status)
 	}
-	if parsed[0].Outcome != string(scamodels.OutcomeRevoked) || !parsed[0].Accepted || !parsed[0].Complete {
-		t.Errorf("entry = %+v, want outcome=revoked accepted=true complete=true", parsed[0])
+	if parsed[0].Outcome != string(scamodels.OutcomeRevoked) {
+		t.Errorf("entry = %+v, want outcome=revoked", parsed[0])
 	}
 }
 
@@ -792,7 +792,7 @@ func TestRevokeCommand_JSONOutput_UndocumentedStatus(t *testing.T) {
 	if parsed[0].Status != "Revoked" {
 		t.Errorf("status = %q, want the raw API value preserved", parsed[0].Status)
 	}
-	if parsed[0].Outcome != string(scamodels.OutcomeUnknown) || parsed[0].Accepted || parsed[0].Complete {
-		t.Errorf("entry = %+v, want outcome=unknown accepted=false complete=false", parsed[0])
+	if parsed[0].Outcome != string(scamodels.OutcomeUnknown) {
+		t.Errorf("entry = %+v, want outcome=unknown", parsed[0])
 	}
 }

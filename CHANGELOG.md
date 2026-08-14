@@ -11,7 +11,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
-- `grant revoke` now exits 1 when any requested session was not revoked instead of reporting success; check scripts relying on exit 0.
+- `grant revoke` now exits 1 when the service refused, returned an unrecognized status for, or returned no result at all for any requested session, instead of reporting success; accepted-but-`in_progress` revocations still exit 0, and `--output json` gains a per-session `outcome` field — check scripts relying on exit 0.
 
 ## [0.8.0] - 2026-08-14
 

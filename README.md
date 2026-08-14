@@ -130,13 +130,19 @@ whatever rows the service happened to return.
 
 | Exit | Meaning |
 |------|---------|
-| 0 | Every requested session was **accepted** for revocation. Some may still be in progress — accepted is not the same as finished, and `revoke` says which is which per session. |
-| 1 | At least one requested session was not accepted, or the service returned no result for it. The full per-session breakdown is printed before the command exits. |
+| 0 | The service **accepted** revocation for every requested session. This includes sessions still `in_progress` — accepted is not the same as finished, and `revoke` says which is which per session. |
+| 1 | At least one requested session was refused (`not_applicable`), came back with an unrecognized status, or had no result returned for it at all. The full per-session breakdown is printed before the command exits. |
 
-A partial result exits 1 on purpose, so `grant revoke --all && echo safe` cannot
-print `safe` while a session survives. With `--output json` the per-session
-outcome (`revoked`, `in_progress`, `not_applicable`, `unknown`) plus the
-`accepted` and `complete` flags are emitted on stdout even on exit 1.
+Precisely: exit 0 does **not** prove every session is gone, only that nothing was
+refused, unrecognized or unaccounted for. An in-progress revocation is a
+documented asynchronous success state, so it does not fail the command; run
+`grant status` to see what is still live. What does fail the command is a
+partial result, so `grant revoke --all && echo safe` cannot print `safe` while a
+session was refused or silently dropped.
+
+With `--output json` each entry carries the raw `status` and a single
+`outcome` field (`revoked`, `in_progress`, `not_applicable`, `unknown`), emitted
+on stdout even on exit 1.
 
 ### `grant request` subcommands
 

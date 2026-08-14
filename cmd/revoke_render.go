@@ -3,45 +3,9 @@ package cmd
 import (
 	"fmt"
 	"io"
-	"time"
 
 	scamodels "github.com/aaearon/grant-cli/internal/sca/models"
 )
-
-// expiryHinter supplies the best-effort "expires in ~Xm" note. The hint needs
-// both session metadata (for the duration) and a local elevation timestamp, so
-// it is unavailable in direct mode, where grant only has bare session IDs.
-//
-// The note is purely informational. It never explains *why* a revocation was
-// refused — grant has no evidence for that.
-type expiryHinter struct {
-	metadata   map[string]scamodels.SessionInfo
-	timestamps map[string]time.Time
-	now        func() time.Time
-}
-
-// note returns a parenthesised expiry clause, or "" when it is unknown.
-func (h expiryHinter) note(sessionID string) string {
-	if h.now == nil || len(h.metadata) == 0 || len(h.timestamps) == 0 {
-		return ""
-	}
-	session, ok := h.metadata[sessionID]
-	if !ok {
-		return ""
-	}
-	remaining, ok := computeRemainingTimeAt([]scamodels.SessionInfo{session}, h.timestamps, h.now())[sessionID]
-	if !ok {
-		return ""
-	}
-	if remaining <= 0 {
-		return " (this session has already expired)"
-	}
-	totalMin := int(remaining.Minutes())
-	if totalMin >= 60 {
-		return fmt.Sprintf(" (this session expires in ~%dh %dm)", totalMin/60, totalMin%60)
-	}
-	return fmt.Sprintf(" (this session expires in ~%dm)", totalMin)
-}
 
 // describeRecord renders one reconciled record as a human-readable line body.
 func describeRecord(r revocationRecord) string {
@@ -57,9 +21,9 @@ func describeRecord(r revocationRecord) string {
 	}
 }
 
-// summaryLine states the outcome over the *requested* sessions, keeping the
-// accepted-versus-complete distinction visible. It never claims that an
-// accepted revocation is a finished one.
+// summaryLine states the outcome over the *requested* sessions, keeping
+// confirmed revocations separate from ones merely accepted. It never claims
+// that an accepted revocation is a finished one.
 func summaryLine(s revocationSummary) string {
 	line := fmt.Sprintf("%d of %d requested sessions revoked", s.revoked, s.requested)
 	if s.inProgress > 0 {
@@ -81,9 +45,9 @@ func plural(n int, singular, plural string) string {
 // renderRevocationResults prints the full per-session breakdown. It is always
 // called before the command returns its error, so a non-zero exit is never
 // opaque.
-func renderRevocationResults(w io.Writer, records []revocationRecord, unattached []unattributedResult, hints expiryHinter) {
+func renderRevocationResults(w io.Writer, records []revocationRecord, unattached []unattributedResult) {
 	for _, r := range records {
-		fmt.Fprintf(w, "  %s: %s%s\n", r.SessionID, describeRecord(r), hints.note(r.SessionID))
+		fmt.Fprintf(w, "  %s: %s\n", r.SessionID, describeRecord(r))
 	}
 
 	for _, u := range unattached {
@@ -108,23 +72,17 @@ func buildRevocationJSON(records []revocationRecord, unattached []unattributedRe
 			SessionID: r.SessionID,
 			Status:    r.Status,
 			Outcome:   string(r.Outcome),
-			Accepted:  r.Outcome.Accepted(),
-			Complete:  r.Outcome.Complete(),
 			Reason:    r.Reason,
 		})
 	}
 	for _, u := range unattached {
-		// The outcome is always unknown, whatever the raw status says. A row
-		// grant never asked for is not a success by any reading, and reporting
-		// outcome "revoked" alongside accepted=false/complete=false would let
-		// consumers keying on outcome and consumers keying on the axes disagree.
-		// The raw status is preserved for the operator.
+		// The outcome is always unknown, whatever the raw status says: a row
+		// grant never asked for is not a success by any reading. The raw
+		// status is preserved for the operator.
 		out = append(out, revocationOutput{
 			SessionID:  u.SessionID,
 			Status:     u.Status,
 			Outcome:    string(scamodels.OutcomeUnknown),
-			Accepted:   false,
-			Complete:   false,
 			Reason:     "result was not requested and satisfies no requested session",
 			Unexpected: true,
 		})

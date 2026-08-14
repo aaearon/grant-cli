@@ -178,16 +178,11 @@ func runStatus(
 
 // computeRemainingTime builds a sessionID -> remaining duration map from local timestamps.
 func computeRemainingTime(sessions []scamodels.SessionInfo, timestamps map[string]time.Time) map[string]time.Duration {
-	return computeRemainingTimeAt(sessions, timestamps, time.Now())
-}
-
-// computeRemainingTimeAt is computeRemainingTime with an explicit clock, so
-// callers that need deterministic output can pin it.
-func computeRemainingTimeAt(sessions []scamodels.SessionInfo, timestamps map[string]time.Time, now time.Time) map[string]time.Duration {
 	if len(timestamps) == 0 {
 		return nil
 	}
 
+	now := time.Now()
 	remaining := make(map[string]time.Duration)
 	for _, s := range sessions {
 		if elevatedAt, ok := timestamps[s.SessionID]; ok {

@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aaearon/grant-cli/internal/cache"
 	scamodels "github.com/aaearon/grant-cli/internal/sca/models"
 	authmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/auth"
 	commonmodels "github.com/cyberark/idsec-sdk-golang/pkg/models/common"
@@ -284,60 +283,6 @@ func TestRevokeCommand_BatchErrorKeepsEarlierOutcomes(t *testing.T) {
 	}
 }
 
-// TestRevokeCommand_ExpiryNote covers the best-effort expiry hint. The clock is
-// pinned; deriving the expectation from time.Now() would straddle a minute
-// boundary and flake.
-func TestRevokeCommand_ExpiryNote(t *testing.T) {
-	elevatedAt := time.Now().Add(-20 * time.Minute)
-	pinned := elevatedAt.Add(20 * time.Minute)
-
-	tracker := cache.NewStore(t.TempDir(), 25*time.Hour)
-	if err := cache.RecordSession(tracker, "s1", elevatedAt); err != nil {
-		t.Fatalf("failed to seed tracker: %v", err)
-	}
-
-	lister := &mockSessionLister{sessions: &scamodels.SessionsResponse{
-		Response: []scamodels.SessionInfo{
-			{SessionID: "s1", CSP: scamodels.CSPAzure, WorkspaceID: "ws", RoleID: "Admin", SessionDuration: 3600},
-		},
-		Total: 1,
-	}}
-	revoker := &mockSessionRevoker{response: revokeResponse("s1", scamodels.RevocationNotApplicable)}
-
-	cmd := newRevokeCommandWithClock(testAuthLoader(), lister, &mockEligibilityLister{}, revoker,
-		&mockSessionSelector{}, &mockConfirmPrompter{}, tracker, func() time.Time { return pinned })
-
-	output, err := executeCommand(cmd, "--all", "--yes")
-	if err == nil {
-		t.Fatal("expected an error for a not-applicable revocation")
-	}
-	if !strings.Contains(output, "expires in ~40m") {
-		t.Errorf("expected the expiry note, got:\n%s", output)
-	}
-}
-
-// TestRevokeCommand_ExpiryNoteAbsentInDirectMode: direct mode has bare IDs and
-// no session metadata, so no expiry can be claimed.
-func TestRevokeCommand_ExpiryNoteAbsentInDirectMode(t *testing.T) {
-	elevatedAt := time.Now().Add(-20 * time.Minute)
-	tracker := cache.NewStore(t.TempDir(), 25*time.Hour)
-	if err := cache.RecordSession(tracker, "s1", elevatedAt); err != nil {
-		t.Fatalf("failed to seed tracker: %v", err)
-	}
-
-	revoker := &mockSessionRevoker{response: revokeResponse("s1", scamodels.RevocationNotApplicable)}
-	cmd := newRevokeCommandWithClock(testAuthLoader(), &mockSessionLister{}, &mockEligibilityLister{}, revoker,
-		&mockSessionSelector{}, &mockConfirmPrompter{}, tracker, func() time.Time { return elevatedAt.Add(20 * time.Minute) })
-
-	output, err := executeCommand(cmd, "s1")
-	if err == nil {
-		t.Fatal("expected an error for a not-applicable revocation")
-	}
-	if strings.Contains(output, "expires in") {
-		t.Errorf("direct mode has no session metadata, so no expiry may be claimed:\n%s", output)
-	}
-}
-
 // TestRevokeCommand_EmptySelection: selecting nothing is a no-op, not a
 // revocation of nothing. It must never reach the API.
 func TestRevokeCommand_EmptySelection(t *testing.T) {
@@ -387,8 +332,8 @@ func TestRevokeCommand_JSONOutcomes(t *testing.T) {
 					t.Fatalf("got %d entries, want 2", len(parsed))
 				}
 				for _, p := range parsed {
-					if p.Outcome != string(scamodels.OutcomeRevoked) || !p.Accepted || !p.Complete {
-						t.Errorf("entry = %+v, want outcome=revoked accepted=true complete=true", p)
+					if p.Outcome != string(scamodels.OutcomeRevoked) {
+						t.Errorf("entry = %+v, want outcome=revoked", p)
 					}
 					if p.Status != scamodels.RevocationSuccessful {
 						t.Errorf("status = %q, want the raw API value", p.Status)
@@ -404,9 +349,6 @@ func TestRevokeCommand_JSONOutcomes(t *testing.T) {
 				if parsed[0].Outcome != string(scamodels.OutcomeInProgress) {
 					t.Errorf("outcome = %q, want in_progress", parsed[0].Outcome)
 				}
-				if !parsed[0].Accepted || parsed[0].Complete {
-					t.Errorf("entry = %+v, want accepted=true complete=false", parsed[0])
-				}
 			},
 		},
 		{
@@ -418,8 +360,8 @@ func TestRevokeCommand_JSONOutcomes(t *testing.T) {
 				if len(parsed) != 2 {
 					t.Fatalf("got %d entries, want 2", len(parsed))
 				}
-				if parsed[1].Accepted || parsed[1].Reason == "" {
-					t.Errorf("entry = %+v, want accepted=false with a reason", parsed[1])
+				if parsed[1].Outcome != string(scamodels.OutcomeNotApplicable) || parsed[1].Reason == "" {
+					t.Errorf("entry = %+v, want outcome=not_applicable with a reason", parsed[1])
 				}
 			},
 		},
@@ -449,13 +391,10 @@ func TestRevokeCommand_JSONOutcomes(t *testing.T) {
 				if !u.Unexpected || u.SessionID != "zz" {
 					t.Fatalf("entry = %+v, want the unattributed zz row", u)
 				}
-				// outcome and the accepted/complete axes must agree: a row grant
-				// never requested is not a success by any reading.
+				// A row grant never requested is not a success by any reading,
+				// whatever its raw status says.
 				if u.Outcome != string(scamodels.OutcomeUnknown) {
 					t.Errorf("outcome = %q, want unknown", u.Outcome)
-				}
-				if u.Accepted || u.Complete {
-					t.Errorf("entry = %+v, want accepted=false complete=false", u)
 				}
 				if u.Status != scamodels.RevocationSuccessful {
 					t.Errorf("status = %q, want the raw API value preserved", u.Status)
@@ -471,8 +410,8 @@ func TestRevokeCommand_JSONOutcomes(t *testing.T) {
 				if !u.Unexpected || u.SessionID != "" {
 					t.Fatalf("entry = %+v, want the unattributable empty-ID row", u)
 				}
-				if u.Outcome != string(scamodels.OutcomeUnknown) || u.Accepted || u.Complete {
-					t.Errorf("entry = %+v, want outcome=unknown accepted=false complete=false", u)
+				if u.Outcome != string(scamodels.OutcomeUnknown) {
+					t.Errorf("entry = %+v, want outcome=unknown", u)
 				}
 			},
 		},
@@ -516,8 +455,13 @@ func TestRevokeCommand_JSONOutcomes(t *testing.T) {
 			if uerr := json.Unmarshal([]byte(stdout), &parsed); uerr != nil {
 				t.Fatalf("invalid JSON on stdout: %v\n%s", uerr, stdout)
 			}
-			if strings.Contains(stdout, `"revoked":true`) || strings.Contains(stdout, `"revoked": true`) {
-				t.Errorf("JSON must never carry a revoked boolean:\n%s", stdout)
+			// outcome is the single classification field. Booleans derived from
+			// it (a "revoked" flag, or accepted/complete axes) must not exist:
+			// two representations of one concept can disagree.
+			for _, banned := range []string{`"revoked":`, `"accepted"`, `"complete"`} {
+				if strings.Contains(stdout, banned) {
+					t.Errorf("JSON must not carry %s; outcome is the only classification field:\n%s", banned, stdout)
+				}
 			}
 			tt.check(t, parsed)
 		})

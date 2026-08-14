@@ -76,7 +76,7 @@ func TestReconcileRevocations(t *testing.T) {
 			requested: []string{"A"},
 			results:   []scamodels.RevocationResult{ok("A"), notApplicable("A")},
 			wantRecords: []revocationRecord{
-				{SessionID: "A", Status: scamodels.RevocationNotApplicable, Outcome: scamodels.OutcomeNotApplicable, Duplicate: true},
+				{SessionID: "A", Status: scamodels.RevocationNotApplicable, Outcome: scamodels.OutcomeNotApplicable},
 			},
 		},
 		{
@@ -84,7 +84,7 @@ func TestReconcileRevocations(t *testing.T) {
 			requested: []string{"A"},
 			results:   []scamodels.RevocationResult{notApplicable("A"), ok("A")},
 			wantRecords: []revocationRecord{
-				{SessionID: "A", Status: scamodels.RevocationNotApplicable, Outcome: scamodels.OutcomeNotApplicable, Duplicate: true},
+				{SessionID: "A", Status: scamodels.RevocationNotApplicable, Outcome: scamodels.OutcomeNotApplicable},
 			},
 		},
 		{
@@ -144,11 +144,12 @@ func TestReconcileRevocations(t *testing.T) {
 			for i, want := range tt.wantRecords {
 				got := records[i]
 				if got.SessionID != want.SessionID || got.Status != want.Status ||
-					got.Outcome != want.Outcome || got.Duplicate != want.Duplicate {
+					got.Outcome != want.Outcome {
 					t.Errorf("record[%d] = %+v, want %+v", i, got, want)
 				}
-				if !got.Outcome.Accepted() && got.Reason == "" {
-					t.Errorf("record[%d] (%s) has no reason for a non-accepted outcome", i, got.SessionID)
+				// Anything short of a confirmed revocation must say why.
+				if got.Outcome != scamodels.OutcomeRevoked && got.Reason == "" {
+					t.Errorf("record[%d] (%s) has no reason for outcome %q", i, got.SessionID, got.Outcome)
 				}
 			}
 

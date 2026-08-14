@@ -14,7 +14,6 @@ type revocationRecord struct {
 	Status    string // raw API value; "" when no row was returned
 	Outcome   scamodels.RevocationOutcome
 	Reason    string // why this is not a confirmed revocation; "" when revoked
-	Duplicate bool   // the service returned more than one row for this ID
 }
 
 // unattributedResult is a returned row that cannot be attributed to a
@@ -100,12 +99,9 @@ func reconcileRevocations(requested []string, results []scamodels.RevocationResu
 		}
 
 		outcome := scamodels.ClassifyRevocationStatus(r.RevocationStatus)
-		if seen[r.SessionID] {
-			records[i].Duplicate = true
-			// Worst outcome wins: a later success must never mask an earlier failure.
-			if outcomeRank(outcome) >= outcomeRank(records[i].Outcome) {
-				continue
-			}
+		// Worst outcome wins: a later success must never mask an earlier failure.
+		if seen[r.SessionID] && outcomeRank(outcome) >= outcomeRank(records[i].Outcome) {
+			continue
 		}
 		seen[r.SessionID] = true
 
@@ -126,8 +122,9 @@ type revocationSummary struct {
 }
 
 // allAccepted reports whether every requested session was accepted by the
-// service (revoked or in progress). An empty requested set is not a success:
-// nothing was confirmed revoked.
+// service, counting OutcomeInProgress as accepted. This is the exit-code
+// predicate: see errRevocationIncomplete for the policy and its limits.
+// An empty requested set is not a success: nothing was confirmed revoked.
 func (s revocationSummary) allAccepted() bool {
 	return s.requested > 0 && s.failed == 0
 }
@@ -135,10 +132,10 @@ func (s revocationSummary) allAccepted() bool {
 func summarizeRevocations(records []revocationRecord) revocationSummary {
 	s := revocationSummary{requested: len(records)}
 	for _, r := range records {
-		switch {
-		case r.Outcome.Complete():
+		switch r.Outcome {
+		case scamodels.OutcomeRevoked:
 			s.revoked++
-		case r.Outcome.Accepted():
+		case scamodels.OutcomeInProgress:
 			s.inProgress++
 		default:
 			s.failed++

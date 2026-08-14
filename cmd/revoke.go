@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
-	"github.com/aaearon/grant-cli/internal/cache"
 	"github.com/aaearon/grant-cli/internal/config"
 	scamodels "github.com/aaearon/grant-cli/internal/sca/models"
 	"github.com/aaearon/grant-cli/internal/ui"
@@ -14,9 +12,18 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// errRevocationIncomplete is returned when at least one requested session was
-// not accepted for revocation. grant fails closed: a security-remediation
-// command must not exit 0 while access may still be live.
+// errRevocationIncomplete is returned when the service did not accept
+// revocation for every requested session.
+//
+// Exit policy, precisely. A non-zero exit means at least one requested session
+// was refused (REVOCATION_NOT_APPLICABLE), carried an unrecognized status, or
+// had no result returned for it at all — unrecognized and missing statuses fail
+// closed. A zero exit means every requested session was *accepted*, which
+// includes REVOCATION_IN_PROGRESS: the service took the command and will act,
+// but has not confirmed the access is gone. That is a documented asynchronous
+// success state, so treating it as a failure would make legitimate revocations
+// look broken; the per-session breakdown still distinguishes it from a
+// confirmed revocation, and `grant status` shows what is still live.
 var errRevocationIncomplete = errors.New("not all requested sessions were revoked")
 
 // uiSessionSelector wraps ui.SelectSessions to implement sessionSelector
@@ -73,13 +80,7 @@ func NewRevokeCommand() *cobra.Command {
 
 		cachedLister := buildCachedLister(cfg, false, svc, nil)
 
-		// Session timestamp tracker for the best-effort expiry note (may be nil).
-		var tracker *cache.Store
-		if cacheDir, err := cache.CacheDir(); err == nil {
-			tracker = cache.NewStore(cacheDir, 25*time.Hour)
-		}
-
-		return runRevoke(cmd, args, ispAuth, svc, cachedLister, svc, &uiSessionSelector{}, &uiConfirmPrompter{}, profile, tracker, time.Now)
+		return runRevoke(cmd, args, ispAuth, svc, cachedLister, svc, &uiSessionSelector{}, &uiConfirmPrompter{}, profile)
 	})
 }
 
@@ -92,24 +93,8 @@ func NewRevokeCommandWithDeps(
 	selector sessionSelector,
 	confirmer confirmPrompter,
 ) *cobra.Command {
-	return newRevokeCommandWithClock(auth, lister, elig, revoker, selector, confirmer, nil, time.Now)
-}
-
-// newRevokeCommandWithClock is NewRevokeCommandWithDeps plus a session
-// timestamp tracker and an injectable clock, so expiry notes are deterministic
-// in tests.
-func newRevokeCommandWithClock(
-	auth authLoader,
-	lister sessionLister,
-	elig eligibilityLister,
-	revoker sessionRevoker,
-	selector sessionSelector,
-	confirmer confirmPrompter,
-	tracker *cache.Store,
-	now func() time.Time,
-) *cobra.Command {
 	return newRevokeCommand(func(cmd *cobra.Command, args []string) error {
-		return runRevoke(cmd, args, auth, lister, elig, revoker, selector, confirmer, nil, tracker, now)
+		return runRevoke(cmd, args, auth, lister, elig, revoker, selector, confirmer, nil)
 	})
 }
 
@@ -123,8 +108,6 @@ func runRevoke(
 	selector sessionSelector,
 	confirmer confirmPrompter,
 	profile *sdkmodels.IdsecProfile,
-	tracker *cache.Store,
-	now func() time.Time,
 ) error {
 	allFlag, _ := cmd.Flags().GetBool("all")
 	yesFlag, _ := cmd.Flags().GetBool("yes")
@@ -154,9 +137,8 @@ func runRevoke(
 		return fmt.Errorf("not authenticated, run 'grant login' first: %w", err)
 	}
 
-	// Determine which sessions to revoke. metadata stays empty in direct mode,
-	// where grant only has bare session IDs.
-	sessionIDs, metadata, done, err := resolveRevokeTargets(cmd, args, lister, elig, selector, confirmer, cspFilter, allFlag, yesFlag)
+	// Determine which sessions to revoke.
+	sessionIDs, done, err := resolveRevokeTargets(cmd, args, lister, elig, selector, confirmer, cspFilter, allFlag, yesFlag)
 	if err != nil || done {
 		return err
 	}
@@ -177,11 +159,7 @@ func runRevoke(
 	} else {
 		// Always print the full breakdown before returning an error, so a
 		// non-zero exit is never opaque.
-		renderRevocationResults(cmd.OutOrStdout(), records, unattached, expiryHinter{
-			metadata:   metadata,
-			timestamps: sessionTimestamps(tracker),
-			now:        now,
-		})
+		renderRevocationResults(cmd.OutOrStdout(), records, unattached)
 	}
 
 	if revokeErr != nil {
@@ -195,17 +173,8 @@ func runRevoke(
 	return nil
 }
 
-// sessionTimestamps reads local elevation timestamps, tolerating a nil tracker.
-func sessionTimestamps(tracker *cache.Store) map[string]time.Time {
-	if tracker == nil {
-		return nil
-	}
-	return cache.SessionTimestamps(tracker)
-}
-
-// resolveRevokeTargets determines the session IDs to revoke, along with session
-// metadata when grant listed the sessions itself. done reports that the command
-// has already finished (nothing to revoke, or the user declined).
+// resolveRevokeTargets determines the session IDs to revoke. done reports that
+// the command has already finished (nothing to revoke, or the user declined).
 func resolveRevokeTargets(
 	cmd *cobra.Command,
 	args []string,
@@ -215,10 +184,10 @@ func resolveRevokeTargets(
 	confirmer confirmPrompter,
 	cspFilter *scamodels.CSP,
 	allFlag, yesFlag bool,
-) (sessionIDs []string, metadata map[string]scamodels.SessionInfo, done bool, err error) {
+) (sessionIDs []string, done bool, err error) {
 	if len(args) > 0 {
-		// Direct mode: session IDs provided as arguments, no metadata available.
-		return args, nil, false, nil
+		// Direct mode: session IDs provided as arguments.
+		return args, false, nil
 	}
 
 	// All or interactive mode: list sessions first.
@@ -227,17 +196,12 @@ func resolveRevokeTargets(
 
 	sessions, err := lister.ListSessions(ctx, cspFilter)
 	if err != nil {
-		return nil, nil, true, fmt.Errorf("failed to list sessions: %w", err)
+		return nil, true, fmt.Errorf("failed to list sessions: %w", err)
 	}
 
 	if len(sessions.Response) == 0 {
 		fmt.Fprintln(cmd.OutOrStdout(), "No active sessions to revoke.")
-		return nil, nil, true, nil
-	}
-
-	metadata = make(map[string]scamodels.SessionInfo, len(sessions.Response))
-	for _, s := range sessions.Response {
-		metadata[s.SessionID] = s
+		return nil, true, nil
 	}
 
 	selected := sessions.Response
@@ -245,14 +209,14 @@ func resolveRevokeTargets(
 		nameMap := buildWorkspaceNameMap(ctx, elig, sessions.Response)
 		selected, err = selector.SelectSessions(sessions.Response, nameMap)
 		if err != nil {
-			return nil, nil, true, fmt.Errorf("session selection failed: %w", err)
+			return nil, true, fmt.Errorf("session selection failed: %w", err)
 		}
 		// Selecting nothing is a deliberate no-op, equivalent to declining the
 		// confirmation. Handled here rather than after the request is built, so
 		// an empty selection can never be revoked as if it were a request.
 		if len(selected) == 0 {
 			fmt.Fprintln(cmd.OutOrStdout(), "No sessions selected.")
-			return nil, nil, true, nil
+			return nil, true, nil
 		}
 	}
 
@@ -263,13 +227,13 @@ func resolveRevokeTargets(
 	if !yesFlag {
 		confirmed, cerr := confirmer.ConfirmRevocation(len(sessionIDs))
 		if cerr != nil {
-			return nil, nil, true, fmt.Errorf("confirmation failed: %w", cerr)
+			return nil, true, fmt.Errorf("confirmation failed: %w", cerr)
 		}
 		if !confirmed {
 			fmt.Fprintln(cmd.OutOrStdout(), "Revocation canceled.")
-			return nil, nil, true, nil
+			return nil, true, nil
 		}
 	}
 
-	return sessionIDs, metadata, false, nil
+	return sessionIDs, false, nil
 }

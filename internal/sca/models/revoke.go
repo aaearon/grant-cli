@@ -51,16 +51,6 @@ func ClassifyRevocationStatus(status string) RevocationOutcome {
 	}
 }
 
-// Accepted reports whether the service accepted the revocation command.
-func (o RevocationOutcome) Accepted() bool {
-	return o == OutcomeRevoked || o == OutcomeInProgress
-}
-
-// Complete reports whether revocation is confirmed finished.
-func (o RevocationOutcome) Complete() bool {
-	return o == OutcomeRevoked
-}
-
 // RevokeRequest is the request body for POST /api/access/sessions/revoke.
 type RevokeRequest struct {
 	SessionIDs []string `json:"sessionIds"`
