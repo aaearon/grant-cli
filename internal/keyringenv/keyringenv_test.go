@@ -18,6 +18,18 @@ func fakeFS(files map[string]string) func(string) ([]byte, error) {
 	}
 }
 
+// fakeExists builds an Exists func that reports true only for the given paths.
+func fakeExists(paths ...string) func(string) bool {
+	return func(path string) bool {
+		for _, p := range paths {
+			if p == path {
+				return true
+			}
+		}
+		return false
+	}
+}
+
 // fakeEnv builds a LookupEnv func from a map. Entries present in the map are
 // "set" (even when their value is empty); absent keys are unset.
 func fakeEnv(env map[string]string) func(string) (string, bool) {
@@ -29,11 +41,12 @@ func fakeEnv(env map[string]string) func(string) (string, bool) {
 
 func TestDetectorIsWSL(t *testing.T) {
 	tests := []struct {
-		name  string
-		goos  string
-		files map[string]string
-		env   map[string]string
-		want  bool
+		name   string
+		goos   string
+		files  map[string]string
+		exists []string
+		env    map[string]string
+		want   bool
 	}{
 		{
 			// Verbatim string from the WSL2 host that exposed the bug. It carries
@@ -43,6 +56,29 @@ func TestDetectorIsWSL(t *testing.T) {
 			goos:  "linux",
 			files: map[string]string{procVersionPath: "Linux version 6.18.33.2-microsoft-standard-WSL2 (root@builder) #1 SMP"},
 			want:  true,
+		},
+		{
+			// The only signal that survives a custom kernel under sudo, a systemd
+			// unit or cron: no WSL_* env vars, no WSL strings in the kernel banner.
+			name:   "/run/WSL marker alone, custom kernel with no WSL strings",
+			goos:   "linux",
+			files:  map[string]string{procVersionPath: "Linux version 6.6.0-custom (root@buildhost)", procOSReleasePath: "6.6.0-custom"},
+			exists: []string{runWSLPath},
+			want:   true,
+		},
+		{
+			name:   "WSLInterop binfmt marker alone",
+			goos:   "linux",
+			exists: []string{wslInteropPath},
+			want:   true,
+		},
+		{
+			// Interop can be disabled in wsl.conf, so WSLInterop may be absent on a
+			// genuine WSL system; /run/WSL must still carry it.
+			name:   "interop disabled: /run/WSL present, WSLInterop absent",
+			goos:   "linux",
+			exists: []string{runWSLPath},
+			want:   true,
 		},
 		{
 			name:  "/proc/version: lowercase microsoft only",
@@ -57,10 +93,22 @@ func TestDetectorIsWSL(t *testing.T) {
 			want:  true,
 		},
 		{
-			name:  "/proc/version: wsl token only",
+			// /proc/version is free-form: the build user, build host and compiler
+			// banner all appear in it, so a bare "wsl" token there is a false
+			// positive waiting to happen. osrelease is where "wsl" is matched.
+			name: "/proc/version: wsl only in the build host is NOT a signal",
+			goos: "linux",
+			files: map[string]string{
+				procVersionPath:   "Linux version 6.8.0-51-generic (builder@wsl-builder) (gcc (GCC) 13.2.0, GNU ld (GNU Binutils) 2.41)",
+				procOSReleasePath: "6.8.0-51-generic",
+			},
+			want: false,
+		},
+		{
+			name:  "/proc/version: wsl token alone does not match",
 			goos:  "linux",
 			files: map[string]string{procVersionPath: "Linux version 5.15.0-WSL-custom"},
-			want:  true,
+			want:  false,
 		},
 		{
 			name:  "osrelease only: microsoft token",
@@ -113,21 +161,26 @@ func TestDetectorIsWSL(t *testing.T) {
 			want: false,
 		},
 		{
-			name:  "non-linux GOOS never reads /proc",
-			goos:  "windows",
-			files: map[string]string{procVersionPath: "microsoft"},
-			env:   map[string]string{"WSL_DISTRO_NAME": "Ubuntu-22.04"},
-			want:  false,
+			name:   "non-linux GOOS never touches the filesystem",
+			goos:   "windows",
+			files:  map[string]string{procVersionPath: "microsoft"},
+			exists: []string{runWSLPath},
+			env:    map[string]string{"WSL_DISTRO_NAME": "Ubuntu-22.04"},
+			want:   false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			readCalled := false
+			fsTouched := false
 			d := Detector{
 				ReadFile: func(name string) ([]byte, error) {
-					readCalled = true
+					fsTouched = true
 					return fakeFS(tt.files)(name)
+				},
+				Exists: func(path string) bool {
+					fsTouched = true
+					return fakeExists(tt.exists...)(path)
 				},
 				LookupEnv: fakeEnv(tt.env),
 				GOOS:      tt.goos,
@@ -135,8 +188,8 @@ func TestDetectorIsWSL(t *testing.T) {
 			if got := d.IsWSL(); got != tt.want {
 				t.Errorf("IsWSL() = %v, want %v", got, tt.want)
 			}
-			if tt.goos != "linux" && readCalled {
-				t.Error("IsWSL() read /proc on non-linux GOOS; expected short-circuit")
+			if tt.goos != "linux" && fsTouched {
+				t.Error("IsWSL() touched the filesystem on non-linux GOOS; expected short-circuit")
 			}
 		})
 	}
@@ -235,6 +288,7 @@ func TestDetectorApply(t *testing.T) {
 			setCalls := 0
 			d := Detector{
 				ReadFile:  fakeFS(tt.files),
+				Exists:    fakeExists(),
 				LookupEnv: fakeEnv(tt.env),
 				Setenv: func(k, v string) error {
 					setCalls++

@@ -24,12 +24,26 @@ const (
 
 	procVersionPath   = "/proc/version"
 	procOSReleasePath = "/proc/sys/kernel/osrelease"
+
+	// runWSLPath is the marker directory the WSL init creates. It is the only
+	// signal that survives custom kernels, sudo, systemd units and cron, where
+	// the WSL_* env vars are absent (microsoft/WSL#5914, #9719) and a custom
+	// kernel may carry neither "microsoft" nor "wsl" in its version strings
+	// (microsoft/WSL#6911). snapd moved to exactly this marker after
+	// Launchpad #1991823.
+	runWSLPath = "/run/WSL"
+
+	// wslInteropPath exists only when Windows interop is enabled in wsl.conf,
+	// so it is a supplement to runWSLPath, never a replacement — that
+	// insufficiency is what Launchpad #1991823 documents.
+	wslInteropPath = "/proc/sys/fs/binfmt_misc/WSLInterop"
 )
 
 // Detector inspects the environment for WSL and applies the keyring override.
 // The zero value is not usable; use New or the package-level Apply.
 type Detector struct {
 	ReadFile  func(string) ([]byte, error)
+	Exists    func(string) bool
 	LookupEnv func(string) (string, bool)
 	Setenv    func(string, string) error
 	GOOS      string
@@ -38,7 +52,11 @@ type Detector struct {
 // New returns a Detector wired to the real OS.
 func New() Detector {
 	return Detector{
-		ReadFile:  os.ReadFile,
+		ReadFile: os.ReadFile,
+		Exists: func(path string) bool {
+			_, err := os.Stat(path)
+			return err == nil
+		},
 		LookupEnv: os.LookupEnv,
 		Setenv:    os.Setenv,
 		GOOS:      runtime.GOOS,
@@ -47,6 +65,18 @@ func New() Detector {
 
 // IsWSL reports whether the current process runs under WSL. It is a no-op
 // (false) off Linux. Unreadable /proc files are "no signal", never an error.
+//
+// There is no supported Microsoft API for this; the de-facto reference is
+// microsoft/WSL#423, which systemd follows in src/basic/virt.c.
+//
+// The errors are asymmetric, which is what drives the tuning:
+//   - a false negative attempts the OS keyring under WSLg, which can block
+//     indefinitely with no error and no timeout — unrecoverable;
+//   - a false positive uses a file-based keyring on a plain Linux desktop — a
+//     real but bounded security downgrade.
+//
+// So bias toward over-detection, but via the /run/WSL marker, which is
+// simultaneously broader and more specific, not via looser string matching.
 func (d Detector) IsWSL() bool {
 	_, ok := d.wslSignal()
 	return ok
@@ -57,18 +87,36 @@ func (d Detector) wslSignal() (string, bool) {
 	if d.GOOS != "linux" {
 		return "", false
 	}
-	// Both files are checked for both tokens: "microsoft" catches the standard
-	// kernel strings, "wsl" catches custom kernels that only carry the WSL/WSL2
-	// marker. Matching is case-insensitive — that is the SDK's actual bug.
-	for _, path := range []string{procVersionPath, procOSReleasePath} {
-		data, err := d.ReadFile(path)
+	// Filesystem markers first: they are both broader and more specific than
+	// string matching, and they are what covers custom kernels.
+	for _, path := range []string{runWSLPath, wslInteropPath} {
+		if d.Exists(path) {
+			return path, true
+		}
+	}
+	// Then the kernel strings, case-insensitively — the case sensitivity is the
+	// SDK's actual bug. The token sets differ deliberately:
+	//   - osrelease is short and structured ("6.18.33.2-microsoft-standard-WSL2"),
+	//     so matching "wsl" there is safe. This is what systemd and npm's is-wsl do.
+	//   - /proc/version is free-form and carries the kernel build user, build
+	//     host and full compiler banner, so a bare "wsl" would match a plain
+	//     Linux box built by user "wsl" or on host "wsl-builder". "microsoft"
+	//     only.
+	for _, f := range []struct {
+		path   string
+		tokens []string
+	}{
+		{procOSReleasePath, []string{"microsoft", "wsl"}},
+		{procVersionPath, []string{"microsoft"}},
+	} {
+		data, err := d.ReadFile(f.path)
 		if err != nil {
 			continue
 		}
 		lower := strings.ToLower(string(data))
-		for _, token := range []string{"microsoft", "wsl"} {
+		for _, token := range f.tokens {
 			if strings.Contains(lower, token) {
-				return path, true
+				return f.path, true
 			}
 		}
 	}
