@@ -22,27 +22,20 @@ const (
 	// os.Getenv(envVar) != "", so ANY non-empty value forces the basic keyring.
 	envVar = "IDSEC_BASIC_KEYRING"
 
-	// procOSReleasePath exposes utsname()->release. /proc/version is NOT read:
-	// the kernel builds it from the very same field, so it can never be the
-	// deciding signal. See the note on wslSignal.
+	procVersionPath   = "/proc/version"
 	procOSReleasePath = "/proc/sys/kernel/osrelease"
 
-	// runWSLPath is the load-bearing marker. WSL's init creates it in
-	// InteropServer::Create() (src/linux/init/util.cpp, WSL_TEMP_FOLDER =
-	// RUN_FOLDER "/WSL"), called unconditionally from ConfigInitializeInstance()
-	// (src/linux/init/config.cpp) under FATAL_ERROR — a distro that cannot
-	// create it does not boot. Not gated on the wsl.conf interop setting, not
-	// gated on WSL1-vs-WSL2, and independent of the kernel, so it survives
-	// custom kernels (microsoft/WSL#6911), sudo, systemd units and cron. snapd
-	// moved to this marker after Launchpad #1991823; npm's is-wsl uses it too.
+	// runWSLPath is the marker directory the WSL init creates. It is the only
+	// signal that survives custom kernels, sudo, systemd units and cron, where
+	// the WSL_* env vars are absent (microsoft/WSL#5914, #9719) and a custom
+	// kernel may carry neither "microsoft" nor "wsl" in its version strings
+	// (microsoft/WSL#6911). snapd moved to exactly this marker after
+	// Launchpad #1991823.
 	runWSLPath = "/run/WSL"
 
-	// wslInteropPath is a supplement to runWSLPath, never a replacement: on
-	// WSL1 the per-distro registration is gated on Config.InteropEnabled
-	// (src/linux/init/config.cpp), and on WSL2 the VM-level entry is
-	// kernel-global, so systemd-binfmt can shadow it under a different name
-	// (microsoft/WSL#13449). That insufficiency is what Launchpad #1991823
-	// documents.
+	// wslInteropPath exists only when Windows interop is enabled in wsl.conf,
+	// so it is a supplement to runWSLPath, never a replacement — that
+	// insufficiency is what Launchpad #1991823 documents.
 	wslInteropPath = "/proc/sys/fs/binfmt_misc/WSLInterop"
 )
 
@@ -90,22 +83,6 @@ func (d Detector) IsWSL() bool {
 }
 
 // wslSignal returns the first WSL indicator found, and whether one was found.
-//
-// Three signals, deliberately. Two more were considered and removed as
-// redundant — redundant meaning every configuration they detect is already
-// detected by one of the three, not merely that they are weaker:
-//
-//   - /proc/version. See the note below.
-//   - WSL_DISTRO_NAME / WSL_INTEROP. WSL's init sets WSL_DISTRO_NAME in
-//     ConfigInitializeInstance() (src/linux/init/config.cpp), the same function
-//     that, ~100 lines later and with no conditional between them, creates
-//     /run/WSL under FATAL_ERROR. So WSL_DISTRO_NAME cannot be set in a process
-//     whose distro did not create /run/WSL — the var is strictly narrower.
-//     WSL_INTEROP is narrower still: it is exported only when interop is
-//     enabled (src/linux/init/init.cpp). They also point the wrong way for our
-//     error asymmetry, being absent under `sudo -i` (microsoft/WSL#5914), in
-//     systemd units (#9719), in cron and over SSH, exactly where /run/WSL keeps
-//     working. snapd and npm's is-wsl both decline to check them.
 func (d Detector) wslSignal() (string, bool) {
 	if d.GOOS != "linux" {
 		return "", false
@@ -117,30 +94,38 @@ func (d Detector) wslSignal() (string, bool) {
 			return path, true
 		}
 	}
-	// Then the kernel release string, case-insensitively — the case sensitivity
-	// is the SDK's actual bug. osrelease is short and structured
-	// ("6.18.33.2-microsoft-standard-WSL2"), so matching "wsl" there is safe;
-	// systemd does the same (Microsoft||WSL on osrelease, src/basic/virt.c).
-	//
-	// /proc/version is deliberately NOT read. The kernel formats it as
-	// linux_proc_banner with utsname()->release as its second %s
-	// (fs/proc/version.c version_proc_show), and /proc/sys/kernel/osrelease is
-	// that identical field (kernel/utsname_sysctl.c, uts_kern_table entry
-	// "osrelease" -> init_uts_ns.name.release, resolved per-namespace by
-	// get_uts). So "microsoft" in /proc/version's release component can never
-	// match without osrelease matching too. Its remaining substrings are the
-	// build user, build host and compiler banner, where a match is a false
-	// positive, not coverage — a plain Linux box built on a host named
-	// "microsoft-builder" would trip it. WSL1 exposes osrelease as well
-	// ("4.4.0-19041-Microsoft"); the WSL team named both files together in
-	// microsoft/WSL#423.
-	data, err := d.ReadFile(procOSReleasePath)
-	if err == nil {
+	// Then the kernel strings, case-insensitively — the case sensitivity is the
+	// SDK's actual bug. The token sets differ deliberately:
+	//   - osrelease is short and structured ("6.18.33.2-microsoft-standard-WSL2"),
+	//     so matching "wsl" there is safe. systemd does this (Microsoft||WSL on
+	//     osrelease). npm's is-wsl does NOT: it matches only "microsoft", on
+	//     os.release() and then /proc/version, before falling back to the two
+	//     filesystem markers below — all gated behind !isInsideContainer().
+	//   - /proc/version is free-form and carries the kernel build user, build
+	//     host and full compiler banner, so a bare "wsl" would match a plain
+	//     Linux box built by user "wsl" or on host "wsl-builder". "microsoft"
+	//     only.
+	for _, f := range []struct {
+		path   string
+		tokens []string
+	}{
+		{procOSReleasePath, []string{"microsoft", "wsl"}},
+		{procVersionPath, []string{"microsoft"}},
+	} {
+		data, err := d.ReadFile(f.path)
+		if err != nil {
+			continue
+		}
 		lower := strings.ToLower(string(data))
-		for _, token := range []string{"microsoft", "wsl"} {
+		for _, token := range f.tokens {
 			if strings.Contains(lower, token) {
-				return procOSReleasePath, true
+				return f.path, true
 			}
+		}
+	}
+	for _, key := range []string{"WSL_DISTRO_NAME", "WSL_INTEROP"} {
+		if v, ok := d.LookupEnv(key); ok && v != "" {
+			return key, true
 		}
 	}
 	return "", false
