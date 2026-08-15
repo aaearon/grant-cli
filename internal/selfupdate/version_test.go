@@ -3,15 +3,21 @@ package selfupdate
 import (
 	"math"
 	"strconv"
+	"strings"
 	"testing"
 )
 
 func TestParseVersion(t *testing.T) {
+	// wantErrContains, not wantErr: several rejections are interchangeable as
+	// "an error happened" but come from different guards. In particular the
+	// core MAJOR.MINOR.PATCH loop checks isAllDigits before calling
+	// strconv.Atoi, and Atoi would reject almost the same inputs - only the
+	// message distinguishes the two, so only the message can pin the guard.
 	tests := []struct {
-		name    string
-		input   string
-		want    Version
-		wantErr bool
+		name            string
+		input           string
+		want            Version
+		wantErrContains string // empty means the version must parse
 	}{
 		{name: "plain", input: "1.2.3", want: Version{Major: 1, Minor: 2, Patch: 3}},
 		{name: "lowercase v prefix", input: "v1.2.3", want: Version{Major: 1, Minor: 2, Patch: 3}},
@@ -31,29 +37,40 @@ func TestParseVersion(t *testing.T) {
 		{name: "prerelease and build", input: "1.2.3-rc.1+sha.abc123", want: Version{Major: 1, Minor: 2, Patch: 3, Prerelease: "rc.1", Build: "sha.abc123"}},
 		{name: "build metadata containing hyphen", input: "1.2.3+build-5", want: Version{Major: 1, Minor: 2, Patch: 3, Build: "build-5"}},
 
-		{name: "empty", input: "", wantErr: true},
-		{name: "too few parts", input: "1.2", wantErr: true},
-		{name: "too many parts", input: "1.2.3.4", wantErr: true},
-		{name: "non numeric", input: "1.x.3", wantErr: true},
-		{name: "negative", input: "1.-2.3", wantErr: true},
-		{name: "just v", input: "v", wantErr: true},
-		{name: "leading zero in core", input: "01.2.3", wantErr: true},
-		{name: "leading zero in patch", input: "1.2.03", wantErr: true},
-		{name: "empty prerelease", input: "1.2.3-", wantErr: true},
-		{name: "empty prerelease identifier", input: "1.2.3-rc..1", wantErr: true},
-		{name: "leading zero in numeric prerelease", input: "1.2.3-01", wantErr: true},
-		{name: "illegal prerelease character", input: "1.2.3-rc_1", wantErr: true},
-		{name: "empty build metadata", input: "1.2.3+", wantErr: true},
-		{name: "illegal build character", input: "1.2.3+build_5", wantErr: true},
-		{name: "plus signed core", input: "1.+2.3", wantErr: true},
+		{name: "empty", input: "", wantErrContains: "expected MAJOR.MINOR.PATCH"},
+		{name: "too few parts", input: "1.2", wantErrContains: "expected MAJOR.MINOR.PATCH"},
+		{name: "too many parts", input: "1.2.3.4", wantErrContains: "expected MAJOR.MINOR.PATCH"},
+		// These two are what pin the isAllDigits guard in the core loop:
+		// without it strconv.Atoi rejects them too, but with its own wording.
+		{name: "non numeric", input: "1.x.3", wantErrContains: `"x" is not a non-negative integer`},
+		{name: "empty core segment", input: "1.2.", wantErrContains: `"" is not a non-negative integer`},
+		{name: "negative", input: "1.-2.3", wantErrContains: "expected MAJOR.MINOR.PATCH"},
+		{name: "just v", input: "v", wantErrContains: "expected MAJOR.MINOR.PATCH"},
+		{name: "leading zero in core", input: "01.2.3", wantErrContains: "has a leading zero"},
+		{name: "leading zero in patch", input: "1.2.03", wantErrContains: "has a leading zero"},
+		{name: "empty prerelease", input: "1.2.3-", wantErrContains: "empty pre-release"},
+		{name: "empty prerelease identifier", input: "1.2.3-rc..1", wantErrContains: "empty identifier in pre-release"},
+		{name: "leading zero in numeric prerelease", input: "1.2.3-01", wantErrContains: "has a leading zero"},
+		{name: "illegal prerelease character", input: "1.2.3-rc_1", wantErrContains: "illegal character in pre-release"},
+		{name: "empty build metadata", input: "1.2.3+", wantErrContains: "empty build metadata"},
+		{name: "illegal build character", input: "1.2.3+build_5", wantErrContains: "illegal character in build metadata"},
+		// A "+" is split off as build metadata BEFORE the core is parsed, so
+		// these are rejected for having two core segments, not for the sign.
+		// They therefore do NOT exercise the isAllDigits guard, despite Atoi
+		// being happy to read "+2" as 2 - the cases above are what do.
+		{name: "plus signed core", input: "1.+2.3", wantErrContains: "expected MAJOR.MINOR.PATCH"},
+		{name: "plus signed core alternate", input: "1.+5.3", wantErrContains: "expected MAJOR.MINOR.PATCH"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := ParseVersion(tt.input)
-			if tt.wantErr {
+			if tt.wantErrContains != "" {
 				if err == nil {
 					t.Fatalf("expected error for %q, got %+v", tt.input, got)
+				}
+				if !strings.Contains(err.Error(), tt.wantErrContains) {
+					t.Errorf("ParseVersion(%q) = %q, want it to contain %q", tt.input, err, tt.wantErrContains)
 				}
 				return
 			}
@@ -128,7 +145,11 @@ func TestCompareVersions(t *testing.T) {
 		// SemVer 2.0.0 precedence rules.
 		{name: "prerelease sorts before release", a: "1.0.0-rc.1", b: "1.0.0", want: -1},
 		{name: "release sorts after prerelease", a: "1.0.0", b: "1.0.0-rc.1", want: 1},
+		// Both directions. One direction alone is not enough: a numeric
+		// comparison that always returns -1 satisfies the first case by
+		// coincidence, because the numeric-vs-alphanumeric arm returns -1 too.
 		{name: "numeric prerelease compares numerically", a: "1.0.0-rc.2", b: "1.0.0-rc.10", want: -1},
+		{name: "numeric prerelease compares numerically mirrored", a: "1.0.0-rc.10", b: "1.0.0-rc.2", want: 1},
 		{name: "numeric identifier below alphanumeric", a: "1.0.0-1", b: "1.0.0-alpha", want: -1},
 		{name: "alpha before beta", a: "1.0.0-alpha", b: "1.0.0-beta", want: -1},
 		{name: "larger identifier set wins", a: "1.0.0-alpha", b: "1.0.0-alpha.1", want: -1},

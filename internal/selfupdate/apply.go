@@ -38,6 +38,12 @@ import (
 var (
 	prepareFn = minio.PrepareAndCheckBinary
 	commitFn  = minio.CommitBinary
+	// syncStagedFileFn is a seam only: syncStagedFile already reports its
+	// errors and applyWithOptions already aborts on them. It exists so tests
+	// can assert the call ORDER (sync strictly before commit) and the
+	// abort-before-commit behavior without needing a filesystem on which
+	// fsync fails.
+	syncStagedFileFn = syncStagedFile
 )
 
 // applyBinary replaces the currently running executable with newBinary.
@@ -77,7 +83,7 @@ func applyWithOptions(update io.Reader, opts minio.Options) error {
 
 	// minio closes the staged file but never syncs it; do that before any
 	// rename so a crash cannot promote a partially materialized file.
-	if err := syncStagedFile(target); err != nil {
+	if err := syncStagedFileFn(target); err != nil {
 		_ = os.Remove(stagedPath(target))
 		return fmt.Errorf("failed to flush the staged binary to disk: %w", err)
 	}

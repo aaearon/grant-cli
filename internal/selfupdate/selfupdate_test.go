@@ -153,12 +153,15 @@ func TestVerifyChecksum(t *testing.T) {
 	sum := sha256.Sum256(payload)
 	good := hex.EncodeToString(sum[:])
 
+	// wantErrContains, not wantErr: a malformed line that is skipped instead of
+	// rejected still ends in an error ("has no entry for"), so only the
+	// message can tell the two apart.
 	tests := []struct {
-		name      string
-		checksums string
-		filename  string
-		data      []byte
-		wantErr   bool
+		name            string
+		checksums       string
+		filename        string
+		data            []byte
+		wantErrContains string
 	}{
 		{
 			name:      "match",
@@ -186,43 +189,56 @@ func TestVerifyChecksum(t *testing.T) {
 			data:      payload,
 		},
 		{
-			name:      "mismatch",
-			checksums: "0000000000000000000000000000000000000000000000000000000000000000  grant-cli_0.7.0_linux_amd64.tar.gz\n",
-			filename:  "grant-cli_0.7.0_linux_amd64.tar.gz",
-			data:      payload,
-			wantErr:   true,
+			name:            "mismatch",
+			checksums:       "0000000000000000000000000000000000000000000000000000000000000000  grant-cli_0.7.0_linux_amd64.tar.gz\n",
+			filename:        "grant-cli_0.7.0_linux_amd64.tar.gz",
+			data:            payload,
+			wantErrContains: "checksum mismatch",
 		},
 		{
-			name:      "filename absent",
-			checksums: good + "  some-other-file.tar.gz\n",
-			filename:  "grant-cli_0.7.0_linux_amd64.tar.gz",
-			data:      payload,
-			wantErr:   true,
+			name:            "filename absent",
+			checksums:       good + "  some-other-file.tar.gz\n",
+			filename:        "grant-cli_0.7.0_linux_amd64.tar.gz",
+			data:            payload,
+			wantErrContains: "has no entry for",
 		},
 		{
-			name:      "malformed line",
-			checksums: "deadbeef\n",
-			filename:  "grant-cli_0.7.0_linux_amd64.tar.gz",
-			data:      payload,
-			wantErr:   true,
+			name:            "malformed line with one field",
+			checksums:       "deadbeef\n",
+			filename:        "grant-cli_0.7.0_linux_amd64.tar.gz",
+			data:            payload,
+			wantErrContains: "malformed line",
 		},
 		{
-			name:      "empty checksums",
-			checksums: "",
-			filename:  "grant-cli_0.7.0_linux_amd64.tar.gz",
-			data:      payload,
-			wantErr:   true,
+			name:            "malformed line with three fields",
+			checksums:       good + "  extra  grant-cli_0.7.0_linux_amd64.tar.gz\n",
+			filename:        "grant-cli_0.7.0_linux_amd64.tar.gz",
+			data:            payload,
+			wantErrContains: "malformed line",
+		},
+		{
+			name:            "empty checksums",
+			checksums:       "",
+			filename:        "grant-cli_0.7.0_linux_amd64.tar.gz",
+			data:            payload,
+			wantErrContains: "has no entry for",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := verifyChecksum([]byte(tt.checksums), tt.filename, tt.data)
-			if tt.wantErr && err == nil {
-				t.Fatal("expected error, got nil")
+			if tt.wantErrContains == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
 			}
-			if !tt.wantErr && err != nil {
-				t.Fatalf("unexpected error: %v", err)
+			if err == nil {
+				t.Fatalf("expected an error containing %q, got nil", tt.wantErrContains)
+			}
+			if !strings.Contains(err.Error(), tt.wantErrContains) {
+				t.Errorf("error = %q, want it to contain %q", err, tt.wantErrContains)
 			}
 		})
 	}
@@ -516,6 +532,66 @@ func newFixtureServer(t *testing.T, archiveName string, archive, checksums []byt
 	return srv
 }
 
+// fixtureServerOpts configures newFixtureServerWith. A nil handler keeps the
+// default (the same behavior newFixtureServer provides); releaseBody replaces
+// only the JSON body while keeping the default 200 handler.
+type fixtureServerOpts struct {
+	archiveName string
+	archive     []byte
+	checksums   []byte
+
+	// releaseBody receives the server URL and returns the releases/latest
+	// body. Ignored when releaseHandler is set.
+	releaseBody func(srvURL string) string
+
+	releaseHandler   http.HandlerFunc
+	archiveHandler   http.HandlerFunc
+	checksumsHandler http.HandlerFunc
+}
+
+// newFixtureServerWith is newFixtureServer with per-path handler overrides, so
+// tests can drive a non-200 on either download, an empty body, or a release
+// payload the happy path never produces. It is a sibling rather than a change
+// to newFixtureServer's signature: the simple form has three call sites that
+// have no interest in any of this.
+func newFixtureServerWith(t *testing.T, opts fixtureServerOpts) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	release := opts.releaseHandler
+	if release == nil {
+		release = func(w http.ResponseWriter, r *http.Request) {
+			if opts.releaseBody != nil {
+				fmt.Fprint(w, opts.releaseBody(srv.URL))
+				return
+			}
+			fmt.Fprintf(w, `{"tag_name":"v0.7.0","assets":[
+				{"name":"checksums.txt","browser_download_url":"%[1]s/download/checksums.txt"},
+				{"name":%[2]q,"browser_download_url":"%[1]s/download/%[2]s"}
+			]}`, srv.URL, opts.archiveName)
+		}
+	}
+	checksums := opts.checksumsHandler
+	if checksums == nil {
+		checksums = func(w http.ResponseWriter, r *http.Request) {
+			w.Write(opts.checksums) //nolint:errcheck // test server
+		}
+	}
+	archive := opts.archiveHandler
+	if archive == nil {
+		archive = func(w http.ResponseWriter, r *http.Request) {
+			w.Write(opts.archive) //nolint:errcheck // test server
+		}
+	}
+
+	mux.HandleFunc("/repos/aaearon/grant-cli/releases/latest", release)
+	mux.HandleFunc("/download/checksums.txt", checksums)
+	mux.HandleFunc("/download/"+opts.archiveName, archive)
+	return srv
+}
+
 func checksumsFor(name string, data []byte) []byte {
 	sum := sha256.Sum256(data)
 	return fmt.Appendf(nil, "%s  %s\n", hex.EncodeToString(sum[:]), name)
@@ -626,6 +702,124 @@ func TestUpdateSelf(t *testing.T) {
 			t.Fatal("expected apply error, got nil")
 		}
 	})
+}
+
+// TestFetchLatestReleaseRejectsBadPayloads covers the two release-payload
+// failures the happy path cannot reach. Both assert the SPECIFIC message: an
+// empty body also produces an empty tag_name, so a test that only demanded
+// "some error" would pass with the JSON error check deleted.
+func TestFetchLatestReleaseRejectsBadPayloads(t *testing.T) {
+	tests := []struct {
+		name            string
+		body            string
+		wantErrContains string
+	}{
+		{
+			name:            "empty body",
+			body:            "",
+			wantErrContains: "failed to decode GitHub release response",
+		},
+		{
+			name:            "empty tag_name",
+			body:            `{"tag_name":"","assets":[]}`,
+			wantErrContains: "no tag_name",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := tt.body
+			srv := newFixtureServerWith(t, fixtureServerOpts{
+				archiveName: "grant-cli_0.7.0_linux_amd64.tar.gz",
+				releaseBody: func(string) string { return body },
+			})
+
+			u := New("aaearon/grant-cli", "v0.6.1")
+			u.apiBaseURL = srv.URL
+
+			rel, err := u.fetchLatestRelease(t.Context())
+			if err == nil {
+				t.Fatalf("expected an error, got release %+v", rel)
+			}
+			if !strings.Contains(err.Error(), tt.wantErrContains) {
+				t.Errorf("error = %q, want it to contain %q", err, tt.wantErrContains)
+			}
+		})
+	}
+}
+
+// TestUpdateSelfFailsOnAssetDownloadStatus covers a non-200 on each of the two
+// asset downloads. Neither is reachable through the release-lookup fixture,
+// and both must abort before anything is applied.
+func TestUpdateSelfFailsOnAssetDownloadStatus(t *testing.T) {
+	archiveName := "grant-cli_0.7.0_linux_amd64.tar.gz"
+	archive := buildTarGz(t, [][2]string{{"grant", "new binary"}})
+
+	tests := []struct {
+		name            string
+		mutate          func(o *fixtureServerOpts)
+		wantErrContains string
+	}{
+		{
+			name: "archive download returns 500",
+			mutate: func(o *fixtureServerOpts) {
+				o.archiveHandler = func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(http.StatusInternalServerError)
+				}
+			},
+			// The status must be named. A 500 with an empty body also trips
+			// the empty-download check, so asserting only the "failed to
+			// download <asset>" wrapper would pass with the status check
+			// deleted.
+			wantErrContains: "failed to download " + archiveName + ": download returned status 500",
+		},
+		{
+			name: "checksums download returns 404",
+			mutate: func(o *fixtureServerOpts) {
+				o.checksumsHandler = func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(http.StatusNotFound)
+				}
+			},
+			wantErrContains: "failed to download checksums.txt: download returned status 404",
+		},
+		{
+			name: "archive download returns an empty body",
+			mutate: func(o *fixtureServerOpts) {
+				o.archiveHandler = func(w http.ResponseWriter, r *http.Request) {}
+			},
+			wantErrContains: "failed to download " + archiveName + ": download was empty",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := fixtureServerOpts{
+				archiveName: archiveName,
+				archive:     archive,
+				checksums:   checksumsFor(archiveName, archive),
+			}
+			tt.mutate(&opts)
+			srv := newFixtureServerWith(t, opts)
+
+			u := New("aaearon/grant-cli", "v0.6.1")
+			u.apiBaseURL = srv.URL
+			u.goos, u.goarch = "linux", "amd64"
+
+			applied := false
+			u.applyFn = func([]byte) error { applied = true; return nil }
+
+			_, _, err := u.UpdateSelf(t.Context(), "0.6.1")
+			if err == nil {
+				t.Fatal("expected an error, got nil")
+			}
+			if !strings.Contains(err.Error(), tt.wantErrContains) {
+				t.Errorf("error = %q, want it to contain %q", err, tt.wantErrContains)
+			}
+			if applied {
+				t.Error("a failed download must never reach the apply step")
+			}
+		})
+	}
 }
 
 // withMaxDownloadBytes shrinks the download/decompression cap for one test and
