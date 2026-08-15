@@ -151,8 +151,12 @@ func TestFavoritesAdd_HonorsNonDefaultProvider(t *testing.T) {
 
 // TestFavoritesAddInteractive_ProviderFlagWinsOverTargetCSP pins the precedence
 // in selectFavoriteInteractive: an explicit --provider is stored verbatim
-// rather than derived from the selected target's CSP. The fixture's CSP is aws
-// while the flag says azure — with both azure the two branches are identical.
+// rather than derived from the selected target's CSP. The fixture is
+// deliberately impossible: --provider azure with an AWS target is a
+// combination production filtering would never produce, and it exists only so
+// the two branches yield different values. Do not read it as a realistic
+// scenario, and do not "fix" it to azure — with both azure the branches are
+// indistinguishable and the mutation survives.
 func TestFavoritesAddInteractive_ProviderFlagWinsOverTargetCSP(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	t.Setenv("GRANT_CONFIG", configPath)

@@ -72,8 +72,10 @@ func TestRequestList_TextFieldMapping(t *testing.T) {
 	// Columns: ID STATE RESULT TARGET ROLE PRIORITY CREATED BY CREATED AT.
 	// No fixture value contains a space, so field positions are unambiguous.
 	fields := strings.Fields(row)
-	if len(fields) < 6 {
-		t.Fatalf("row has %d columns, want at least 6: %q", len(fields), row)
+	// Guard on 7, the highest index read below: a short row must Fatal here
+	// rather than panic, which would abort the whole cmd test binary.
+	if len(fields) < 7 {
+		t.Fatalf("row has %d columns, want at least 7: %q", len(fields), row)
 	}
 	if fields[3] != "ws-name" {
 		t.Errorf("TARGET column = %q, want ws-name", fields[3])

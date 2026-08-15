@@ -19,7 +19,6 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -131,7 +130,10 @@ func TestStatusJSON_Contract(t *testing.T) {
 		t.Fatalf("unexpected error: %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
 	}
 
-	got := pinRemainingSeconds(t, []byte(stdout), 2600, pinnedRemainingSeconds)
+	// The fixture makes this deterministically 2699; the window is narrow on
+	// purpose so a whole-minute arithmetic error dies at the pin itself rather
+	// than relying on the sibling text assertion.
+	got := pinRemainingSeconds(t, []byte(stdout), 2695, pinnedRemainingSeconds)
 
 	assertJSONEqual(t, got, `{
   "authenticated": true,
@@ -366,17 +368,15 @@ func TestListJSON_RoundTripsToRequestSubmit(t *testing.T) {
 	}
 
 	// 2. `grant request submit --target <emitted target> --role-id <emitted roleId>`.
-	//    The workspace resolver is stubbed (it bootstraps live SCA auth), but it
-	//    matches the emitted NAME over the production deduplicateWorkspaces
-	//    output, exactly as resolveSubmitTarget does.
+	//    Only the auth/eligibility fetch is stubbed out; the resolution itself
+	//    runs the production deduplicateWorkspaces + matchWorkspaceByName pair
+	//    that resolveSubmitTarget calls, so changing what --target matches on
+	//    breaks this test.
 	origResolve := resolveSubmitTargetFn
 	t.Cleanup(func() { resolveSubmitTargetFn = origResolve })
 	resolveSubmitTargetFn = func(_ context.Context, _, targetName string, _ bool) (*submitWorkspace, error) {
-		workspaces := deduplicateWorkspaces(targets)
-		for i := range workspaces {
-			if strings.EqualFold(workspaces[i].WorkspaceName, targetName) {
-				return &workspaces[i], nil
-			}
+		if ws := matchWorkspaceByName(deduplicateWorkspaces(targets), targetName); ws != nil {
+			return ws, nil
 		}
 		t.Errorf("emitted target %q matched no eligible workspace", targetName)
 		return nil, errNotAuthenticated
