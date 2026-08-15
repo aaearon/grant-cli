@@ -99,7 +99,9 @@ func executeWithHint(cmd *cobra.Command, args []string) string {
 		return ""
 	}
 	out := err.Error() + "\n"
-	if !verbose && passedArgValidation {
+	// Call the production predicate rather than restating it, so this helper
+	// cannot drift away from Execute().
+	if shouldShowVerboseHint(verbose, passedArgValidation) {
 		out += "Hint: re-run with --verbose for more details\n"
 	}
 	return out

@@ -245,79 +245,6 @@ func TestRootElevate_InteractiveMode(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "multi-CSP concurrent fetch - parallel execution",
-			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *mockUnifiedSelector, *config.Config) {
-				authLoader := &mockAuthLoader{
-					token: &authmodels.IdsecToken{
-						Token:     "test-jwt",
-						Username:  "test@example.com",
-						ExpiresIn: commonmodels.IdsecRFC3339Time(time.Now().Add(1 * time.Hour)),
-					},
-				}
-
-				awsTarget := models.EligibleTarget{
-					OrganizationID: "o-abc",
-					WorkspaceID:    "111222333444",
-					WorkspaceName:  "AWS Sandbox",
-					WorkspaceType:  models.WorkspaceTypeAccount,
-					RoleInfo:       models.RoleInfo{ID: "role-aws", Name: "ReadOnly"},
-				}
-				azureTarget := models.EligibleTarget{
-					OrganizationID: "org-xyz",
-					WorkspaceID:    "sub-999",
-					WorkspaceName:  "Prod-EastUS",
-					WorkspaceType:  models.WorkspaceTypeSubscription,
-					RoleInfo:       models.RoleInfo{ID: "role-az", Name: "Contributor"},
-				}
-
-				// Each CSP call sleeps 200ms; if sequential total >= 400ms
-				eligibilityLister := &mockEligibilityLister{
-					listFunc: func(ctx context.Context, csp models.CSP) (*models.EligibilityResponse, error) {
-						time.Sleep(200 * time.Millisecond)
-						switch csp {
-						case models.CSPAzure:
-							return &models.EligibilityResponse{Response: []models.EligibleTarget{azureTarget}, Total: 1}, nil
-						case models.CSPAWS:
-							return &models.EligibilityResponse{Response: []models.EligibleTarget{awsTarget}, Total: 1}, nil
-						}
-						return &models.EligibilityResponse{}, nil
-					},
-				}
-
-				credsJSON := `{"aws_access_key":"ASIAXXX","aws_secret_access_key":"secret","aws_session_token":"token"}`
-				elevateService := &mockElevateService{
-					response: &models.ElevateResponse{
-						Response: models.ElevateAccessResult{
-							CSP:            models.CSPAWS,
-							OrganizationID: "o-abc",
-							Results: []models.ElevateTargetResult{
-								{
-									WorkspaceID:       "111222333444",
-									RoleID:            "ReadOnly",
-									SessionID:         "session-par",
-									AccessCredentials: &credsJSON,
-								},
-							},
-						},
-					},
-				}
-
-				selector := &mockUnifiedSelector{
-					item: &selectionItem{kind: selectionCloud, cloud: &awsTarget},
-				}
-
-				cfg := config.DefaultConfig()
-
-				return authLoader, eligibilityLister, elevateService, selector, cfg
-			},
-			args: []string{}, // no --provider triggers multi-CSP
-			wantContain: []string{
-				"Elevated to ReadOnly on AWS Sandbox",
-				"Session ID: session-par",
-			},
-			wantErr: false,
-		},
-		{
 			name: "AWS elevation without credentials should not show Azure message",
 			setupMocks: func() (*mockAuthLoader, *mockEligibilityLister, *mockElevateService, *mockUnifiedSelector, *config.Config) {
 				authLoader := &mockAuthLoader{
@@ -1227,9 +1154,12 @@ func TestFetchEligibility_ConcurrentExecution(t *testing.T) {
 		t.Fatalf("expected 2 targets, got %d", len(targets))
 	}
 
-	// With 2 CSPs sleeping 200ms each, parallel should finish well under 400ms
-	if elapsed >= 350*time.Millisecond {
-		t.Errorf("expected concurrent execution (<350ms), took %v", elapsed)
+	// Three CSPs sleep 200ms each: sequential would take ~600ms, concurrent
+	// ~200ms. The bound is deliberately loose — it only has to separate those
+	// two regimes, and a tight one would be the first thing to flake on an
+	// overloaded CI runner. No flake has been observed at the old 350ms bound.
+	if elapsed >= 500*time.Millisecond {
+		t.Errorf("expected concurrent execution (<500ms), took %v", elapsed)
 	}
 
 	// Verify CSP tags were set

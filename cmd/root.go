@@ -292,11 +292,21 @@ func executeWithKeyringOverride(cmd *cobra.Command) error {
 	return cmd.Execute()
 }
 
+// shouldShowVerboseHint reports whether the "re-run with --verbose" hint
+// belongs on a failed run. The hint is pointless when --verbose is already on,
+// and misleading for an arg/flag validation error — PersistentPreRunE never
+// ran, so --verbose would not have produced any extra detail either.
+//
+// Extracted so it is testable without re-implementing the condition in a test.
+func shouldShowVerboseHint(verboseOn, argValidationPassed bool) bool {
+	return !verboseOn && argValidationPassed
+}
+
 func Execute() {
 	passedArgValidation = false
 	if err := executeWithKeyringOverride(rootCmd); err != nil {
 		fmt.Fprintln(rootCmd.ErrOrStderr(), err)
-		if !verbose && passedArgValidation {
+		if shouldShowVerboseHint(verbose, passedArgValidation) {
 			fmt.Fprintln(rootCmd.ErrOrStderr(), "Hint: re-run with --verbose for more details")
 		}
 		os.Exit(1)
