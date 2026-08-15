@@ -104,6 +104,10 @@ func FindSessionByDisplay(
 }
 
 // SelectSessions presents a multi-select prompt for choosing sessions to revoke.
+// It resolves the answer by display text rather than by index, unlike the target,
+// group, role and request selectors. That is safe here and deliberately left alone:
+// every option string embeds session.SessionID, so two sessions can never render
+// identically and FindSessionByDisplay cannot resolve to the wrong row.
 func SelectSessions(sessions []models.SessionInfo, nameMap map[string]string) ([]models.SessionInfo, error) {
 	if !IsInteractive() {
 		return nil, fmt.Errorf("%w; use --all or provide session IDs as arguments", ErrNotInteractive)

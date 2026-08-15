@@ -59,7 +59,9 @@ func BuildOptions(targets []models.EligibleTarget) []string {
 	return options
 }
 
-// FindTargetByDisplay finds a target by its formatted display string.
+// FindTargetByDisplay finds a target by its formatted display string. SelectTarget no
+// longer uses it — it resolves by index — so this has no production caller today.
+// On a display collision it returns the first match in the slice it is given.
 func FindTargetByDisplay(targets []models.EligibleTarget, display string) (*models.EligibleTarget, error) {
 	for i := range targets {
 		if FormatTargetOption(targets[i]) == display {
@@ -69,7 +71,34 @@ func FindTargetByDisplay(targets []models.EligibleTarget, display string) (*mode
 	return nil, fmt.Errorf("target not found: %s", display)
 }
 
-// SelectTarget presents an interactive selector for choosing a target.
+// sortTargetsForDisplay returns a copy of targets ordered by display string, leaving
+// the caller's slice untouched. It only fixes the order the options are rendered in;
+// which target a selection denotes is decided by index in resolveTargetSelection.
+// The sort is stable, so targets that render identically keep their input order.
+func sortTargetsForDisplay(targets []models.EligibleTarget) []models.EligibleTarget {
+	sorted := make([]models.EligibleTarget, len(targets))
+	copy(sorted, targets)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		return FormatTargetOption(sorted[i]) < FormatTargetOption(sorted[j])
+	})
+	return sorted
+}
+
+// resolveTargetSelection recovers the target at the index survey returned. Resolving
+// by index rather than by display text is what makes duplicate display strings safe:
+// FormatTargetOption carries no ID, so the same workspace name and role in two
+// subscriptions or accounts renders identically, and a text lookup would return the
+// first match no matter which row the user highlighted.
+func resolveTargetSelection(sorted []models.EligibleTarget, idx int) (*models.EligibleTarget, error) {
+	if idx < 0 || idx >= len(sorted) {
+		return nil, fmt.Errorf("invalid target selection index %d", idx)
+	}
+	return &sorted[idx], nil
+}
+
+// SelectTarget presents an interactive selector for choosing a target. Uses the
+// selected index (not display text) to recover the target, so duplicate display
+// strings are safe, and renders from the same sorted copy it resolves against.
 func SelectTarget(targets []models.EligibleTarget) (*models.EligibleTarget, error) {
 	if !IsInteractive() {
 		return nil, fmt.Errorf("%w; use --target and --role flags for non-interactive mode", ErrNotInteractive)
@@ -79,18 +108,22 @@ func SelectTarget(targets []models.EligibleTarget) (*models.EligibleTarget, erro
 		return nil, errors.New("no eligible targets available")
 	}
 
-	options := BuildOptions(targets)
+	sorted := sortTargetsForDisplay(targets)
+	options := make([]string, len(sorted))
+	for i := range sorted {
+		options[i] = FormatTargetOption(sorted[i])
+	}
 
-	var selected string
+	var selectedIdx int
 	prompt := &survey.Select{
 		Message: "Select a target:",
 		Options: options,
 		Filter:  nil, // Enable default fuzzy filter
 	}
 
-	if err := survey.AskOne(prompt, &selected, survey.WithStdio(os.Stdin, os.Stderr, os.Stderr)); err != nil {
+	if err := survey.AskOne(prompt, &selectedIdx, survey.WithStdio(os.Stdin, os.Stderr, os.Stderr)); err != nil {
 		return nil, fmt.Errorf("target selection failed: %w", err)
 	}
 
-	return FindTargetByDisplay(targets, selected)
+	return resolveTargetSelection(sorted, selectedIdx)
 }

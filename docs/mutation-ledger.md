@@ -195,7 +195,7 @@ premise does not hold).
 | UI-03 | internal/ui | `internal/ui/session_selector.go:57` | `if remaining <= 0 {` → `if remaining < 0 {`. The fixture only supplies `-5m` (`session_selector_test.go:154`), so exactly-zero is unpinned | CONFIRMED | test | `TestFormatSessionOption_ExactlyZeroRemaining` | PR7 | done |
 | UI-04 | internal/ui | `internal/ui/request_selector.go:18` | Delete the `time.Parse(time.RFC3339Nano, ts)` branch in the timestamp formatter | CONFIRMED | test | `TestFormatRequestOption_RFC3339Nano` | PR7 | done |
 | UI-05 | internal/ui | `internal/ui/role_selector.go:36` | Make the role sort case-**sensitive** (drop the `strings.ToLower` normalization in the `sort.SliceStable` less-func). Note: the raw mutation orphans the `strings` import — remove it too | CONFIRMED | test | `TestBuildRoleOptions_MixedCaseSort` — the sort lives in `BuildRoleOptions`; no `sortRolesForDisplay` helper exists or was needed | PR7 | done |
-| UI-06 | internal/ui | `internal/ui/selector.go:78` | Delete the `if len(targets) == 0` guard in `SelectTarget` (`:49` is the identically-worded guard inside `BuildOptions`, and mutating *that* one is an **equivalent mutant** — `make([]string, 0)` + `sort.Strings` yields the same empty non-nil slice — so it is not an escape). (`SelectRole`/`SelectRequest` equivalents are **killed**; these three are not) | CONFIRMED | test | `TestSelectTarget_EmptyList`; guard **order** (non-interactive first) is pinned separately by `TestSelectTarget_NonTTYEmptyList` (mutation also orphans the `errors` import — removed so the package compiles; survey then fails with "please provide options to select from") | PR7 | done |
+| UI-06 | internal/ui | `internal/ui/selector.go:107` | Delete the `if len(targets) == 0` guard in `SelectTarget` (`:49` is the identically-worded guard inside `BuildOptions`, and mutating *that* one is an **equivalent mutant** — `make([]string, 0)` + `sort.Strings` yields the same empty non-nil slice — so it is not an escape). (`SelectRole`/`SelectRequest` equivalents are **killed**; these three are not) | CONFIRMED | test | `TestSelectTarget_EmptyList`; guard **order** (non-interactive first) is pinned separately by `TestSelectTarget_NonTTYEmptyList` (mutation also orphans the `errors` import — removed so the package compiles; survey then fails with "please provide options to select from") | PR7 | done |
 | UI-07 | internal/ui | `internal/ui/session_selector.go:112` | Delete the `if len(sessions) == 0` guard in `SelectSessions` | CONFIRMED | test | `TestSelectSessions_EmptyList`; guard **order** pinned by `TestSelectSessions_NonTTYEmptyList` (the `errors` import stays live via "no sessions selected"; survey fails with "please provide options to select from") | PR7 | done |
 | UI-08 | internal/ui | `internal/ui/group_selector.go:79` | Delete the `if len(groups) == 0` guard in `SelectGroup`. Note: the raw mutation orphans the `errors` import — remove it too | CONFIRMED | test | `TestSelectGroup_EmptyList`; guard **order** pinned by `TestSelectGroup_NonTTYEmptyList` | PR7 | done |
 | UI-09 | internal/ui | `internal/ui/role_selector.go` (post-`survey` index bounds check) | Disable the returned-index bounds check in `SelectRole` | CONFIRMED | wont-fix | none — defensive-only and unreachable through `survey`, which can only return a string it was given. Closed as **wont-fix in PR7**: the guard stays in place, deliberately uncovered; do not chase it | PR7 | wont-fix (closed) |
@@ -239,7 +239,7 @@ premise does not hold).
 | `refuted` | 5 |
 | **Total** | **165** |
 
-The seven production changes from the plan's table, plus one added by the PR7 review:
+The seven production changes from the plan's table, plus two added by the PR7 review:
 
 | Row | Change | PR | CHANGELOG |
 |---|---|---|---|
@@ -251,6 +251,11 @@ The seven production changes from the plan's table, plus one added by the PR7 re
 | UI-02 | `sortGroupsForDisplay` extraction | PR7 | no (refactor) |
 | SFU-10 | `syncStagedFileFn` seam | PR3 | no (test seam; **not** a production gap) |
 | — | `SelectGroup` resolves the answer by **index** (`resolveGroupSelection`) instead of display text, matching `SelectRole`/`SelectRequest`. Two groups with the same name in different directories render identically, so the old text lookup returned the first match whatever the user highlighted. Not an audit row — found by the PR7 review. Pinned by `TestResolveGroupSelection_DuplicateDisplayStrings` | PR7 | `### Fixed` |
+| — | `SelectTarget` resolves the answer by **index** (`resolveTargetSelection`) against the same sorted copy it renders (`sortTargetsForDisplay`), instead of looking the display text up in the caller's **unsorted** slice. `FormatTargetOption` carries no ID, so two targets with the same workspace name and role in different subscriptions/accounts render identically; worse than the group case, because the rendered and searched slices were in different orders. Not an audit row — found by the PR7 review. Pinned by `TestResolveTargetSelection_DuplicateDisplayStrings` and `TestSortTargetsForDisplay_Ordering`. `SelectSessions` still resolves by text and is deliberately left alone — its option strings embed the session ID, so collisions are unreachable | PR7 | `### Fixed` |
+
+`FindGroupByDisplay` and `FindTargetByDisplay` are exported and still covered by tests,
+but neither has a production caller after the two index fixes. Both are follow-up
+deletion candidates; they were kept here rather than removed in a fix commit.
 
 ### Total CONFIRMED
 

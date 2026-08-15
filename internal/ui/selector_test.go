@@ -2,6 +2,8 @@ package ui
 
 import (
 	"errors"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
@@ -333,6 +335,103 @@ func TestFindTargetByDisplay(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestSortTargetsForDisplay_Ordering pins the order options are rendered in, and
+// nothing else. Which target a selection denotes is resolveTargetSelection's job.
+func TestSortTargetsForDisplay_Ordering(t *testing.T) {
+	t.Parallel()
+	// Deliberately unsorted input containing a display collision: the two "Shared"
+	// subscriptions carry the same workspace name and role, so both render identically.
+	targets := []models.EligibleTarget{
+		{OrganizationID: "org-z", WorkspaceID: "sub-zebra", WorkspaceName: "Zebra Sub", WorkspaceType: models.WorkspaceTypeSubscription, RoleInfo: models.RoleInfo{ID: "r0", Name: "Reader"}},
+		{OrganizationID: "org-1", WorkspaceID: "sub-shared-1", WorkspaceName: "Shared", WorkspaceType: models.WorkspaceTypeSubscription, RoleInfo: models.RoleInfo{ID: "r1", Name: "Owner"}},
+		{OrganizationID: "org-2", WorkspaceID: "sub-shared-2", WorkspaceName: "Shared", WorkspaceType: models.WorkspaceTypeSubscription, RoleInfo: models.RoleInfo{ID: "r1", Name: "Owner"}},
+		{OrganizationID: "org-a", WorkspaceID: "sub-alpha", WorkspaceName: "Alpha Sub", WorkspaceType: models.WorkspaceTypeSubscription, RoleInfo: models.RoleInfo{ID: "r2", Name: "Contributor"}},
+	}
+	before := append([]models.EligibleTarget(nil), targets...)
+
+	sorted := sortTargetsForDisplay(targets)
+
+	if len(sorted) != len(targets) {
+		t.Fatalf("sortTargetsForDisplay() length = %d, want %d", len(sorted), len(targets))
+	}
+
+	options := make([]string, len(sorted))
+	for i := range sorted {
+		options[i] = FormatTargetOption(sorted[i])
+	}
+	if !sort.StringsAreSorted(options) {
+		t.Errorf("rendered options are not in display order: %q", options)
+	}
+
+	// The sort is stable, so the two colliding rows keep their input order.
+	if sorted[1].WorkspaceID != "sub-shared-1" || sorted[2].WorkspaceID != "sub-shared-2" {
+		t.Errorf("colliding rows lost input order: got %q, %q", sorted[1].WorkspaceID, sorted[2].WorkspaceID)
+	}
+
+	if !reflect.DeepEqual(targets, before) {
+		t.Errorf("sortTargetsForDisplay() mutated the caller's slice: got %+v, want %+v", targets, before)
+	}
+}
+
+// TestResolveTargetSelection_DuplicateDisplayStrings pins the wrong-target fix.
+// FormatTargetOption carries no ID, so two eligible targets with the same workspace
+// name and role in different subscriptions/accounts render to the same string.
+// Recovering the answer by text returns the first match regardless of which row the
+// user highlighted — and SelectTarget searched the caller's *unsorted* slice while
+// rendering a sorted one, so the two could disagree even without a collision.
+// survey.Select cannot be driven from a test, so the index path is asserted on the
+// extracted resolver, mirroring SelectGroup/SelectRole/SelectRequest.
+func TestResolveTargetSelection_DuplicateDisplayStrings(t *testing.T) {
+	t.Parallel()
+	targets := []models.EligibleTarget{
+		{OrganizationID: "org-1", WorkspaceID: "sub-1", WorkspaceName: "Shared", WorkspaceType: models.WorkspaceTypeSubscription, RoleInfo: models.RoleInfo{ID: "role-1", Name: "Owner"}},
+		{OrganizationID: "org-2", WorkspaceID: "sub-2", WorkspaceName: "Shared", WorkspaceType: models.WorkspaceTypeSubscription, RoleInfo: models.RoleInfo{ID: "role-1", Name: "Owner"}},
+	}
+	sorted := sortTargetsForDisplay(targets)
+	if len(sorted) != 2 {
+		t.Fatalf("sortTargetsForDisplay() length = %d, want 2", len(sorted))
+	}
+	if FormatTargetOption(sorted[0]) != FormatTargetOption(sorted[1]) {
+		t.Fatalf("fixture no longer collides: %q vs %q", FormatTargetOption(sorted[0]), FormatTargetOption(sorted[1]))
+	}
+	if sorted[0].WorkspaceID == sorted[1].WorkspaceID {
+		t.Fatalf("fixture targets are indistinguishable: %+v", sorted)
+	}
+
+	// The sort is stable and the two entries compare equal, so the rendered order is
+	// the input order: row 0 is sub-1, row 1 is sub-2.
+	tests := []struct {
+		idx             int
+		wantWorkspaceID string
+		wantOrgID       string
+	}{
+		{idx: 0, wantWorkspaceID: "sub-1", wantOrgID: "org-1"},
+		{idx: 1, wantWorkspaceID: "sub-2", wantOrgID: "org-2"},
+	}
+	for _, tt := range tests {
+		got, err := resolveTargetSelection(sorted, tt.idx)
+		if err != nil {
+			t.Fatalf("resolveTargetSelection(_, %d) error = %v", tt.idx, err)
+		}
+		if got.WorkspaceID != tt.wantWorkspaceID || got.OrganizationID != tt.wantOrgID {
+			t.Errorf("selecting row %d returned WorkspaceID=%q OrganizationID=%q, want %q/%q",
+				tt.idx, got.WorkspaceID, got.OrganizationID, tt.wantWorkspaceID, tt.wantOrgID)
+		}
+	}
+}
+
+func TestResolveTargetSelection_OutOfRange(t *testing.T) {
+	t.Parallel()
+	targets := []models.EligibleTarget{
+		{WorkspaceID: "sub-1", WorkspaceName: "Shared", WorkspaceType: models.WorkspaceTypeSubscription, RoleInfo: models.RoleInfo{Name: "Owner"}},
+	}
+	for _, idx := range []int{-1, 1} {
+		if _, err := resolveTargetSelection(targets, idx); err == nil {
+			t.Errorf("resolveTargetSelection(_, %d) = nil error, want out-of-range error", idx)
+		}
 	}
 }
 
