@@ -360,11 +360,16 @@ func TestElevateGroup_SurfacesErrorInfo(t *testing.T) {
 // TestEnv_SurfacesErrorInfo kills ELV-11: the same check on the env path
 // (cmd/root.go:525).
 func TestEnv_SurfacesErrorInfo(t *testing.T) {
+	// Credentials are present alongside the error so that dropping the guard
+	// produces the real false-success — exports printed, exit 0 — rather than
+	// tripping the downstream "no credentials" fallback.
+	creds := envCredsJSON
 	elevator := &mockElevateService{
 		response: &models.ElevateResponse{Response: models.ElevateAccessResult{
 			CSP: models.CSPAWS,
 			Results: []models.ElevateTargetResult{{
-				WorkspaceID: "111122223333",
+				WorkspaceID:       "111122223333",
+				AccessCredentials: &creds,
 				ErrorInfo: &models.ErrorInfo{
 					Code:        "POLICY_DENIED",
 					Message:     "elevation denied by policy",
@@ -581,6 +586,11 @@ func TestEnv_SelectorReceivesAllTargets(t *testing.T) {
 	selector := &mockTargetSelector{
 		selectFunc: func(targets []models.EligibleTarget) (*models.EligibleTarget, error) {
 			offered = append([]models.EligibleTarget(nil), targets...)
+			if len(targets) == 0 {
+				// Report rather than panic, so a mutation that passes nil
+				// fails with a readable message.
+				return nil, errors.New("selector received no targets")
+			}
 			return &targets[0], nil
 		},
 	}
