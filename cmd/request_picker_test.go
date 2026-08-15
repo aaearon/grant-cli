@@ -7,32 +7,13 @@ import (
 	"testing"
 
 	"github.com/aaearon/grant-cli/internal/ui"
-	"github.com/aaearon/grant-cli/internal/workflows"
 	wfmodels "github.com/aaearon/grant-cli/internal/workflows/models"
 )
-
-// capturingMockAccessRequestService embeds mockAccessRequestService and captures list params.
-type capturingMockAccessRequestService struct {
-	mockAccessRequestService
-	lastListParams workflows.ListRequestsParams
-}
-
-func (m *capturingMockAccessRequestService) ListRequests(_ context.Context, params workflows.ListRequestsParams) ([]wfmodels.AccessRequest, int, error) {
-	m.lastListParams = params
-	return m.listItems, m.listTotalCount, m.listErr
-}
-
-func withInteractiveTTY(t *testing.T, interactive bool) {
-	t.Helper()
-	orig := ui.IsTerminalFunc
-	t.Cleanup(func() { ui.IsTerminalFunc = orig })
-	ui.IsTerminalFunc = func(_ uintptr) bool { return interactive }
-}
 
 func TestResolveRequestIDInteractive_NonInteractive(t *testing.T) {
 	withInteractiveTTY(t, false)
 
-	svc := &capturingMockAccessRequestService{}
+	svc := &mockAccessRequestService{}
 	_, err := resolveRequestIDInteractive(t.Context(), svc, pickerScope{emptyMsg: "access requests"})
 	if err == nil {
 		t.Fatal("expected error")
@@ -48,7 +29,7 @@ func TestResolveRequestIDInteractive_NonInteractive(t *testing.T) {
 func TestResolveRequestIDInteractive_EmptyList(t *testing.T) {
 	withInteractiveTTY(t, true)
 
-	svc := &capturingMockAccessRequestService{}
+	svc := &mockAccessRequestService{}
 	_, err := resolveRequestIDInteractive(t.Context(), svc, pickerScope{
 		filter:      "(requestState eq PENDING)",
 		requestRole: "APPROVER",
@@ -60,23 +41,22 @@ func TestResolveRequestIDInteractive_EmptyList(t *testing.T) {
 	if !strings.Contains(err.Error(), "pending requests assigned to you") {
 		t.Errorf("expected emptyMsg in error, got %v", err)
 	}
-	if svc.lastListParams.Filter != "(requestState eq PENDING)" {
-		t.Errorf("filter: got %q", svc.lastListParams.Filter)
+	got := svc.lastListParams()
+	if got.Filter != "(requestState eq PENDING)" {
+		t.Errorf("filter: got %q", got.Filter)
 	}
-	if svc.lastListParams.RequestRole != "APPROVER" {
-		t.Errorf("requestRole: got %q", svc.lastListParams.RequestRole)
+	if got.RequestRole != "APPROVER" {
+		t.Errorf("requestRole: got %q", got.RequestRole)
 	}
-	if svc.lastListParams.Sort != "createdAt desc" {
-		t.Errorf("sort: got %q", svc.lastListParams.Sort)
+	if got.Sort != "createdAt desc" {
+		t.Errorf("sort: got %q", got.Sort)
 	}
 }
 
 func TestResolveRequestIDInteractive_ListError(t *testing.T) {
 	withInteractiveTTY(t, true)
 
-	svc := &capturingMockAccessRequestService{
-		mockAccessRequestService: mockAccessRequestService{listErr: errors.New("boom")},
-	}
+	svc := &mockAccessRequestService{listErr: errors.New("boom")}
 	_, err := resolveRequestIDInteractive(t.Context(), svc, pickerScope{emptyMsg: "x"})
 	if err == nil || !strings.Contains(err.Error(), "boom") {
 		t.Fatalf("expected list error, got %v", err)

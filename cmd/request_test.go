@@ -767,7 +767,7 @@ func TestRunRequestSubmit_InteractiveRoleSelection(t *testing.T) {
 		t.Fatalf("unexpected error: %v\noutput: %s", err, output)
 	}
 
-	submitted := svc.submitRequest
+	submitted := svc.lastSubmit()
 	if submitted == nil {
 		t.Fatal("expected a submitted request")
 	}
@@ -1017,8 +1017,8 @@ func TestRunRequestSubmit_GCPWorkspaceWithRoleIDRejected(t *testing.T) {
 			if !strings.Contains(err.Error(), "not supported for GCP") {
 				t.Errorf("error %q does not say GCP is unsupported", err.Error())
 			}
-			if svc.submitRequest != nil {
-				t.Errorf("request must not be submitted, got %+v", svc.submitRequest)
+			if got := svc.lastSubmit(); got != nil {
+				t.Errorf("request must not be submitted, got %+v", got)
 			}
 		})
 	}

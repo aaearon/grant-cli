@@ -4,9 +4,24 @@ package cmd
 
 import (
 	"bytes"
+	"testing"
 
+	"github.com/aaearon/grant-cli/internal/ui"
 	"github.com/spf13/cobra"
 )
+
+// withInteractiveTTY forces ui.IsInteractive() to the given answer for the
+// duration of the test, restoring the package global via t.Cleanup.
+//
+// Use it in every test whose behavior depends on interactivity: `go test`
+// happens to run with a non-TTY stdin, but that is an accident of the harness,
+// not an assertion, and it silently reverses under a PTY.
+func withInteractiveTTY(t *testing.T, interactive bool) {
+	t.Helper()
+	orig := ui.IsTerminalFunc
+	t.Cleanup(func() { ui.IsTerminalFunc = orig })
+	ui.IsTerminalFunc = func(_ uintptr) bool { return interactive }
+}
 
 // newTestRootCommand creates a root command for testing (no elevation RunE)
 func newTestRootCommand() *cobra.Command {
