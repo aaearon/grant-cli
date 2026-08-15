@@ -166,6 +166,11 @@ func TestAssertSandboxed_FailsWhenAResolverEscapes(t *testing.T) {
 	escapee := t.TempDir() // deliberately NOT under the sandbox root
 
 	Run(func() int {
+		// os.Setenv, not t.Setenv: t.Setenv's cleanup fires when the test
+		// ends, which is *after* Run has already restored the environment —
+		// it would put this bogus value back and leak it into later tests.
+		// Run's own restore covers us here.
+		//nolint:usetesting // see comment above
 		if err := os.Setenv("IDSEC_PROFILES_FOLDER", escapee); err != nil {
 			t.Errorf("Setenv: %v", err)
 			return 1

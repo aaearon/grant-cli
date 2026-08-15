@@ -42,6 +42,20 @@ jobs:
         if: runner.os == 'Windows'
         run: go test -race ./... -v
 
+      # Integration tests drive the compiled binary as a child process. They
+      # need no network and take ~2s, and they are the only place the real
+      # argument parsing, exit codes and error text are exercised end to end.
+      # Unguarded so both platforms are covered; the harness builds its own
+      # binary into a temp dir.
+      - name: Integration tests
+        run: go test -tags=integration ./cmd -count=1 -v
+
+      # The suite mutates package globals (bootstrapImpl, log,
+      # ui.IsTerminalFunc). Randomising order is what surfaces a test that only
+      # passes because another test ran first.
+      - name: Test with shuffled order
+        run: go test -shuffle=on -count=1 ./...
+
       # Runs on BOTH legs so the platforms stay comparable. This is the only
       # test that replaces a real, running executable, which is where Windows
       # and POSIX genuinely differ. It needs no network: the fixture binaries
