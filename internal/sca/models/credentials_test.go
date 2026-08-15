@@ -2,6 +2,7 @@ package models
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -54,6 +55,10 @@ func TestParseAWSCredentials(t *testing.T) {
 		name    string
 		input   string
 		wantErr bool
+		// Asserted only when wantErr is true and non-empty. Without it the
+		// empty-string guard is inert: json.Unmarshal rejects "" anyway, so
+		// deleting the guard changes only the message.
+		wantErrContains string
 		// Asserted only when wantErr is false. Without these the parser could
 		// swap SecretAccessKey and SessionToken and this package would not
 		// notice — it discarded the parsed value entirely.
@@ -71,9 +76,10 @@ func TestParseAWSCredentials(t *testing.T) {
 			wantSessionToken: "TOKENVALUE",
 		},
 		{
-			name:    "empty string",
-			input:   "",
-			wantErr: true,
+			name:            "empty string",
+			input:           "",
+			wantErr:         true,
+			wantErrContains: "empty credentials string",
 		},
 		{
 			name:    "malformed JSON",
@@ -100,6 +106,9 @@ func TestParseAWSCredentials(t *testing.T) {
 				t.Fatalf("ParseAWSCredentials() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if tt.wantErr {
+				if tt.wantErrContains != "" && !strings.Contains(err.Error(), tt.wantErrContains) {
+					t.Errorf("error = %v, want it to contain %q", err, tt.wantErrContains)
+				}
 				return
 			}
 			if creds.AccessKeyID != tt.wantAccessKeyID {

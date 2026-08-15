@@ -112,9 +112,10 @@ func TestWorkflows_Non200(t *testing.T) {
 	}
 }
 
-// TestFinalizeRequest_ExactRouteAndReason replaces the HasSuffix("/finalize")
-// check, which let the request ID drop out of the route and let the approver's
-// reason be dropped from the body. The cancel twin already asserts both.
+// TestFinalizeRequest_ExactRouteAndReason supersedes the HasSuffix("/finalize")
+// check in service_test.go, which let the request ID drop out of the route and
+// let the approver's reason be dropped from the body. That looser check is still
+// present there; the redundancy is harmless. The cancel twin already asserts both.
 func TestFinalizeRequest_ExactRouteAndReason(t *testing.T) {
 	tests := []struct {
 		name   string

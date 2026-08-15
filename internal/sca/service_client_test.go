@@ -24,9 +24,10 @@ func ispClientFromService(t *testing.T, svc *SCAAccessService) *isp.IdsecISPServ
 }
 
 // TestNewSCAAccessService_SetsAPIVersionHeader is the standalone guard for the
-// X-API-Version header. It previously existed only as two lines inside
-// TestNewSCAAccessServiceDisablesTransientRetry, so any retry-motivated rename
-// or deletion of that test would have removed the header guard silently.
+// X-API-Version header. It supersedes — but does not remove — the two-line
+// assertion inside TestNewSCAAccessServiceDisablesTransientRetry, which remains
+// as deliberate redundancy. Without this standalone test, a retry-motivated
+// rename or deletion of that test would have dropped the header guard silently.
 func TestNewSCAAccessService_SetsAPIVersionHeader(t *testing.T) {
 	gotAPIVersion := make(chan string, 1)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
