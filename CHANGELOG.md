@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Security
 
 - `grant update` now refuses to install a zero-length binary from a release archive
+- `grant update` now rejects non-regular zip entries, matching the existing tar behaviour
 
 ### Fixed
 

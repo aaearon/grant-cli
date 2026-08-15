@@ -825,8 +825,9 @@ func TestUpdateSelfFailsOnAssetDownloadStatus(t *testing.T) {
 // withMaxDownloadBytes shrinks the download/decompression cap for one test and
 // restores it via t.Cleanup, so an early t.Fatal cannot leak the change into
 // another test. maxDownloadBytes is package-global mutable state: callers of
-// this helper MUST NOT call t.Parallel().
-func withMaxDownloadBytes(t *testing.T, limit int64) {
+// this helper MUST NOT call t.Parallel(). It takes testing.TB so the fuzz
+// targets can bound each exec through the same seam (see fuzz_test.go).
+func withMaxDownloadBytes(t testing.TB, limit int64) {
 	t.Helper()
 	orig := maxDownloadBytes
 	maxDownloadBytes = limit

@@ -3,6 +3,7 @@
 package selfupdate
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -24,7 +25,15 @@ func TestSyncStagedFileReportsSyncError(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Remove(staged) })
 
-	if err := syncStagedFile(target); err == nil {
+	// Assert the error is the fsync failure, not an open failure. Without this
+	// the test degrades silently: on a Unix where os.OpenFile(fifo, O_RDWR)
+	// fails, syncStagedFile returns the OPEN error, `err != nil` still holds,
+	// and the test would pass with the mutation applied.
+	err := syncStagedFile(target)
+	if err == nil {
 		t.Fatal("expected the failing fsync to be reported, got nil")
+	}
+	if !errors.Is(err, syscall.EINVAL) && !errors.Is(err, syscall.ENOTSUP) {
+		t.Fatalf("expected the fsync error (EINVAL/ENOTSUP), got %v - the FIFO probably failed to open, which makes this test inert", err)
 	}
 }

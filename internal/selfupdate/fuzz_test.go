@@ -73,6 +73,15 @@ func FuzzCheckArchivePath(f *testing.F) {
 	})
 }
 
+// fuzzMaxDownloadBytes bounds what a single fuzz exec can allocate. The
+// production cap is 128 MiB and readCapped will io.ReadAll up to it per exec:
+// with the real cap FuzzExtractFromZip collapses to 0 exec/sec on transient
+// near-cap inputs (worker RSS ~118 MB) while still reporting PASS, which makes
+// its exec count incomparable to the other targets'. Shrinking the cap keeps
+// the fuzzer exploring archive SHAPE rather than SIZE. It sits well above every
+// seed (the largest body is 4 KiB), so no seed is rejected by the cap itself.
+const fuzzMaxDownloadBytes = 64 << 10
+
 // assertExtractInvariant is the property both archive targets share: an
 // extractor either fails, or returns a NON-EMPTY binary. A successful
 // extraction of zero bytes is the self-destruct case — the checksum covers the
@@ -91,6 +100,8 @@ func assertExtractInvariant(t *testing.T, got []byte, err error) {
 }
 
 func FuzzExtractFromTarGz(f *testing.F) {
+	withMaxDownloadBytes(f, fuzzMaxDownloadBytes)
+
 	good := buildTarGzEntries(f, []tarEntry{{name: "grant", body: fixtureBinaryContents}})
 	seeds := [][]byte{
 		good,
@@ -116,6 +127,8 @@ func FuzzExtractFromTarGz(f *testing.F) {
 }
 
 func FuzzExtractFromZip(f *testing.F) {
+	withMaxDownloadBytes(f, fuzzMaxDownloadBytes)
+
 	good := buildZipEntries(f, []zipEntry{{name: "grant.exe", body: fixtureBinaryContents}})
 	seeds := [][]byte{
 		good,

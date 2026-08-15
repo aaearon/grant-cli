@@ -209,8 +209,18 @@ func TestCheckArchivePath(t *testing.T) {
 // hashes whatever it is handed, so an empty payload verifies against itself
 // and self-destructs the installed binary.
 //
-// The fixtures carry no body, so extraction can only ever produce empty bytes;
-// they are never written, linked or followed.
+// Most fixtures carry no body, so extraction could only ever produce empty
+// bytes; they are never written, linked or followed. Those cases pin the
+// classification, but with the type operand dropped they fail on the error
+// MESSAGE (the empty-binary backstop catches them and says "is empty"), not on
+// behavior — because Go's tar.Reader forces a zero-length body for the
+// header-only types (symlink, hardlink, dir, char, block, fifo).
+//
+// The `tar.TypeCont` and vendor-type cases are different, and they are the
+// reason this test is a behavioral pin rather than a wording pin: those types
+// are NOT header-only, so their bodies are readable. With the type operand
+// dropped they extract non-empty attacker-chosen bytes and the zero-length
+// backstop never fires. They must fail on the bytes returned.
 func TestExtractBinaryRejectsNonRegularEntries(t *testing.T) {
 	tests := []struct {
 		name            string
@@ -240,6 +250,34 @@ func TestExtractBinaryRejectsNonRegularEntries(t *testing.T) {
 			assetName: "grant-cli_0.7.0_linux_amd64.tar.gz",
 			archive: buildHostileTarGz(t, []tarEntry{
 				{name: "grant/", typeflag: tar.TypeDir},
+			}),
+			wantErrContains: "does not contain a grant binary",
+		},
+		{
+			// Not header-only: the body is readable, so this case fails on the
+			// bytes returned rather than on the wording.
+			name:      "tar continuation entry named grant carrying bytes",
+			assetName: "grant-cli_0.7.0_linux_amd64.tar.gz",
+			archive: buildHostileTarGz(t, []tarEntry{
+				{name: "grant", typeflag: tar.TypeCont, body: hostilePayload},
+			}),
+			wantErrContains: "does not contain a grant binary",
+		},
+		{
+			// Vendor-reserved type flags ('A'..'Z') are likewise not
+			// header-only. Same behavioral pin, a different byte.
+			name:      "tar vendor-type entry named grant carrying bytes",
+			assetName: "grant-cli_0.7.0_linux_amd64.tar.gz",
+			archive: buildHostileTarGz(t, []tarEntry{
+				{name: "grant", typeflag: 'Z', body: hostilePayload},
+			}),
+			wantErrContains: "does not contain a grant binary",
+		},
+		{
+			name:      "zip symlink-mode entry named grant",
+			assetName: "grant-cli_0.7.0_windows_amd64.zip",
+			archive: buildHostileZip(t, []zipEntry{
+				{name: "grant.exe", mode: fs.ModeSymlink | 0o777, body: hostileSymlinkTarget},
 			}),
 			wantErrContains: "does not contain a grant binary",
 		},

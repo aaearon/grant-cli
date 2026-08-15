@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"path"
 	"runtime"
@@ -437,7 +438,12 @@ func extractFromZip(archive []byte) ([]byte, error) {
 		if err := checkArchivePath(f.Name); err != nil {
 			return nil, err
 		}
-		if f.FileInfo().IsDir() || !isBinaryEntry(f.Name) {
+		// Mirrors the tar `Typeflag != tar.TypeReg` guard: only a regular file
+		// may be the binary. IsDir() alone would accept a symlink-mode entry,
+		// whose "contents" are the link target string. Not exploitable —
+		// extraction is in-memory and never follows the link — but the two
+		// formats must reject the same shapes.
+		if f.Mode()&fs.ModeType != 0 || !isBinaryEntry(f.Name) {
 			continue
 		}
 		if found != nil {
