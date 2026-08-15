@@ -87,6 +87,10 @@ Custom `SCAAccessService` follows SDK conventions:
 - `httptest.NewServer` for service mocks
 - `httpClient` interface for DI
 - Test files co-located as `_test.go`
+- **Mock capture convention** (`cmd/test_mocks.go`, precedent `mockSessionRevoker`): record the arguments in the method body *before* dispatching to any `xxxFunc` callback, keep a history slice plus a `lastX()` accessor (a history is what answers "called exactly once?"), defensively copy slices/maps and pointer-to-struct args, and guard against a nil request. An optional `*string` argument is flattened to `reason string` + `reasonSet bool` so a test can tell `nil` from `""`. There is exactly one mock per interface — an arg-blind sibling silently opts every future test out of capture
+- No mutex on those histories: only the eligibility listers fan out across goroutines (`cmd/helpers.go:44,59,71`, `cmd/root.go:316,326,734,739`); `Elevate`, `ElevateGroups` and all five `accessRequestService` methods are called from strictly sequential paths. `make test-race` is what keeps that honest
+- Shared test helpers live in `cmd/test_helpers_test.go` (`executeCommand`, `executeCommandStreams`, `executeWithHint`, `withInteractiveTTY`). It is a `_test.go` file on purpose — it was a production file, which linked test-only code into the binary
+- Any test whose behavior depends on interactivity MUST set it explicitly with `withInteractiveTTY`: `go test` happens to run with a non-TTY stdin, but that is an accident of the harness, not an assertion
 - Tests that swap a package-level var (e.g. `ui.IsTerminalFunc`, `recordSessionTimestamp`, `bootstrapImpl`) MUST NOT call `t.Parallel()` — `-race` flags concurrent access to the global. Mark them with a `// Not parallel: mutates the package-global X.` comment. This is why the `cmd` package tests are all serial.
 
 ## CLI
