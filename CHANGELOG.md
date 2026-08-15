@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- `grant favorites add` now fails immediately without a terminal instead of authenticating first
+
 ## [0.9.0] - 2026-08-14
 
 ### Added

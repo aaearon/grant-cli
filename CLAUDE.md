@@ -85,7 +85,7 @@ Custom `SCAAccessService` follows SDK conventions:
 - `httptest.NewServer` for service mocks
 - `httpClient` interface for DI
 - Test files co-located as `_test.go`
-- Tests that swap a package-level var (e.g. `ui.IsTerminalFunc`, `recordSessionTimestamp`, `getAuth`) MUST NOT call `t.Parallel()` — `-race` flags concurrent access to the global. Mark them with a `// Not parallel: mutates the package-global X.` comment. This is why the `cmd` package tests are all serial.
+- Tests that swap a package-level var (e.g. `ui.IsTerminalFunc`, `recordSessionTimestamp`, `bootstrapImpl`) MUST NOT call `t.Parallel()` — `-race` flags concurrent access to the global. Mark them with a `// Not parallel: mutates the package-global X.` comment. This is why the `cmd` package tests are all serial.
 
 ## CLI
 - `spf13/cobra` for CLI framework
@@ -217,6 +217,8 @@ make clean              # Clean build artifacts
 - Windows runners have no GNU make, so that leg runs the equivalent Go commands directly (`go build -trimpath -o grant.exe .`, `go test -race ./... -v`); Linux keeps `make build` / `make test-race`. Keep the two legs in sync when Makefile targets change
 - `go test -race` works on windows/amd64 because the runner image ships gcc (the race detector needs cgo)
 - The `Self-update end-to-end` step runs the `selfupdate_e2e`-tagged tests on **both** legs (no `if:` guard) — it is the only test that replaces a real running executable, and comparing the two platforms is the whole point. It builds its fixtures locally, so it needs no network. Keep it unguarded; guarding it to Linux would defeat its purpose
+- `Integration tests` (`go test -tags=integration ./cmd`) and `Test with shuffled order` (`go test -shuffle=on -count=1 ./...`) run **unguarded on both legs**. Integration needs no network and takes ~2s; shuffling is what catches order dependence in a suite that mutates package globals
+- `.golangci.yml` sets `run.build-tags: [integration, selfupdate_e2e]` so both tagged files are linted. Side effect: with `integration` set, `cmd/main_test.go` (`//go:build !integration`) is excluded from linting
 - Lint (`golangci-lint-action`) runs on Linux only — a second pass on Windows adds minutes and finds nothing new
 - Tests must be OS-portable. Never assert POSIX permission bits without a `runtime.GOOS == "windows"` skip: Go synthesizes `0666`/`0777` for Windows files and `os.Chmod` there only toggles the read-only attribute. Current skips: `internal/config/config_test.go` (`TestLoadConfig_PermissionError`, `TestConfigDir_Error` — chmod 0000 and `HOME`) and `internal/cache/cache_test.go` (`TestSet_FilePermissions`)
 - Prefer a portable construction over a skip where one exists. To force a write failure, point at a path whose parent component is an existing regular file (`MkdirAll` fails with ENOTDIR on POSIX and ERROR_DIRECTORY on Windows) rather than a hardcoded `/dev/null/...` path, which is an ordinary writable location on Windows
@@ -274,35 +276,35 @@ func init() {
 
 ### Dependency Injection
 
-Commands use interfaces for testability:
+Commands declare their collaborators as interfaces in `cmd/interfaces.go` (`authLoader`, `eligibilityLister`, `groupsEligibilityLister`, `elevateService`, `accessRequestService`, `selfUpdater`, …). There are two ways to substitute them.
 
-```go
-// interfaces.go
-type authProvider interface {
-    Authenticate(profile *models.IdsecProfile) (*models.IdsecToken, error)
-}
+**Preferred — `New*WithDeps` constructors.** Every command has one: `NewRootCommandWithDeps`, `NewEnvCommandWithDeps`, `NewStatusCommandWithDeps`, `NewRevokeCommandWithDeps`, `NewListCommandWithDeps`, `NewRequestCommandWithDeps`, `NewLogoutCommandWithDeps`, `NewUpdateCommandWithDeps`, plus `runFavoritesAddWithDeps`. The production factory is a thin wrapper that bootstraps the real services and calls the same function. Tests build the command with mocks and never touch a global.
 
-type scaService interface {
-    ListEligibility(ctx context.Context, csp models.CSP) (*models.EligibilityResponse, error)
-    Elevate(ctx context.Context, req *models.ElevateRequest) (*models.ElevateResponse, error)
-}
+**Package-var seams**, for the few things a constructor cannot reach:
 
-// Command runtime resolution
-var (
-    getAuth = func() (authProvider, error) { /* ... */ }
-    getSCAService = func() (scaService, error) { /* ... */ }
-)
+| Var | File | Purpose |
+|---|---|---|
+| `bootstrapImpl` | `cmd/root.go` | Profile load + authenticate. Memoized by `bootstrapISPAuth` via `sync.Once`; clear it with `resetBootstrapCache()` |
+| `recordSessionTimestamp` | `cmd/session_tracking.go` | Elevation timestamp writer |
+| `resolveRequestIDFn` | `cmd/request_picker.go` | Interactive request picker |
+| `submitPromptFn`, `confirmSubmitFn`, `resolveSubmitTargetFn`, `submitWorkspaceSelectorFn`, `resolveRoleFn` | `cmd/request_submit.go` | `request submit` prompt and resolution steps |
+| `log` | `cmd/verbose.go` | Verbose logger; tests swap in `spyLogger` |
+| `ui.IsTerminalFunc` | `internal/ui/tty.go` | TTY detection |
 
-// Test injection via package vars
-func TestMyCommand(t *testing.T) {
-    originalGetAuth := getAuth
-    defer func() { getAuth = originalGetAuth }()
+There is no `getAuth`/`getSCAService`; those never existed. Every test that swaps one of these globals restores it via `t.Cleanup`, and no such test may call `t.Parallel()`.
 
-    getAuth = func() (authProvider, error) {
-        return &mockAuth{}, nil
-    }
-}
-```
+### Test Isolation
+
+`internal/testenv` is a normal package imported only from `_test.go` files, so it never links into the binary. `testenv.Run(m.Run)` redirects `HOME`, `USERPROFILE`, `XDG_CONFIG_HOME`, `IDSEC_PROFILES_FOLDER` and `GRANT_CONFIG` under one temp root before `m.Run`, then restores them.
+
+- `USERPROFILE` is not optional: Go's Windows `os.UserHomeDir` reads `USERPROFILE`, then `HOMEDRIVE`+`HOMEPATH`, and never `HOME`. `HOME` alone leaves the Windows CI leg pointed at the real profile. The SDK profile loader, conversely, reads `HOME` on every platform.
+- `GRANT_CONFIG` does **not** cover the cache: `cache.CacheDir()` → `config.ConfigDir()` → `os.UserHomeDir()`. Before this existed the suite wrote the developer's real `~/.grant/cache/session_timestamps.json` on every run.
+- `testenv` must not import `testing`; `AssertSandboxed` therefore takes a `TB` interface (`Helper`/`Errorf`) that `*testing.T` satisfies.
+- `AssertSandboxed` checks the *configured destinations* — `config.ConfigDir`, `config.ConfigPath`, `cache.CacheDir`, `profiles.GetProfilesFolder`. It does not prove nothing was written outside the sandbox, and cannot see reads. A snapshot-diff gate was considered and rejected: a concurrently running real `grant` false-positives with certainty, and size+mtime misses same-size rewrites.
+- `TestMain` lives in `cmd/main_test.go` (`//go:build !integration`, because `cmd/integration_test.go` declares its own), `internal/config/main_test.go` and `internal/cache/main_test.go`. The last two are in the **external** test package (`config_test`/`cache_test`) because `testenv` imports those packages — an in-package test file importing it would be an import cycle.
+- `os.Setenv` in `TestMain` runs before `m.Run`, so it does not collide with the `t.Parallel()` sites in `internal/` — unlike `t.Setenv`, which the stdlib forbids in parallel tests.
+- `cmd/bootstrap_stub_test.go` (untagged, so both build configurations get it) points `bootstrapImpl` at `errTestBootstrapDisabled`. Assert it with `errors.Is`, never a bare `wantErr: true` — otherwise a stray bootstrap attempt silently satisfies an unrelated case. `recordSessionTimestamp` is deliberately left live: it is what proves the redirect works.
+- `executeCommand`/`executeCommandStreams`/`executeWithHint` restore the package-global `outputFormat`, which Cobra binds to `--output`. Without that a command built outside the root (e.g. `NewEnvCommandWithDeps`) inherits `json` from a previous test — an order dependence `go test -shuffle=on` exposes.
 
 ### Testing Patterns
 
@@ -344,19 +346,10 @@ func (m *mockAuthProvider) Authenticate(p *models.IdsecProfile) (*models.IdsecTo
 ```
 
 #### Integration Tests
-```go
-//go:build integration
 
-// integration_test.go - tests compiled binary
-func TestMain(m *testing.M) {
-    // Build binary before tests
-    cmd := exec.Command("go", "build", "-o", "../grant-test", "../.")
-    cmd.Run()
-    code := m.Run()
-    os.Remove("../grant-test")
-    os.Exit(code)
-}
-```
+`cmd/integration_test.go` (`//go:build integration`) drives the compiled binary as a child process. Its `TestMain` runs inside `testenv.Run` and builds into a unique temp directory — never the shared `../grant-test`, which two concurrent runs would fight over. `GOCACHE`/`GOMODCACHE`/`GOPATH` are resolved **before** the `HOME` redirect and passed to the build, otherwise it starts from an empty module cache and needs the network.
+
+Assertions are exact exit codes plus exact error text. Keyword soup (`error|Error|failed|not found`) is banned here: a panic satisfies it. `runGrant` fails the test outright if the child output contains a panic, and closes stdin so no prompt can block.
 
 ### Error Handling
 
