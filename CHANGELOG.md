@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Security
+
+- `grant update` now refuses to install a zero-length binary from a release archive
+
 ### Fixed
 
 - `grant favorites add` now fails immediately without a terminal instead of authenticating first

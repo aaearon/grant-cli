@@ -48,6 +48,12 @@ func applyBinary(newBinary []byte) error {
 // applyBinaryTo replaces the binary at targetPath. An empty targetPath means
 // the running executable.
 func applyBinaryTo(newBinary []byte, targetPath string) error {
+	// Independent of the extractor's own empty check: the checksum minio
+	// verifies is computed here, from these bytes, so an empty payload would
+	// verify against itself and replace a working binary with nothing.
+	if len(newBinary) == 0 {
+		return errors.New("refusing to install an empty binary")
+	}
 	sum := sha256.Sum256(newBinary)
 	return applyWithOptions(bytes.NewReader(newBinary), minio.Options{
 		TargetPath: targetPath,

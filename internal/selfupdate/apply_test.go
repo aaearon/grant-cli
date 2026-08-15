@@ -84,6 +84,29 @@ func TestApplyBinaryToReplacesTarget(t *testing.T) {
 	}
 }
 
+// TestApplyBinaryToRejectsEmptyBinary is the second, independent guard against
+// the zero-byte self-destruct: whatever the extractor did, the apply boundary
+// refuses to install nothing. minio would otherwise happily verify an empty
+// payload against a checksum computed from that same empty payload.
+func TestApplyBinaryToRejectsEmptyBinary(t *testing.T) {
+	path := writeFakeBinary(t)
+
+	err := applyBinaryTo(nil, path)
+	if err == nil {
+		t.Fatal("expected an empty binary to be refused, got nil")
+	}
+	if !strings.Contains(err.Error(), "empty binary") {
+		t.Errorf("error = %q, want it to name the empty binary", err)
+	}
+	if got := readFile(t, path); got != oldBinaryContents {
+		t.Errorf("target was modified: %q", got)
+	}
+
+	if err := applyBinaryTo([]byte{}, path); err == nil {
+		t.Fatal("expected a zero-length slice to be refused, got nil")
+	}
+}
+
 // TestApplyBinaryFailsBeforeTouchingTarget covers the failures that happen
 // while staging, i.e. before the original binary is renamed at all.
 func TestApplyBinaryFailsBeforeTouchingTarget(t *testing.T) {
