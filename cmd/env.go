@@ -60,7 +60,10 @@ func NewEnvCommand() *cobra.Command {
 			return err
 		}
 
-		cachedLister := buildCachedLister(cfg, flags.refresh, scaService, nil)
+		cachedLister, err := buildCachedLister(cfg, flags.refresh, scaService, nil)
+		if err != nil {
+			return err
+		}
 
 		return runEnvWithDeps(cmd, flags, profile, ispAuth, cachedLister, scaService, &uiSelector{}, cfg)
 	})

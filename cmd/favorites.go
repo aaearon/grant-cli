@@ -164,7 +164,10 @@ func runFavoritesAddProduction(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	cachedLister := buildCachedLister(cfg, false, scaService, scaService)
+	cachedLister, err := buildCachedLister(cfg, false, scaService, scaService)
+	if err != nil {
+		return err
+	}
 
 	return runFavoritesAddWithDeps(cmd, args, cachedLister, &uiUnifiedSelector{}, &surveyNamePrompter{}, cfg, cachedLister)
 }

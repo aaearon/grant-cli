@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	grantconfig "github.com/aaearon/grant-cli/internal/config"
 	"github.com/aaearon/grant-cli/internal/sca/models"
 	"github.com/aaearon/grant-cli/internal/ui"
 	sdkauth "github.com/cyberark/idsec-sdk-golang/pkg/auth"
@@ -56,6 +57,54 @@ func TestBootstrapISPAuth_MemoizesRepeatCalls(t *testing.T) {
 	}
 	if profile1 != stubProfile {
 		t.Error("expected returned profile to match stub")
+	}
+}
+
+// TestBuildCachedLister_TTL covers both arms of the cache_ttl handling in the
+// shared factory: a usable value builds a lister, an unusable one is reported
+// rather than silently defaulted. Load already rejects a bad value, so
+// this arm is reachable only for a Config assembled in memory.
+func TestBuildCachedLister_TTL(t *testing.T) {
+	tests := []struct {
+		name     string
+		cacheTTL string
+		// wantErrContains empty means the call must succeed.
+		wantErrContains string
+	}{
+		{name: "absent ttl uses the default", cacheTTL: ""},
+		{name: "valid ttl", cacheTTL: "30m"},
+		{name: "unparseable ttl", cacheTTL: "garbage", wantErrContains: `invalid cache_ttl "garbage"`},
+		{name: "zero ttl", cacheTTL: "0s", wantErrContains: "must be greater than zero"},
+		{name: "negative ttl", cacheTTL: "-1h", wantErrContains: "must be greater than zero"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := grantconfig.DefaultConfig()
+			cfg.CacheTTL = tt.cacheTTL
+
+			lister, err := buildCachedLister(cfg, false, nil, nil)
+
+			if tt.wantErrContains != "" {
+				if err == nil {
+					t.Fatalf("buildCachedLister() = nil error, want one containing %q", tt.wantErrContains)
+				}
+				if !strings.Contains(err.Error(), tt.wantErrContains) {
+					t.Errorf("error = %q, want it to contain %q", err, tt.wantErrContains)
+				}
+				if lister != nil {
+					t.Error("expected a nil lister alongside the error")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if lister == nil {
+				t.Error("expected a lister")
+			}
+		})
 	}
 }
 

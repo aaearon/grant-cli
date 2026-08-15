@@ -394,7 +394,10 @@ func resolveSubmitTarget(ctx context.Context, provider, targetName string, refre
 	if cfg == nil {
 		cfg = config.DefaultConfig()
 	}
-	cachedLister := buildCachedLister(cfg, refresh, scaSvc, nil)
+	cachedLister, err := buildCachedLister(cfg, refresh, scaSvc, nil)
+	if err != nil {
+		return nil, err
+	}
 
 	fetchCtx, fetchCancel := context.WithTimeout(ctx, apiTimeout)
 	defer fetchCancel()
@@ -544,7 +547,10 @@ func resolveSubmitRole(ctx context.Context, ws *submitWorkspace, refresh bool) (
 	var lister cache.OnDemandRolesLister = scaSvc
 	cacheDir, cacheErr := cache.CacheDir()
 	if cacheErr == nil {
-		ttl := config.ParseCacheTTL(cfg)
+		ttl, ttlErr := config.ParseCacheTTL(cfg)
+		if ttlErr != nil {
+			return "", "", ttlErr
+		}
 		store := cache.NewStore(cacheDir, ttl)
 		lister = cache.NewCachedRolesLister(scaSvc, store, refresh, common.GetLogger("grant", -1))
 	}

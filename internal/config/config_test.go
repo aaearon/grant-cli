@@ -1,6 +1,8 @@
 package config
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -493,24 +495,244 @@ func TestSaveConfig_CacheTTL_OmitsEmpty(t *testing.T) {
 func TestParseCacheTTL(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name  string
+		name string
+		// value is the raw cache_ttl string.
 		value string
 		want  time.Duration
+		// wantErrContains empty means the call must succeed.
+		wantErrContains string
 	}{
 		{name: "empty uses default", value: "", want: DefaultCacheTTL},
 		{name: "custom 2h", value: "2h", want: 2 * time.Hour},
+		// Positive control: the guard below must not widen to swallow valid values.
 		{name: "custom 30m", value: "30m", want: 30 * time.Minute},
-		{name: "invalid falls back to default", value: "garbage", want: DefaultCacheTTL},
+		{name: "unparseable is rejected", value: "garbage", wantErrContains: `invalid cache_ttl "garbage"`},
+		{name: "zero is rejected", value: "0s", wantErrContains: "must be greater than zero"},
+		{name: "negative is rejected", value: "-1h", wantErrContains: "must be greater than zero"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			cfg := &Config{CacheTTL: tt.value}
-			got := ParseCacheTTL(cfg)
+			got, err := ParseCacheTTL(cfg)
+
+			if tt.wantErrContains != "" {
+				if err == nil {
+					t.Fatalf("ParseCacheTTL(%q) = %v, want error containing %q", tt.value, got, tt.wantErrContains)
+				}
+				if !strings.Contains(err.Error(), tt.wantErrContains) {
+					t.Errorf("ParseCacheTTL(%q) error = %q, want it to contain %q", tt.value, err, tt.wantErrContains)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("ParseCacheTTL(%q) unexpected error: %v", tt.value, err)
+			}
 			if got != tt.want {
 				t.Errorf("ParseCacheTTL(%q) = %v, want %v", tt.value, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestParseCacheTTL_DefaultIsFourHours hardcodes the literal. Asserting
+// `want: DefaultCacheTTL` restates the symbol under test and cannot detect a
+// change to it.
+func TestParseCacheTTL_DefaultIsFourHours(t *testing.T) {
+	t.Parallel()
+	got, err := ParseCacheTTL(&Config{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != 4*time.Hour {
+		t.Errorf("default cache TTL = %v, want 4h", got)
+	}
+}
+
+// TestLoad_InvalidCacheTTLErrors pins that an unusable cache_ttl surfaces at
+// config load, not later when some command happens to build a cache.
+func TestLoad_InvalidCacheTTLErrors(t *testing.T) {
+	t.Parallel()
+	for _, value := range []string{"garbage", "0s", "-1h"} {
+		t.Run(value, func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			content := []byte("profile: p\ncache_ttl: " + value + "\n")
+			if err := os.WriteFile(path, content, 0o600); err != nil {
+				t.Fatalf("write: %v", err)
+			}
+
+			_, err := Load(path)
+			if err == nil {
+				t.Fatalf("Load() with cache_ttl %q = nil error, want a validation error", value)
+			}
+			if !strings.Contains(err.Error(), "cache_ttl") {
+				t.Errorf("error = %q, want it to name cache_ttl", err)
+			}
+		})
+	}
+}
+
+// TestLoad_PartialYAMLKeepsDefaults pins that a file setting only some keys
+// leaves the rest at their defaults — dropping the DefaultConfig() seed would
+// silently lose `profile: grant`.
+func TestLoad_PartialYAMLKeepsDefaults(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	// Deliberately sets only default_provider.
+	if err := os.WriteFile(path, []byte("default_provider: aws\n"), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Profile != "grant" {
+		t.Errorf("profile = %q, want the default %q to survive a partial file", cfg.Profile, "grant")
+	}
+	if cfg.DefaultProvider != "aws" {
+		t.Errorf("default_provider = %q, want %q", cfg.DefaultProvider, "aws")
+	}
+}
+
+// TestLoad_FavoritesNeverNil pins the nil-map backfill. `favorites:` with no
+// value unmarshals to a nil map, and writing to a nil map panics.
+func TestLoad_FavoritesNeverNil(t *testing.T) {
+	t.Parallel()
+	for name, content := range map[string]string{
+		"explicit null":    "profile: p\nfavorites:\n",
+		"no favorites key": "profile: p\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+				t.Fatalf("write: %v", err)
+			}
+
+			cfg, err := Load(path)
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if cfg.Favorites == nil {
+				t.Fatal("Favorites is nil; a write to it would panic")
+			}
+			// Prove it is writable, which is the behavior that actually matters.
+			cfg.Favorites["x"] = Favorite{Provider: "azure"}
+		})
+	}
+}
+
+// TestLoad_InvalidYAMLErrors pins that a malformed file is reported rather
+// than silently yielding a half-populated config.
+func TestLoad_InvalidYAMLErrors(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("profile: [unterminated\n"), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	if _, err := Load(path); err == nil {
+		t.Fatal("Load() = nil error for malformed YAML, want an error")
+	}
+}
+
+// TestLoad_UnreadableIsNotTreatedAsMissing is the portable sibling of
+// TestLoadConfig_PermissionError, which skips on Windows and so leaves Load's
+// missing-vs-unreadable distinction with zero coverage on that CI leg. A
+// directory read fails as EISDIR on POSIX and ERROR_ACCESS_DENIED on Windows,
+// and is os.ErrNotExist on neither — so it drives the same branch everywhere.
+func TestLoad_UnreadableIsNotTreatedAsMissing(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+
+	if _, err := os.ReadFile(dir); errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("premise broken: reading a directory reported ErrNotExist: %v", err)
+	}
+
+	_, err := Load(dir)
+	if err == nil {
+		t.Fatal("Load(<directory>) = nil error, want a read error rather than the default config")
+	}
+	if !strings.Contains(err.Error(), "failed to read config") {
+		t.Errorf("error = %q, want the read-error wrapping", err)
+	}
+}
+
+// TestConfigDir_EndsInDotGrant pins the directory name users are told to look in.
+func TestConfigDir_EndsInDotGrant(t *testing.T) {
+	dir, err := ConfigDir()
+	if err != nil {
+		t.Fatalf("ConfigDir() error = %v", err)
+	}
+	if filepath.Base(dir) != ".grant" {
+		t.Errorf("ConfigDir() = %q, want its last element to be %q", dir, ".grant")
+	}
+}
+
+// TestSave_FileAndDirModes pins the 0600/0700 modes. The config file holds no
+// secrets today, but it is the sibling of the cache and profile directories
+// and users reasonably expect it to be private.
+func TestSave_FileAndDirModes(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("Go synthesizes 0666/0777 for Windows files and os.Chmod there only toggles the read-only attribute, so POSIX mode bits carry no information")
+	}
+	dir := filepath.Join(t.TempDir(), "grantcfg")
+	path := filepath.Join(dir, "config.yaml")
+
+	if err := Save(DefaultConfig(), path); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat file: %v", err)
+	}
+	if got := fi.Mode().Perm(); got != 0o600 {
+		t.Errorf("config file mode = %#o, want 0600", got)
+	}
+
+	di, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("stat dir: %v", err)
+	}
+	if got := di.Mode().Perm(); got != 0o700 {
+		t.Errorf("config dir mode = %#o, want 0700", got)
+	}
+}
+
+// TestSave_MkdirAllFailure pins that a directory-creation failure propagates.
+// The failure is forced portably: a path component that is an existing regular
+// file makes MkdirAll fail with ENOTDIR on POSIX and ERROR_DIRECTORY on
+// Windows. A hardcoded /dev/null/... path would not work — on Windows that is
+// an ordinary writable location.
+func TestSave_MkdirAllFailure(t *testing.T) {
+	t.Parallel()
+	base := t.TempDir()
+	blocker := filepath.Join(base, "not-a-dir")
+	if err := os.WriteFile(blocker, []byte("regular file"), 0o600); err != nil {
+		t.Fatalf("write blocker: %v", err)
+	}
+
+	path := filepath.Join(blocker, "sub", "config.yaml")
+	err := Save(DefaultConfig(), path)
+	if err == nil {
+		t.Fatal("Save() = nil error when the parent directory cannot be created")
+	}
+
+	// A bare "did it error" check is not enough: with the MkdirAll error
+	// swallowed, the subsequent WriteFile fails for the same underlying
+	// reason and Save still returns an error. Pinning the syscall op is what
+	// proves the directory-creation error is the one that propagated.
+	var pathErr *fs.PathError
+	if !errors.As(err, &pathErr) {
+		t.Fatalf("error = %v (%T), want an *fs.PathError", err, err)
+	}
+	if pathErr.Op != "mkdir" {
+		t.Errorf("error op = %q, want %q — the MkdirAll failure must be the one reported", pathErr.Op, "mkdir")
 	}
 }

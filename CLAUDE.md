@@ -145,10 +145,12 @@ Custom `SCAAccessService` follows SDK conventions:
 ## Cache
 - Eligibility responses cached in `~/.grant/cache/` as JSON files (e.g., `eligibility_azure.json`, `groups_eligibility_azure.json`)
 - Default TTL: 4 hours, configurable via `cache_ttl` in `~/.grant/config.yaml` (Go duration syntax: `2h`, `30m`)
+- `config.ParseCacheTTL` returns `(time.Duration, error)`. **Absent** means "use the default"; **any explicitly supplied** value that cannot serve as a TTL — unparseable, zero or negative — is an error. Treating those two the same way is the point: silently defaulting `garbage` while rejecting `0s` would validate one field by two opposite rules. `config.Load` validates it so a bad value surfaces at load, not when some command happens to build a cache. `buildCachedLister` (`cmd/root.go`) therefore returns an error too — its bad-TTL arm is reachable only for a `Config` assembled in memory
 - `--refresh` flag on `grant` and `grant env` bypasses cache reads but still writes fresh data
 - `internal/cache/cache.go` — generic `Store` with `Get[T]`/`Set[T]`, injectable clock for testing
 - `internal/cache/cached_eligibility.go` — `CachedEligibilityLister` decorator implementing `eligibilityLister` + `groupsEligibilityLister`
-- `internal/cache/session_tracker.go` — `RecordSession`, `SessionTimestamps`, `CleanupSessions` for tracking elevation timestamps in `session_timestamps.json` (25h TTL, auto-cleanup of inactive sessions)
+- `internal/cache/session_tracker.go` — `RecordSession`, `SessionTimestamps`, `CleanupSessions` for tracking elevation timestamps in `session_timestamps.json`
+  - `sessionTimestampRetention` (24h) is **local retention for the remaining-time display only** — not a session lifetime, not a session limit, not an access-control boundary. Dropping a timestamp only costs grant the ability to show how long a session has left. `SessionTimestamps` filters on it; `CleanupSessions` does **not** read it at all — that filters purely on `activeIDs` membership
 - `buildCachedLister()` in `cmd/root.go` — shared factory used by all commands (root, env, status, revoke, favorites add)
 - Commands without `--refresh` (status, revoke, favorites add) always pass `refresh: false` — they use eligibility for display only
 - Cache failures (read/write) silently fall through to the live API

@@ -89,7 +89,10 @@ func NewListCommand() *cobra.Command {
 		}
 
 		refresh, _ := cmd.Flags().GetBool("refresh")
-		cachedLister := buildCachedLister(cfg, refresh, svc, svc)
+		cachedLister, err := buildCachedLister(cfg, refresh, svc, svc)
+		if err != nil {
+			return err
+		}
 
 		return runList(cmd, ispAuth, cachedLister, cachedLister)
 	})
