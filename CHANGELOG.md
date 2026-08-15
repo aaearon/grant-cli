@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
-- An invalid `cache_ttl` in `~/.grant/config.yaml` is now rejected at startup; `0s` (previously never-read-still-write) and unparseable values like `garbage` (previously a silent 4h default) fail instead
+- An invalid `cache_ttl` (unparseable, zero or negative) now fails the command instead of silently defaulting
 
 ### Fixed
 
