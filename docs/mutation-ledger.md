@@ -54,7 +54,7 @@ premise does not hold).
 | REQ-20 | cmd/login | `cmd/login.go:52` | `if profile == nil {` → `if false {` (auto-configure branch). Feature *is* implemented; `login_test.go` skips it with the factually wrong reason "Auto-configure not yet implemented" — delete the skip | CONFIRMED | test | `TestRunLogin_AutoConfiguresMissingProfile` | PR4 | todo |
 | REQ-21 | cmd/login | `cmd/login.go:74` | `auth.Authenticate(profile, nil, &authmodels.IdsecSecret{Secret: ""}, false, true)` → `..., true, false)` (swap `force`/`refreshAuth`) | CONFIRMED | test | `TestRunLogin_AuthenticateFlags` | PR4 | todo |
 | REQ-22 | cmd/request submit | `cmd/request_submit.go:251` | `if !ui.IsInteractive() {` → `if false {` inside the `roleID == ""` branch | CONFIRMED | test | `TestRunRequestSubmit_NonInteractiveRequiresRoleID` | PR4 | todo |
-| REQ-23 | cmd integration suite | `cmd/integration_test.go` (harness, not a production site) | No mutation. Claim was "integration tests are absent from CI **and** every assertion accepts a panic". First half confirmed (`.github/workflows/ci.yml` runs `make test-race` / `go test -race`, never `-tags=integration`); second half is too broad — only line 153 accepts any panic; lines 71/125/235 require specific output | OVERSTATED | test | `TestMain` isolation + exact exit-code/error-text assertions; add `-tags=integration` to both CI legs | PR1 | todo |
+| REQ-23 | cmd integration suite | `cmd/integration_test.go` (harness, not a production site) | No mutation. Claim was "integration tests are absent from CI **and** every assertion accepts a panic". First half confirmed (`.github/workflows/ci.yml` runs `make test-race` / `go test -race`, never `-tags=integration`); second half is too broad — only line 153 accepts any panic; lines 71/125/235 require specific output | OVERSTATED | test | `TestMain` isolation + exact exit-code/error-text assertions; add `-tags=integration` to both CI legs | PR1 | done |
 | OUT-01 | cmd/list flags | `cmd/list.go:73` | Delete `cmd.MarkFlagsMutuallyExclusive("groups", "provider")`. `TestListCommand_MutualExclusivity` passes today on the *unrelated* runtime error `no eligible targets or groups found` | CONFIRMED | test | `TestListCommand_MutualExclusivity` (assert Cobra's `[groups provider] were all set`) | PR5 | todo |
 | OUT-02 | cmd/favorites (interactive) | `cmd/favorites.go:245` | `fav.DirectoryID = selected.group.DirectoryID` → delete the line, in `selectFavoriteInteractive` | CONFIRMED | test | `TestFavoritesAddInteractive_PersistsDirectoryID` + `findMatchingGroup` round-trip | PR5 | todo |
 | OUT-03 | cmd/favorites (group add) | `cmd/favorites.go:375` | `fav.DirectoryID = selected.group.DirectoryID` → delete the line, in `addGroupFavorite` | CONFIRMED | test | `TestAddGroupFavorite_PersistsDirectoryID` + `findMatchingGroup` round-trip | PR5 | todo |
@@ -80,7 +80,7 @@ premise does not hold).
 | OUT-23 | cmd/status (test quality) | `cmd/status.go:185-192` (`computeRemainingTime`) | No production defect. `TestStatusCommand_RemainingTime/text_output_shows_remaining_time` asserts `remaining: 4` as a substring, which `remaining: 4h 30m` satisfies — only the JSON sibling killed a sixfold arithmetic error. Signal-poor assertion, not an uncovered defect | CONFIRMED | test | Tighten the text subtest to an exact `remaining: 45m` | PR5 | todo |
 | OUT-24 | cmd/favorites | `cmd/favorites.go:419-420` | Delete the `if len(args) > 1 { return fmt.Errorf("expected 1 favorite name, got %d", len(args)) }` arity check. Without it `favorites remove first second` silently removes `first` | CONFIRMED | test | `TestFavoritesRemove_RejectsExtraArgs` | PR5 | todo |
 | OUT-25 | cmd/list flags | `cmd/list.go:71` | Delete `cmd.Flags().Bool("refresh", ...)` registration. **Verifier correction:** `grant list --refresh` is **not** already a no-op — `list.go:91-92` reads it and passes it into `buildCachedLister`, and CLAUDE.md is correct. The real finding is missing flag-registration/wiring coverage | OVERSTATED | test | `TestListCommand_RefreshBypassesCache` | PR5 | todo |
-| OUT-26 | cmd test isolation | `cmd/favorites_test.go` → production `bootstrapImpl` (`cmd/root.go:158`) | No production mutation. A passing unit test (`TestFavoritesAddCommand/add_duplicate_favorite_name`) reaches the **real** `~/.idsec` profile and keyring; it accepts any error, so keyring access or an SDK auth attempt counts as success. The exact `Identity Security Platform Secret` prompt was **not** reproduced, even under a PTY; `ui.IsTerminalFunc` does not guard this because it runs after `bootstrapSCAService()` | OVERSTATED | prod-fix | `TestMain` env redirect + `AssertSandboxed`; `favorites add` early non-interactive guard with a favorites-specific message | PR1 | todo |
+| OUT-26 | cmd test isolation | `cmd/favorites_test.go` → production `bootstrapImpl` (`cmd/root.go:158`) | No production mutation. A passing unit test (`TestFavoritesAddCommand/add_duplicate_favorite_name`) reaches the **real** `~/.idsec` profile and keyring; it accepts any error, so keyring access or an SDK auth attempt counts as success. The exact `Identity Security Platform Secret` prompt was **not** reproduced, even under a PTY; `ui.IsTerminalFunc` does not guard this because it runs after `bootstrapSCAService()` | OVERSTATED | prod-fix | `TestMain` env redirect + `AssertSandboxed`; `favorites add` early non-interactive guard with a favorites-specific message | PR1 | done |
 | OUT-27 | cmd/favorites | `cmd/favorites.go:235-237` | `if provider != "" { fav.Provider = provider }` → ignore the interactive `--provider`. **Mutant dies**: `TestFavoritesAddInteractiveMode/eligibility_fetch_fails` fails with `output missing "failed to fetch eligible targets"`. A genuine assertion kill — not a compile error, panic, or environment failure | REFUTED | refuted | n/a — already killed | — | todo |
 | OUT-28 | cmd/status docs | n/a | Claim: `computeRemainingTimeAt` is referenced but missing, and CLAUDE.md is stale. **False on both counts.** `rg computeRemainingTimeAt .` → no hits; the clock seam was deliberately removed in `2f34795`; current CLAUDE.md never claims it exists | REFUTED | refuted | n/a — no such symbol | — | todo |
 | OUT-29 | cmd test mocks | `cmd/test_mocks.go:26,41,54,198` | Claim: argument-ignoring mocks are the *general* root cause. Every mock already supports argument-aware callbacks (`loadFunc`, `listFunc`), and OUT-27 is killed by an argument-sensitive error-path test. The default return path is arg-blind, which explains individual weak fixtures — but not as a blanket root cause | REFUTED | refuted | n/a — superseded by PR4's capture convention | — | todo |
@@ -277,3 +277,42 @@ invented and nothing was dropped to hit a number.
 
 There are no `NEEDS-REVIEW` rows: every row's source report is unambiguous about
 the mutation applied and the observed result.
+
+---
+
+## PR1 closure evidence
+
+Both PR1 rows are `done`. Neither has a production mutation of its own (both are
+harness rows), so each is closed against the mutation that its new assertion is
+supposed to kill.
+
+**REQ-23** — mutation: `cmd/version.go:31`, `v = "dev"` → `v = "bogus"`.
+
+| assertion | result |
+|---|---|
+| old, `contains("dev") \|\| contains("unknown")` | `ok` — **survived**; `commit: unknown` satisfies the second arm regardless of the version string |
+| new, `contains("grant version dev")` | `FAIL: expected a dev build banner, got: grant version bogus` |
+
+Reverted; `go test -tags=integration ./cmd -count=1 -run TestIntegration_Version` → `ok`.
+The other half of the row (integration tests absent from CI) is closed by the
+`Integration tests` step running `go test -tags=integration ./cmd` on both CI legs.
+
+**OUT-26** — mutation: `cmd/main_test.go` `TestMain`, unwrap `testenv.Run` so it
+calls `installBootstrapStub(); os.Exit(m.Run())` directly.
+
+```
+--- FAIL: TestSandboxIsolation (0.00s)
+    main_test.go:40: testenv.AssertSandboxed called outside testenv.Run; no sandbox is active
+--- FAIL: TestCacheDirResolvesInsideSandbox (0.00s)
+    main_test.go:56: no testenv sandbox is active; TestMain is not wrapping m.Run
+```
+
+Reverted; both tests `ok`. The row's second half (the `favorites add`
+non-interactive guard) was mutation-verified when it landed.
+
+**Redirect-list drop-one.** Every entry of `testenv.redirectedVars` was deleted
+in turn and `go test ./cmd ./internal/config ./internal/cache ./internal/testenv
+-count=1` run. Before the explicit-literal and hostile-value tests, four of five
+survived (`USERPROFILE`, `XDG_CONFIG_HOME`, `IDSEC_PROFILES_FOLDER`,
+`GRANT_CONFIG` — with `HOME` redirected their fallbacks already land in-sandbox).
+After, all eight fail.
