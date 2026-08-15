@@ -99,7 +99,9 @@ func LoadDefaultWithPath() (*Config, string, error) {
 	}
 	cfg, err := Load(cfgPath)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to load config: %w", err)
+		// Name the file: with GRANT_CONFIG set, the value alone leaves the
+		// user guessing which config to edit.
+		return nil, "", fmt.Errorf("failed to load config %s: %w", cfgPath, err)
 	}
 	return cfg, cfgPath, nil
 }

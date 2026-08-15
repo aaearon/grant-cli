@@ -635,8 +635,42 @@ func TestLoad_InvalidYAMLErrors(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	if _, err := Load(path); err == nil {
+	_, err := Load(path)
+	if err == nil {
 		t.Fatal("Load() = nil error for malformed YAML, want an error")
+	}
+	// Assert the parse error specifically. "did it error" would also be
+	// satisfied by an unrelated failure — a read error, or the cache_ttl
+	// validation that now also runs inside Load.
+	if !strings.Contains(err.Error(), "yaml:") {
+		t.Errorf("error = %q, want the YAML parse error", err)
+	}
+	if !strings.Contains(err.Error(), "did not find expected ',' or ']'") {
+		t.Errorf("error = %q, want it to describe the unterminated sequence", err)
+	}
+}
+
+// TestLoadDefaultWithPath_ErrorNamesTheFile pins that a load failure names the
+// config file. With GRANT_CONFIG pointed somewhere non-default, naming only
+// the offending value leaves the user with no idea which file to edit.
+//
+// Not parallel: sets GRANT_CONFIG for the process.
+func TestLoadDefaultWithPath_ErrorNamesTheFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "custom-grant.yaml")
+	if err := os.WriteFile(path, []byte("cache_ttl: garbage\n"), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	t.Setenv("GRANT_CONFIG", path)
+
+	_, _, err := LoadDefaultWithPath()
+	if err == nil {
+		t.Fatal("LoadDefaultWithPath() = nil error, want the invalid cache_ttl reported")
+	}
+	if !strings.Contains(err.Error(), path) {
+		t.Errorf("error = %q, want it to name the config path %q", err, path)
+	}
+	if !strings.Contains(err.Error(), `invalid cache_ttl "garbage"`) {
+		t.Errorf("error = %q, want it to name the offending value", err)
 	}
 }
 
@@ -707,9 +741,11 @@ func TestSave_FileAndDirModes(t *testing.T) {
 
 // TestSave_MkdirAllFailure pins that a directory-creation failure propagates.
 // The failure is forced portably: a path component that is an existing regular
-// file makes MkdirAll fail with ENOTDIR on POSIX and ERROR_DIRECTORY on
-// Windows. A hardcoded /dev/null/... path would not work — on Windows that is
-// an ordinary writable location.
+// file makes MkdirAll fail with ENOTDIR on both platforms. No Windows error
+// code is involved — os.MkdirAll (os/path.go) stats the parent itself and
+// synthesizes &PathError{Op: "mkdir", Err: syscall.ENOTDIR} in platform-
+// independent Go. A hardcoded /dev/null/... path would not work — on Windows
+// that is an ordinary writable location.
 func TestSave_MkdirAllFailure(t *testing.T) {
 	t.Parallel()
 	base := t.TempDir()
