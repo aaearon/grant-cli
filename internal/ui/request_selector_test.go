@@ -78,6 +78,23 @@ func TestSelectRequest_NonInteractive(t *testing.T) {
 	}
 }
 
+// TestSelectRequest_NonInteractiveEmptyList pins the order of the two guards: the
+// non-interactive check must win when both conditions hold at once.
+// Not parallel: mutates the package-global IsTerminalFunc.
+func TestSelectRequest_NonInteractiveEmptyList(t *testing.T) {
+	orig := IsTerminalFunc
+	defer func() { IsTerminalFunc = orig }()
+	IsTerminalFunc = func(fd uintptr) bool { return false }
+
+	_, err := SelectRequest(nil)
+	if err == nil {
+		t.Fatal("expected error for non-TTY with an empty list")
+	}
+	if !errors.Is(err, ErrNotInteractive) {
+		t.Errorf("expected ErrNotInteractive to win over the empty-list guard, got: %v", err)
+	}
+}
+
 func TestBuildRequestOptions_SortedCorrectlyWithOffsets(t *testing.T) {
 	// "2026-04-20T10:00:00+02:00" == 08:00 UTC — earlier than 09:30Z
 	// String sort would put +02:00 after Z; time sort must put 09:30Z first.
@@ -125,8 +142,9 @@ func TestFormatRequestOption_RFC3339Nano(t *testing.T) {
 				CreatedAt:    tt.createdAt,
 			}
 			got := FormatRequestOption(r)
-			if !strings.Contains(got, tt.want) {
-				t.Errorf("FormatRequestOption() = %q, want it to contain %q", got, tt.want)
+			want := "PENDING  - / -  (by user@test, " + tt.want + ")  [req-nano]"
+			if got != want {
+				t.Errorf("FormatRequestOption() = %q, want %q", got, want)
 			}
 		})
 	}

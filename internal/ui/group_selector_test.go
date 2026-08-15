@@ -2,6 +2,7 @@ package ui
 
 import (
 	"errors"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -200,14 +201,12 @@ func TestFindGroupByDisplay(t *testing.T) {
 	}
 }
 
-// TestSortGroupsForDisplay_CollisionOrdering pins a previously fixed bug: SelectGroup
-// used to render options built from a sorted copy while resolving the user's answer
-// against the caller's unsorted slice. Two groups can render to the same display
-// string, so the two slices disagree about which group that string denotes and the
-// user could be elevated into a group they did not pick. survey.Select cannot be
-// driven from a test, so the ordering is asserted on the extracted helper: the slice
-// FindGroupByDisplay searches must be the same ordered slice whose options were shown.
-func TestSortGroupsForDisplay_CollisionOrdering(t *testing.T) {
+// TestSortGroupsForDisplay_Ordering pins exactly two properties of the helper, and no
+// more: the options rendered from its result are in display order, and the caller's
+// slice is not reordered underneath it. It says nothing about which group a selection
+// denotes — that is resolveGroupSelection's job and is pinned by
+// TestResolveGroupSelection_DuplicateDisplayStrings below.
+func TestSortGroupsForDisplay_Ordering(t *testing.T) {
 	t.Parallel()
 	// Deliberately unsorted input containing a display collision: the two
 	// "Engineering" groups have no DirectoryName, so both render identically.
@@ -217,6 +216,7 @@ func TestSortGroupsForDisplay_CollisionOrdering(t *testing.T) {
 		{DirectoryID: "dir-2", GroupID: "grp-eng-2", GroupName: "Engineering"},
 		{DirectoryID: "dir-a", GroupID: "grp-alpha", GroupName: "Alpha Team"},
 	}
+	before := append([]models.GroupsEligibleTarget(nil), groups...)
 
 	sorted := sortGroupsForDisplay(groups)
 
@@ -232,21 +232,65 @@ func TestSortGroupsForDisplay_CollisionOrdering(t *testing.T) {
 		t.Errorf("rendered options are not in display order: %q", options)
 	}
 
-	// Every option the user could pick must resolve, inside this same slice, to a
-	// group that renders back to exactly that option.
-	for i, opt := range options {
-		got, err := FindGroupByDisplay(sorted, opt)
-		if err != nil {
-			t.Fatalf("option %d (%q) not found in the slice it was rendered from: %v", i, opt, err)
-		}
-		if back := FormatGroupOption(*got); back != opt {
-			t.Errorf("option %d (%q) resolved to a group rendering as %q", i, opt, back)
-		}
+	// The caller's slice must not be reordered underneath it — full snapshot, not
+	// just the endpoints, so an in-place sort cannot hide in the middle.
+	if !reflect.DeepEqual(groups, before) {
+		t.Errorf("sortGroupsForDisplay() mutated the caller's slice:\n got %+v\nwant %+v", groups, before)
+	}
+}
+
+// TestResolveGroupSelection_DuplicateDisplayStrings pins the wrong-group fix. Two
+// groups with the same name in different directories render to the same display
+// string, so recovering the answer by text returns the first match regardless of
+// which row the user highlighted — highlight the second, elevate into the first.
+// survey.Select cannot be driven from a test, so the index path is asserted on the
+// extracted resolver, mirroring SelectRole/SelectRequest.
+func TestResolveGroupSelection_DuplicateDisplayStrings(t *testing.T) {
+	t.Parallel()
+	groups := []models.GroupsEligibleTarget{
+		{DirectoryID: "dir-1", GroupID: "grp-eng-1", GroupName: "Engineering"},
+		{DirectoryID: "dir-2", GroupID: "grp-eng-2", GroupName: "Engineering"},
+	}
+	sorted := sortGroupsForDisplay(groups)
+	if len(sorted) != 2 {
+		t.Fatalf("sortGroupsForDisplay() length = %d, want 2", len(sorted))
+	}
+	if FormatGroupOption(sorted[0]) != FormatGroupOption(sorted[1]) {
+		t.Fatalf("fixture no longer collides: %q vs %q", FormatGroupOption(sorted[0]), FormatGroupOption(sorted[1]))
+	}
+	if sorted[0].GroupID == sorted[1].GroupID {
+		t.Fatalf("fixture groups are indistinguishable: %+v", sorted)
 	}
 
-	// The caller's slice must not be reordered underneath it.
-	if groups[0].GroupID != "grp-zebra" || groups[3].GroupID != "grp-alpha" {
-		t.Errorf("sortGroupsForDisplay() mutated the caller's slice: %+v", groups)
+	// The sort is stable and the two entries compare equal, so the rendered order is
+	// the input order: row 0 is grp-eng-1, row 1 is grp-eng-2.
+	tests := []struct {
+		idx         int
+		wantGroupID string
+		wantDirID   string
+	}{
+		{idx: 0, wantGroupID: "grp-eng-1", wantDirID: "dir-1"},
+		{idx: 1, wantGroupID: "grp-eng-2", wantDirID: "dir-2"},
+	}
+	for _, tt := range tests {
+		got, err := resolveGroupSelection(sorted, tt.idx)
+		if err != nil {
+			t.Fatalf("resolveGroupSelection(_, %d) error = %v", tt.idx, err)
+		}
+		if got.GroupID != tt.wantGroupID || got.DirectoryID != tt.wantDirID {
+			t.Errorf("selecting row %d returned GroupID=%q DirectoryID=%q, want %q/%q",
+				tt.idx, got.GroupID, got.DirectoryID, tt.wantGroupID, tt.wantDirID)
+		}
+	}
+}
+
+func TestResolveGroupSelection_OutOfRange(t *testing.T) {
+	t.Parallel()
+	groups := []models.GroupsEligibleTarget{{DirectoryID: "dir-1", GroupID: "grp1", GroupName: "Engineering"}}
+	for _, idx := range []int{-1, 1} {
+		if _, err := resolveGroupSelection(groups, idx); err == nil {
+			t.Errorf("resolveGroupSelection(_, %d) = nil error, want out-of-range error", idx)
+		}
 	}
 }
 
@@ -284,5 +328,26 @@ func TestSelectGroup_NonTTY(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "--group") {
 		t.Errorf("error should mention --group, got: %v", err)
+	}
+}
+
+// TestSelectGroup_NonTTYEmptyList pins the order of the two guards. _NonTTY passes a
+// non-empty list and _EmptyList forces a TTY, so their inputs never intersect and
+// swapping the guards survives both. This case satisfies both conditions at once and
+// demands the non-interactive error.
+// Not parallel: mutates the package-global IsTerminalFunc.
+// The package restores globals with defer rather than t.Cleanup — deliberate, it is
+// the convention every other test in internal/ui already follows.
+func TestSelectGroup_NonTTYEmptyList(t *testing.T) {
+	original := IsTerminalFunc
+	defer func() { IsTerminalFunc = original }()
+	IsTerminalFunc = func(fd uintptr) bool { return false }
+
+	_, err := SelectGroup(nil)
+	if err == nil {
+		t.Fatal("expected error for non-TTY with an empty list")
+	}
+	if !errors.Is(err, ErrNotInteractive) {
+		t.Errorf("expected ErrNotInteractive to win over the empty-list guard, got: %v", err)
 	}
 }

@@ -237,6 +237,24 @@ func TestSelectTarget_NonTTY(t *testing.T) {
 	}
 }
 
+// TestSelectTarget_NonTTYEmptyList pins the order of the two guards. _NonTTY passes a
+// non-empty list and _EmptyList forces a TTY, so their inputs never intersect and
+// swapping the guards survives both. This case satisfies both conditions at once.
+// Not parallel: mutates the package-global IsTerminalFunc.
+func TestSelectTarget_NonTTYEmptyList(t *testing.T) {
+	original := IsTerminalFunc
+	defer func() { IsTerminalFunc = original }()
+	IsTerminalFunc = func(fd uintptr) bool { return false }
+
+	_, err := SelectTarget(nil)
+	if err == nil {
+		t.Fatal("expected error for non-TTY with an empty list")
+	}
+	if !errors.Is(err, ErrNotInteractive) {
+		t.Errorf("expected ErrNotInteractive to win over the empty-list guard, got: %v", err)
+	}
+}
+
 func TestFindTargetByDisplay(t *testing.T) {
 	t.Parallel()
 	targets := []models.EligibleTarget{

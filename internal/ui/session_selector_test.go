@@ -272,6 +272,24 @@ func TestSelectSessions_NonTTY(t *testing.T) {
 	}
 }
 
+// TestSelectSessions_NonTTYEmptyList pins the order of the two guards. _NonTTY passes
+// a non-empty list and _EmptyList forces a TTY, so their inputs never intersect and
+// swapping the guards survives both. This case satisfies both conditions at once.
+// Not parallel: mutates the package-global IsTerminalFunc.
+func TestSelectSessions_NonTTYEmptyList(t *testing.T) {
+	original := IsTerminalFunc
+	defer func() { IsTerminalFunc = original }()
+	IsTerminalFunc = func(fd uintptr) bool { return false }
+
+	_, err := SelectSessions(nil, nil)
+	if err == nil {
+		t.Fatal("expected error for non-TTY with an empty list")
+	}
+	if !errors.Is(err, ErrNotInteractive) {
+		t.Errorf("expected ErrNotInteractive to win over the empty-list guard, got: %v", err)
+	}
+}
+
 // Not parallel: mutates the package-global IsTerminalFunc.
 func TestConfirmRevocation_NonTTY(t *testing.T) {
 	original := IsTerminalFunc
