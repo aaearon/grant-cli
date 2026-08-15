@@ -268,6 +268,96 @@ func TestListCommand_MutualExclusivity(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for --groups + --provider")
 	}
+	// Assert Cobra's own mutual-exclusion text. Merely requiring "an error"
+	// passed even with MarkFlagsMutuallyExclusive deleted, because the command
+	// then ran and failed with "no eligible targets or groups found" instead.
+	if !strings.Contains(err.Error(), "[groups provider] were all set") {
+		t.Errorf("expected Cobra's mutual-exclusion error, got: %v", err)
+	}
+}
+
+// TestListCommand_ProviderSuppressesGroups pins that --provider restricts the
+// output to cloud targets: groups are Azure-only and a provider filter has no
+// meaning for them, so they are not fetched at all.
+func TestListCommand_ProviderSuppressesGroups(t *testing.T) {
+	auth := &mockAuthLoader{token: &authmodels.IdsecToken{Token: "jwt"}}
+	eligLister := &mockEligibilityLister{response: &models.EligibilityResponse{
+		Response: []models.EligibleTarget{{
+			WorkspaceID: "ws-id", WorkspaceName: "ws-name",
+			WorkspaceType: models.WorkspaceTypeSubscription,
+			RoleInfo:      models.RoleInfo{ID: "role-id", Name: "role-name"},
+		}},
+		Total: 1,
+	}}
+	groupsCalled := false
+	groupsElig := &mockGroupsEligibilityLister{
+		listFunc: func(_ context.Context, _ models.CSP) (*models.GroupsEligibilityResponse, error) {
+			groupsCalled = true
+			return &models.GroupsEligibilityResponse{
+				Response: []models.GroupsEligibleTarget{{GroupID: "grp-id", GroupName: "grp-name", DirectoryID: "dir-id"}},
+				Total:    1,
+			}, nil
+		},
+	}
+
+	cmd := NewListCommandWithDeps(auth, eligLister, groupsElig)
+	root := newTestRootCommand()
+	root.AddCommand(cmd)
+
+	stdout, stderr, err := executeCommandStreams(root, "list", "--provider", "azure", "--output", "json")
+	if err != nil {
+		t.Fatalf("unexpected error: %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
+	}
+
+	var parsed listOutput
+	if err := json.Unmarshal([]byte(stdout), &parsed); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, stdout)
+	}
+	if len(parsed.Groups) != 0 {
+		t.Errorf("expected no groups with --provider, got %d", len(parsed.Groups))
+	}
+	if groupsCalled {
+		t.Error("groups eligibility must not be fetched when --provider is set")
+	}
+}
+
+// TestListCommand_RefreshFlagRegistered pins the --refresh flag on `grant list`.
+// The flag is not a no-op: NewListCommand reads it and passes it into
+// buildCachedLister. That wiring runs behind bootstrapSCAService, which unit
+// tests cannot reach, so this covers registration and parsing only.
+func TestListCommand_RefreshFlagRegistered(t *testing.T) {
+	auth := &mockAuthLoader{token: &authmodels.IdsecToken{Token: "jwt"}}
+	eligLister := &mockEligibilityLister{response: &models.EligibilityResponse{
+		Response: []models.EligibleTarget{{
+			WorkspaceID: "ws-id", WorkspaceName: "ws-name",
+			WorkspaceType: models.WorkspaceTypeSubscription,
+			RoleInfo:      models.RoleInfo{ID: "role-id", Name: "role-name"},
+		}},
+		Total: 1,
+	}}
+	groupsElig := &mockGroupsEligibilityLister{listErr: errors.New("skip groups")}
+
+	cmd := NewListCommandWithDeps(auth, eligLister, groupsElig)
+	root := newTestRootCommand()
+	root.AddCommand(cmd)
+
+	if _, err := executeCommand(root, "list", "--refresh"); err != nil {
+		t.Fatalf("grant list --refresh must be accepted: %v", err)
+	}
+
+	refresh, err := cmd.Flags().GetBool("refresh")
+	if err != nil {
+		t.Fatalf("--refresh is not registered: %v", err)
+	}
+	if !refresh {
+		t.Error("--refresh parsed as false")
+	}
+
+	// And it defaults to off on a fresh command.
+	fresh := NewListCommandWithDeps(auth, eligLister, groupsElig)
+	if def, err := fresh.Flags().GetBool("refresh"); err != nil || def {
+		t.Errorf("--refresh default = %v (err %v), want false", def, err)
+	}
 }
 
 // TestListCommand_JSONOutputSingleProvider guards the regression where

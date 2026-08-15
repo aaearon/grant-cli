@@ -1007,9 +1007,13 @@ func TestStatusCommand_RemainingTime(t *testing.T) {
 		},
 	}
 
-	// Create a tracker with a recorded session timestamp
+	// Create a tracker with a recorded session timestamp.
+	// 14m30s ago of a 1h session leaves 45m30s, which formats as "remaining:
+	// 45m" and stays there for the ~30s of slack before the truncated minute
+	// rolls over — so the text assertion below can be exact rather than a
+	// prefix. "remaining: 4" was satisfied by "44m", "45m" and "4h 30m" alike.
 	tracker := cache.NewStore(t.TempDir(), 25*time.Hour)
-	elevatedAt := now.Add(-15 * time.Minute) // elevated 15 minutes ago
+	elevatedAt := now.Add(-14*time.Minute - 30*time.Second)
 	if err := cache.RecordSession(tracker, "tracked-session", elevatedAt); err != nil {
 		t.Fatalf("RecordSession() error = %v", err)
 	}
@@ -1024,8 +1028,8 @@ func TestStatusCommand_RemainingTime(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if !strings.Contains(output, "remaining: 4") {
-			t.Errorf("output should show remaining time, got:\n%s", output)
+		if !strings.Contains(output, "remaining: 45m") {
+			t.Errorf("output should show 'remaining: 45m', got:\n%s", output)
 		}
 		// Untracked session should show duration
 		if !strings.Contains(output, "duration: 30m") {
