@@ -127,6 +127,14 @@ func isolatedEnv(t *testing.T) []string {
 		"USERPROFILE=" + dir,
 		"GRANT_CONFIG=" + filepath.Join(dir, "config.yaml"),
 		"IDSEC_PROFILES_FOLDER=" + filepath.Join(dir, "profiles"),
+		// The SDK reads these two absolute-path overrides directly, bypassing
+		// the HOME fallback, and forces its file keyring on any non-empty
+		// IDSEC_BASIC_KEYRING. Without them a pre-existing value in the
+		// developer's or CI environment sends the subprocess's keyring and log
+		// writes outside the sandbox.
+		"IDSEC_KEYRING_FOLDER=" + filepath.Join(dir, "keyring"),
+		"IDSEC_FILE_LOG_PATH=" + filepath.Join(dir, "logs", "idsec.log"),
+		"IDSEC_BASIC_KEYRING=1",
 	}
 }
 
@@ -191,8 +199,11 @@ func TestIntegration_Version(t *testing.T) {
 		}
 	}
 	// The integration binary is built without -ldflags, so the version stays
-	// at its compiled-in default.
-	if !got.contains("dev") && !got.contains("unknown") {
+	// at its compiled-in default. Assert the version line specifically: the
+	// binary always prints "commit: unknown" for a non-ldflags build, so an
+	// `|| contains("unknown")` arm would make this assertion true regardless
+	// of the version string.
+	if !got.contains("grant version dev") {
 		t.Errorf("expected a dev build banner, got:\n%s", got.output)
 	}
 }
