@@ -289,3 +289,39 @@ func TestConfirmRevocation_NonTTY(t *testing.T) {
 		t.Errorf("error should mention --yes, got: %v", err)
 	}
 }
+
+// TestFormatSessionOption_ExactlyZeroRemaining exercises the `remaining <= 0`
+// boundary itself. The table above only supplies a negative duration, so a
+// `<= 0` → `< 0` regression would leave a just-expired session rendering as
+// "remaining: 0m" instead of "expired".
+func TestFormatSessionOption_ExactlyZeroRemaining(t *testing.T) {
+	t.Parallel()
+	session := models.SessionInfo{
+		SessionID:       "session-rem-zero",
+		CSP:             models.CSPAzure,
+		WorkspaceID:     "/subscriptions/sub-1",
+		RoleID:          "Reader",
+		SessionDuration: 3600,
+	}
+	remainingMap := map[string]time.Duration{"session-rem-zero": 0}
+
+	want := "Reader on /subscriptions/sub-1 - expired (session: session-rem-zero)"
+	if got := FormatSessionOption(session, nil, nil, remainingMap); got != want {
+		t.Errorf("FormatSessionOption() = %q, want %q", got, want)
+	}
+}
+
+// Not parallel: mutates the package-global IsTerminalFunc.
+func TestSelectSessions_EmptyList(t *testing.T) {
+	original := IsTerminalFunc
+	defer func() { IsTerminalFunc = original }()
+	IsTerminalFunc = func(fd uintptr) bool { return true }
+
+	_, err := SelectSessions(nil, nil)
+	if err == nil {
+		t.Fatal("expected error for empty list")
+	}
+	if !strings.Contains(err.Error(), "no sessions available") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}

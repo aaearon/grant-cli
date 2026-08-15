@@ -43,6 +43,19 @@ func FindGroupByDisplay(groups []models.GroupsEligibleTarget, display string) (*
 	return nil, fmt.Errorf("group not found: %s", display)
 }
 
+// sortGroupsForDisplay returns a copy of groups ordered by display string, leaving
+// the caller's slice untouched. SelectGroup renders its options from this copy and
+// resolves the user's answer against the same copy, so a display collision cannot
+// make the rendered list and the lookup disagree about which group a string denotes.
+func sortGroupsForDisplay(groups []models.GroupsEligibleTarget) []models.GroupsEligibleTarget {
+	sorted := make([]models.GroupsEligibleTarget, len(groups))
+	copy(sorted, groups)
+	sort.Slice(sorted, func(i, j int) bool {
+		return FormatGroupOption(sorted[i]) < FormatGroupOption(sorted[j])
+	})
+	return sorted
+}
+
 // SelectGroup presents an interactive selector for choosing a group.
 // It sorts a copy of the groups so that FindGroupByDisplay searches the same
 // ordered slice the user saw, avoiding wrong-group selection on display collisions.
@@ -55,11 +68,7 @@ func SelectGroup(groups []models.GroupsEligibleTarget) (*models.GroupsEligibleTa
 		return nil, errors.New("no eligible groups available")
 	}
 
-	sorted := make([]models.GroupsEligibleTarget, len(groups))
-	copy(sorted, groups)
-	sort.Slice(sorted, func(i, j int) bool {
-		return FormatGroupOption(sorted[i]) < FormatGroupOption(sorted[j])
-	})
+	sorted := sortGroupsForDisplay(groups)
 
 	options := make([]string, len(sorted))
 	for i := range sorted {

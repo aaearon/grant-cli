@@ -78,6 +78,27 @@ func TestSelectRole_NonInteractive(t *testing.T) {
 	}
 }
 
+// TestBuildRoleOptions_MixedCaseSort pins the strings.ToLower normalisation in the
+// role sort. A case-sensitive comparison puts every capitalised name ahead of every
+// lower-case one ("Zone" < "admin" in ASCII), scattering the list the user scans.
+// The custom-first fixture above is uniformly capitalised and cannot see that.
+func TestBuildRoleOptions_MixedCaseSort(t *testing.T) {
+	roles := []models.OnDemandResource{
+		{ResourceName: "cost-reader"},
+		{ResourceName: "Backup Operator"},
+		{ResourceName: "admin-lite"},
+		{ResourceName: "Zone Editor"},
+	}
+	_, sorted := BuildRoleOptions(roles)
+
+	want := []string{"admin-lite", "Backup Operator", "cost-reader", "Zone Editor"}
+	for i, name := range want {
+		if sorted[i].ResourceName != name {
+			t.Errorf("position %d: got %q, want %q", i, sorted[i].ResourceName, name)
+		}
+	}
+}
+
 func TestSelectRole_EmptyList(t *testing.T) {
 	orig := IsTerminalFunc
 	defer func() { IsTerminalFunc = orig }()

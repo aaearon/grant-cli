@@ -317,3 +317,18 @@ func TestFindTargetByDisplay(t *testing.T) {
 		})
 	}
 }
+
+// Not parallel: mutates the package-global IsTerminalFunc.
+func TestSelectTarget_EmptyList(t *testing.T) {
+	original := IsTerminalFunc
+	defer func() { IsTerminalFunc = original }()
+	IsTerminalFunc = func(fd uintptr) bool { return true }
+
+	_, err := SelectTarget(nil)
+	if err == nil {
+		t.Fatal("expected error for empty list")
+	}
+	if !strings.Contains(err.Error(), "no eligible targets available") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}

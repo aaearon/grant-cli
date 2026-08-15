@@ -94,6 +94,44 @@ func TestBuildRequestOptions_SortedCorrectlyWithOffsets(t *testing.T) {
 	}
 }
 
+// TestFormatRequestOption_RFC3339Nano pins the RFC3339Nano parse branch of
+// formatSelectorTimestamp. The textual fallback below it truncates at the '.'
+// and therefore drops the timezone offset, so the two paths genuinely differ
+// for any timestamp carrying fractional seconds — which the API does emit.
+func TestFormatRequestOption_RFC3339Nano(t *testing.T) {
+	tests := []struct {
+		name      string
+		createdAt string
+		want      string
+	}{
+		{
+			name:      "fractional seconds with offset keeps the offset",
+			createdAt: "2026-04-20T10:00:00.123456789+02:00",
+			want:      "2026-04-20T10:00:00+02:00",
+		},
+		{
+			name:      "fractional seconds in UTC",
+			createdAt: "2026-04-20T10:00:00.5Z",
+			want:      "2026-04-20T10:00:00Z",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := wfmodels.AccessRequest{
+				RequestID:    "req-nano",
+				RequestState: wfmodels.RequestStatePending,
+				CreatedBy:    "user@test",
+				CreatedAt:    tt.createdAt,
+			}
+			got := FormatRequestOption(r)
+			if !strings.Contains(got, tt.want) {
+				t.Errorf("FormatRequestOption() = %q, want it to contain %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestSelectRequest_EmptyList(t *testing.T) {
 	orig := IsTerminalFunc
 	defer func() { IsTerminalFunc = orig }()
