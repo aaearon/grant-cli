@@ -3,8 +3,10 @@ name: CI
 on:
   push:
     branches: [main]
+  # No branch filter: a pull_request trigger scoped to [main] silently skips CI
+  # on stacked PRs (feature branch -> feature branch), which is exactly when a
+  # green signal matters most. Run on every PR regardless of its base.
   pull_request:
-    branches: [main]
 
 permissions:
   contents: read
