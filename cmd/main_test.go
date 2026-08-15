@@ -13,16 +13,7 @@ import (
 
 	"github.com/aaearon/grant-cli/internal/cache"
 	"github.com/aaearon/grant-cli/internal/testenv"
-	sdkauth "github.com/cyberark/idsec-sdk-golang/pkg/auth"
-	sdkmodels "github.com/cyberark/idsec-sdk-golang/pkg/models"
 )
-
-// errTestBootstrapDisabled is returned by the stubbed bootstrapImpl. It is a
-// named sentinel rather than an anonymous error so tests can assert on it with
-// errors.Is: a bare `wantErr: true` would otherwise be satisfied by an
-// accidental bootstrap attempt, hiding the fact that a unit test reached for
-// real credentials.
-var errTestBootstrapDisabled = errors.New("bootstrapImpl is disabled in unit tests; inject via New...WithDeps instead")
 
 // TestMain does two things, in this order:
 //
@@ -38,10 +29,7 @@ var errTestBootstrapDisabled = errors.New("bootstrapImpl is disabled in unit tes
 // live is what proves the HOME redirect actually works.
 func TestMain(m *testing.M) {
 	os.Exit(testenv.Run(func() int {
-		bootstrapImpl = func() (sdkauth.IdsecAuth, *sdkmodels.IdsecProfile, error) {
-			return nil, nil, errTestBootstrapDisabled
-		}
-		resetBootstrapCache()
+		installBootstrapStub()
 		return m.Run()
 	}))
 }
