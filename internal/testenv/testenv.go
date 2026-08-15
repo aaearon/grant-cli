@@ -1,6 +1,21 @@
-// Package testenv redirects every environment variable grant uses to locate
-// user state at a throwaway temporary directory, so running the test suite can
-// never read or clobber the developer's real ~/.grant or ~/.idsec.
+// Package testenv redirects the environment variables grant and its SDK use to
+// locate user state at a throwaway temporary directory, so running the test
+// suite can never read or clobber the developer's real ~/.grant or ~/.idsec.
+//
+// # What it does not cover
+//
+// The redirect is a list of known variables (see redirectedVars), not a
+// containment boundary. Anything that reaches user state by another route
+// escapes it:
+//
+//   - A direct os.UserHomeDir call is covered only because HOME/USERPROFILE are
+//     redirected; a hardcoded path or a newly-added SDK variable is not covered
+//     at all, and nothing here discovers one automatically.
+//   - The OS keyring is a daemon, not a path, so no environment redirect can
+//     sandbox it. Run sets IDSEC_BASIC_KEYRING=1 to force the SDK's file
+//     backend into the sandboxed IDSEC_KEYRING_FOLDER instead. If a future SDK
+//     stops honoring that variable, keyring access leaves the sandbox again
+//     and nothing here will notice.
 //
 // It is a normal (non-test) package so that TestMain functions in several
 // packages can share it, but it is imported only from _test.go files and so
@@ -11,8 +26,10 @@
 // # What the assertions actually prove
 //
 // AssertSandboxed verifies that the *configured destinations* — the paths
-// config.ConfigDir, config.ConfigPath, cache.CacheDir and
-// profiles.GetProfilesFolder resolve to — all sit under the sandbox root. That
+// config.ConfigDir, config.ConfigPath, cache.CacheDir,
+// profiles.GetProfilesFolder, the SDK keyring folder and the SDK file-log path
+// resolve to — all sit under the sandbox root, and that IDSEC_BASIC_KEYRING is
+// set so the file keyring is the one in use. That
 // is all it proves. It does NOT prove that no code wrote outside the sandbox:
 // it cannot see a future direct os.UserHomeDir call, a hardcoded path, or a
 // dependency that writes via some other variable, and it cannot detect reads at
@@ -41,15 +58,41 @@ import (
 //     HOMEDRIVE+HOMEPATH. It never consults HOME, so
 //     redirecting HOME alone leaves the Windows CI leg
 //     pointed at the real profile directory.
-//   - XDG_CONFIG_HOME    — consulted by third-party config helpers.
+//   - XDG_CONFIG_HOME    — speculative/defensive. Nothing in grant or in the
+//     pinned SDK reads it today (`rg XDG_` finds only this
+//     comment and testenv's own tests). It is redirected
+//     because it is the conventional escape hatch a config
+//     helper would reach for, and a redirect costs nothing.
 //   - IDSEC_PROFILES_FOLDER — takes precedence over HOME in the SDK loader.
 //   - GRANT_CONFIG       — overrides config.ConfigPath.
+//   - IDSEC_KEYRING_FOLDER — overrides the SDK file-keyring folder outright
+//     (pkg/common/keyring/idsec_basic_keyring.go), bypassing
+//     its HOME fallback. A pre-existing value in the
+//     developer's or CI environment would otherwise put
+//     keyring writes outside the sandbox.
+//   - IDSEC_FILE_LOG_PATH — overrides the SDK's file-log destination
+//     (pkg/config, consumed in pkg/common/idsec_logger.go),
+//     whose parent directory the SDK MkdirAll's.
+//   - IDSEC_BASIC_KEYRING — not a path: any non-empty value forces the SDK's
+//     file keyring. Without it, a plain Linux box with
+//     DBUS_SESSION_BUS_ADDRESS set selects the real
+//     libsecret store, which no path redirect can sandbox.
 var redirectedVars = []string{
 	"HOME",
 	"USERPROFILE",
 	"XDG_CONFIG_HOME",
 	"IDSEC_PROFILES_FOLDER",
 	"GRANT_CONFIG",
+	"IDSEC_KEYRING_FOLDER",
+	"IDSEC_FILE_LOG_PATH",
+	"IDSEC_BASIC_KEYRING",
+}
+
+// nonPathVars are the entries of redirectedVars whose value is a mode switch
+// rather than a filesystem path, so "must resolve under the sandbox root" does
+// not apply to them.
+var nonPathVars = map[string]bool{
+	"IDSEC_BASIC_KEYRING": true,
 }
 
 // sandboxRoot is the active sandbox root, or "" when Run is not executing.
@@ -88,9 +131,20 @@ func Run(run func() int) int {
 		"XDG_CONFIG_HOME":       filepath.Join(home, ".config"),
 		"IDSEC_PROFILES_FOLDER": filepath.Join(home, ".idsec", "profiles"),
 		"GRANT_CONFIG":          filepath.Join(home, ".grant", "config.yaml"),
+		"IDSEC_KEYRING_FOLDER":  filepath.Join(home, ".idsec", "cache", "keyring"),
+		"IDSEC_FILE_LOG_PATH":   filepath.Join(home, ".idsec", "logs", "idsec.log"),
+		"IDSEC_BASIC_KEYRING":   "1",
 	}
 
+	// Deferred so a panic inside run — a -race detection, a stray panic in a
+	// test — still restores the environment and removes the sandbox instead of
+	// leaking the directory and leaving the process redirected.
 	restore := make(map[string]*string, len(redirectedVars))
+	defer func() {
+		restoreEnv(restore)
+		_ = os.RemoveAll(root)
+	}()
+
 	for _, k := range redirectedVars {
 		if v, ok := os.LookupEnv(k); ok {
 			prev := v
@@ -100,19 +154,17 @@ func Run(run func() int) int {
 		}
 		if err := os.Setenv(k, values[k]); err != nil {
 			fmt.Fprintf(os.Stderr, "testenv: failed to set %s: %v\n", k, err)
-			restoreEnv(restore)
-			_ = os.RemoveAll(root)
 			return 1
 		}
 	}
 
+	// Save and restore rather than clearing: a nested Run must hand the outer
+	// run's root back, not "".
+	prevRoot := sandboxRoot
 	sandboxRoot = root
-	code := run()
-	sandboxRoot = ""
+	defer func() { sandboxRoot = prevRoot }()
 
-	restoreEnv(restore)
-	_ = os.RemoveAll(root)
-	return code
+	return run()
 }
 
 // restoreEnv puts back the captured values; a nil entry means the variable was
@@ -168,6 +220,38 @@ func AssertSandboxed(t TB) {
 	}
 
 	assertUnder(t, "profiles.GetProfilesFolder()", profiles.GetProfilesFolder(), root)
+	assertUnder(t, "SDK keyring folder", keyringFolder(), root)
+	assertUnder(t, "SDK file log path", fileLogPath(), root)
+
+	if os.Getenv("IDSEC_BASIC_KEYRING") == "" {
+		t.Errorf("IDSEC_BASIC_KEYRING is empty; the SDK may select the real OS keyring, which no path redirect can sandbox")
+	}
+}
+
+// keyringFolder mirrors the SDK's keyring folder resolution
+// (pkg/common/keyring/idsec_basic_keyring.go NewIdsecBasicKeyring): the
+// IDSEC_KEYRING_FOLDER override, else DefaultBasicKeyringFolder under HOME.
+// It is reimplemented rather than called because the SDK constructor creates
+// the directory as a side effect, which an assertion must not do.
+func keyringFolder() string {
+	if folder := os.Getenv("IDSEC_KEYRING_FOLDER"); folder != "" {
+		return folder
+	}
+	return filepath.Join(os.Getenv("HOME"), ".idsec", "cache", "keyring")
+}
+
+// fileLogPath mirrors the SDK's file-log resolution (pkg/common/idsec_logger.go
+// resolveFileLogWriter): the IDSEC_FILE_LOG_PATH override, else a default under
+// os.UserHomeDir. The SDK MkdirAll's this path's parent.
+func fileLogPath() string {
+	if p := strings.TrimSpace(os.Getenv("IDSEC_FILE_LOG_PATH")); p != "" {
+		return p
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".idsec", "logs", "idsec.log")
 }
 
 // assertUnder reports a failure unless got is root itself or below it.
