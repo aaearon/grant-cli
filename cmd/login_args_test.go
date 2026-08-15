@@ -29,6 +29,11 @@ func TestRunLogin_AutoConfiguresMissingProfile(t *testing.T) {
 		t.Skip("stdin is a terminal: the configure prompt would block on real input")
 	}
 
+	// survey renders the configure prompt to os.Stdout directly, not to the
+	// cobra buffer, so without this the escape sequences (including ESC[6n,
+	// which the terminal answers on stdin) land on the developer's console.
+	withDiscardedStdout(t)
+
 	// An empty profiles folder: LoadProfile("grant") finds nothing.
 	t.Setenv("IDSEC_PROFILES_FOLDER", t.TempDir())
 

@@ -4,6 +4,7 @@ package cmd
 
 import (
 	"bytes"
+	"os"
 	"testing"
 
 	"github.com/aaearon/grant-cli/internal/ui"
@@ -21,6 +22,29 @@ func withInteractiveTTY(t *testing.T, interactive bool) {
 	orig := ui.IsTerminalFunc
 	t.Cleanup(func() { ui.IsTerminalFunc = orig })
 	ui.IsTerminalFunc = func(_ uintptr) bool { return interactive }
+}
+
+// withDiscardedStdout points os.Stdout at a throwaway file for the duration of
+// the test, restoring it via t.Cleanup.
+//
+// survey writes its prompts straight to os.Stdout rather than to the cobra
+// output buffer, so any test that reaches a prompt sprays terminal control
+// sequences over the developer's console. One of them, ESC[6n (Device Status
+// Report), makes the terminal write its reply back on stdin, which corrupts the
+// shell prompt after `go test`. Redirecting os.Stdout keeps that off the real
+// terminal without adding a production seam to the prompting code.
+func withDiscardedStdout(t *testing.T) {
+	t.Helper()
+	f, err := os.CreateTemp(t.TempDir(), "stdout-")
+	if err != nil {
+		t.Fatalf("creating stdout sink: %v", err)
+	}
+	orig := os.Stdout
+	t.Cleanup(func() {
+		os.Stdout = orig
+		_ = f.Close()
+	})
+	os.Stdout = f
 }
 
 // newTestRootCommand creates a root command for testing (no elevation RunE)
