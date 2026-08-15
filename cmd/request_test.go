@@ -626,6 +626,8 @@ func TestRunRequestSubmit_ServiceError(t *testing.T) {
 }
 
 func TestRunRequestSubmit_MissingFlags_NonInteractive(t *testing.T) {
+	withInteractiveTTY(t, false)
+
 	original := resolveSubmitTargetFn
 	defer func() { resolveSubmitTargetFn = original }()
 
@@ -1026,8 +1028,10 @@ func TestRunRequestSubmit_GCPWorkspaceWithRoleIDRejected(t *testing.T) {
 			if !strings.Contains(err.Error(), "not supported for GCP") {
 				t.Errorf("error %q does not say GCP is unsupported", err.Error())
 			}
-			if got := svc.lastSubmit(); got != nil {
-				t.Errorf("request must not be submitted, got %+v", got)
+			// len(submitCalls) rather than lastSubmit(): the latter cannot
+			// tell "never called" apart from "called with a nil request".
+			if len(svc.submitCalls) != 0 {
+				t.Errorf("request must not be submitted, got %+v", svc.submitCalls)
 			}
 		})
 	}
