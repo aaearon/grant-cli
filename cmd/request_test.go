@@ -188,6 +188,7 @@ func TestRequestCancelCommand(t *testing.T) {
 		name        string
 		svc         *mockAccessRequestService
 		args        []string
+		nonTTY      bool
 		wantContain []string
 		wantErr     bool
 	}{
@@ -220,15 +221,23 @@ func TestRequestCancelCommand(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "cancel no args",
-			svc:     &mockAccessRequestService{},
-			args:    []string{"cancel"},
-			wantErr: true,
+			// Not merely "errors": without an explicit non-TTY this case
+			// passed only because `go test` happens to run with a non-terminal
+			// stdin, and it asserted nothing about which error came back.
+			name:        "cancel no args without a terminal",
+			svc:         &mockAccessRequestService{},
+			args:        []string{"cancel"},
+			nonTTY:      true,
+			wantErr:     true,
+			wantContain: []string{"interactive selection requires a terminal"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.nonTTY {
+				withInteractiveTTY(t, false)
+			}
 			cmd := NewRequestCommandWithDeps(tt.svc)
 			root := newTestRootCommand()
 			root.AddCommand(cmd)
