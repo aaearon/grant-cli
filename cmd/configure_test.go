@@ -514,3 +514,35 @@ func TestConfigureLongHelpHasNoLegacyPath(t *testing.T) {
 		t.Errorf("configure Long help still mentions legacy path .idsec_profiles:\n%s", long)
 	}
 }
+
+// TestConfigure_RecoversFromInvalidCacheTTL pins that `grant configure` stays
+// usable when the on-disk config is unloadable. Now that config.Load rejects an
+// invalid cache_ttl, configure is the recovery path for rewriting the broken
+// file — it must never read the old config, only overwrite it.
+//
+// Not parallel: sets GRANT_CONFIG and IDSEC_PROFILES_FOLDER for the process.
+func TestConfigure_RecoversFromInvalidCacheTTL(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("profile: grant\ncache_ttl: garbage\n"), 0o600); err != nil {
+		t.Fatalf("write broken config: %v", err)
+	}
+	t.Setenv("GRANT_CONFIG", cfgPath)
+	t.Setenv("IDSEC_PROFILES_FOLDER", filepath.Join(dir, "profiles"))
+
+	cmd := NewConfigureCommand()
+	cmd.SetOut(&strings.Builder{})
+	err := runConfigure(cmd, &mockProfileSaver{}, "https://example.cyberark.cloud", "test.user@example.com")
+	if err != nil {
+		t.Fatalf("runConfigure() error = %v, want nil; configure must not read the broken config", err)
+	}
+
+	// The broken value must be gone and the rewritten file must now load.
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load() after configure = %v, want the rewritten config to be valid", err)
+	}
+	if cfg.CacheTTL != "" {
+		t.Errorf("cache_ttl = %q after configure, want it rewritten away", cfg.CacheTTL)
+	}
+}

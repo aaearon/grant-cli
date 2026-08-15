@@ -385,15 +385,19 @@ func rejectGCPWorkspace(ws *submitWorkspace) error {
 }
 
 func resolveSubmitTarget(ctx context.Context, provider, targetName string, refresh bool) (*submitWorkspace, error) {
+	// Load the config before authenticating. An unusable config — an invalid
+	// cache_ttl, say — must fail the command, not be quietly replaced by
+	// defaults, and there is no point authenticating first to find that out.
+	cfg, _, err := config.LoadDefaultWithPath()
+	if err != nil {
+		return nil, err
+	}
+
 	_, scaSvc, _, err := bootstrapSCAService()
 	if err != nil {
 		return nil, fmt.Errorf("failed to bootstrap SCA service: %w", err)
 	}
 
-	cfg, _, _ := config.LoadDefaultWithPath()
-	if cfg == nil {
-		cfg = config.DefaultConfig()
-	}
 	cachedLister, err := buildCachedLister(cfg, refresh, scaSvc, nil)
 	if err != nil {
 		return nil, err
@@ -526,10 +530,35 @@ func buildRequestDetails(ws *submitWorkspace, roleID, roleName string, f *submit
 	}
 }
 
+// buildCachedRolesLister wraps an on-demand roles lister in the file cache.
+// It mirrors buildCachedLister: an unresolvable cache directory falls back to
+// the unwrapped service, and an invalid cache_ttl is an error. config.Load
+// already rejects a bad value, so that arm is reachable only for a Config
+// assembled in memory.
+func buildCachedRolesLister(cfg *config.Config, refresh bool, inner cache.OnDemandRolesLister) (cache.OnDemandRolesLister, error) {
+	cacheDir, err := cache.CacheDir()
+	if err != nil {
+		return inner, nil
+	}
+	ttl, err := config.ParseCacheTTL(cfg)
+	if err != nil {
+		return nil, err
+	}
+	store := cache.NewStore(cacheDir, ttl)
+	return cache.NewCachedRolesLister(inner, store, refresh, common.GetLogger("grant", -1)), nil
+}
+
 // resolveSubmitRole fetches on-demand roles for the selected workspace and
 // prompts the user to choose one. Returns the role's resource_id and resource_name.
 func resolveSubmitRole(ctx context.Context, ws *submitWorkspace, refresh bool) (roleID, roleName string, _ error) {
 	req, err := buildOnDemandRequest(ws)
+	if err != nil {
+		return "", "", err
+	}
+
+	// Load the config before authenticating, for the reason given in
+	// resolveSubmitTarget.
+	cfg, _, err := config.LoadDefaultWithPath()
 	if err != nil {
 		return "", "", err
 	}
@@ -539,20 +568,9 @@ func resolveSubmitRole(ctx context.Context, ws *submitWorkspace, refresh bool) (
 		return "", "", fmt.Errorf("failed to bootstrap SCA service: %w", err)
 	}
 
-	cfg, _, _ := config.LoadDefaultWithPath()
-	if cfg == nil {
-		cfg = config.DefaultConfig()
-	}
-
-	var lister cache.OnDemandRolesLister = scaSvc
-	cacheDir, cacheErr := cache.CacheDir()
-	if cacheErr == nil {
-		ttl, ttlErr := config.ParseCacheTTL(cfg)
-		if ttlErr != nil {
-			return "", "", ttlErr
-		}
-		store := cache.NewStore(cacheDir, ttl)
-		lister = cache.NewCachedRolesLister(scaSvc, store, refresh, common.GetLogger("grant", -1))
+	lister, err := buildCachedRolesLister(cfg, refresh, scaSvc)
+	if err != nil {
+		return "", "", err
 	}
 
 	fetchCtx, cancel := context.WithTimeout(ctx, apiTimeout)
