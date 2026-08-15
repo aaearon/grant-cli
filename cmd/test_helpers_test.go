@@ -4,12 +4,45 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
+	"reflect"
 	"testing"
 
 	"github.com/aaearon/grant-cli/internal/ui"
 	"github.com/spf13/cobra"
 )
+
+// assertJSONEqual compares a machine-facing JSON document against an inline
+// literal, structurally: both sides are unmarshalled into interface{} so key
+// order and indentation are irrelevant, and compared with reflect.DeepEqual.
+//
+// It is deliberately whole-object. A field added to an output struct breaks
+// every contract test that covers it, which is the point — the machine-facing
+// documents are a compatibility surface, and adding to one should require a
+// conscious decision rather than passing silently. Use it once per output;
+// keep focused assertions for conditional and optional fields.
+func assertJSONEqual(t *testing.T, got []byte, wantJSON string) {
+	t.Helper()
+
+	var gotDoc, wantDoc interface{}
+	if err := json.Unmarshal(got, &gotDoc); err != nil {
+		t.Fatalf("got is not valid JSON: %v\nraw:\n%s", err, got)
+	}
+	if err := json.Unmarshal([]byte(wantJSON), &wantDoc); err != nil {
+		t.Fatalf("want is not valid JSON: %v\nraw:\n%s", err, wantJSON)
+	}
+
+	if reflect.DeepEqual(gotDoc, wantDoc) {
+		return
+	}
+
+	// Re-marshal both through the same encoder so the printed diff differs
+	// only where the documents actually differ (MarshalIndent sorts keys).
+	gotPretty, _ := json.MarshalIndent(gotDoc, "", "  ")
+	wantPretty, _ := json.MarshalIndent(wantDoc, "", "  ")
+	t.Errorf("JSON contract mismatch\n--- got ---\n%s\n--- want ---\n%s", gotPretty, wantPretty)
+}
 
 // withInteractiveTTY forces ui.IsInteractive() to the given answer for the
 // duration of the test, restoring the package global via t.Cleanup.
