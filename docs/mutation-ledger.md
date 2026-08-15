@@ -173,7 +173,7 @@ premise does not hold).
 | ELV-21 | cmd/env auth | `cmd/root.go:419` | `authLoader.LoadAuthentication(profile, true)` → `(profile, false)` in `resolveAndElevate` (env path) | CONFIRMED | test | `TestAuthCacheFlag/env_path` | PR4 | done |
 | ELV-22 | cmd/root auth | `cmd/root.go:620` | `authLoader.LoadAuthentication(profile, true)` → `(profile, false)` in the root elevate path | CONFIRMED | test | `TestAuthCacheFlag/root_path` | PR4 | done |
 | ELV-23 | cmd/env selector | `cmd/root.go:480` | `selector.SelectTarget(allTargets)` → `selector.SelectTarget(nil)`. `mockTargetSelector` returns its canned target without inspecting the slice | CONFIRMED | test | `TestEnv_SelectorReceivesAllTargets` | PR4 | done |
-| ELV-24 | cmd/root Execute | `cmd/root.go:291` | `if !verbose && passedArgValidation {` → `if verbose && passedArgValidation {`. `TestVerboseHintSuppressedForArgErrors` calls Cobra's `root.Execute()` and then *reconstructs* the hint logic; it never invokes the package-level `Execute()` | CONFIRMED | test | `TestExecute_VerboseHintCondition` over the extracted `shouldShowVerboseHint` | PR4 | done |
+| ELV-24 | cmd/root Execute | `cmd/root.go:291` | `if !verbose && passedArgValidation {` → `if verbose && passedArgValidation {`. `TestVerboseHintSuppressedForArgErrors` calls Cobra's `root.Execute()` and then *reconstructs* the hint logic; it never invokes the package-level `Execute()` | CONFIRMED | test | `TestExecute_VerboseHintCondition` over the extracted `shouldShowVerboseHint` (predicate) **plus** `TestIntegration_VerboseHint` (call site) | PR4 | done |
 | ELV-25 | cmd/root dispatch | `cmd/root.go:631-636` | Swap the dispatch order: test `if flags.groups` before `if flags.group != ""`. `--group` and `--groups` are **not** mutually exclusive (`root.go:136-142` pairs neither), so their precedence is unspecified and unpinned | CONFIRMED | test | `TestRootElevate_GroupAndGroupsPrecedence` | PR4 | done |
 | ELV-26 | cmd test quality | `cmd/root_elevate_test.go:248` | No production site. The `multi-CSP concurrent fetch - parallel execution` case duplicates the line-174 success setup, adds sleeps, and asserts **no** elapsed time. Real concurrency is covered by `TestFetchEligibility_ConcurrentExecution` | CONFIRMED | test | Deleted the duplicated `multi-CSP concurrent fetch - parallel execution` case | PR4 | done |
 | ELV-27 | cmd test quality | `cmd/root_test.go` (`TestFetchEligibility_ConcurrentExecution`) | Claim: the `<350ms` bound for two concurrent 200ms sleeps is flaky. **Not demonstrated** — 50/50 runs passed. The wall-clock sensitivity remains a plausible overloaded-CI risk, so widen the bound; do not claim an observed flake | OVERSTATED | test | Widened the bound to 500ms in `TestFetchEligibility_ConcurrentExecution` | PR4 | done |
@@ -291,6 +291,23 @@ where the production site moved. The forms actually used:
   test does not have to restate it); the equivalent mutation is inverting
   `!verboseOn` to `verboseOn` inside that helper. `executeWithHint` in the test
   helpers now calls the same predicate instead of duplicating it.
+
+  **Residual surviving mutant, since closed — read this row as two mutants, not
+  one.** Extracting the predicate pinned the *condition* but unpinned the *call
+  site*: because `executeWithHint` calls `shouldShowVerboseHint` rather than
+  restating it, the helper became a reimplementation of `Execute()`'s error path
+  that can never disagree with it. Deleting the entire
+  `if shouldShowVerboseHint(...) { Fprintln(...) }` block from `Execute()` left
+  `go test ./cmd/ -count=1` **green**. The unit suite cannot kill this class of
+  mutant at all — the package-level `Execute()` calls `os.Exit`, so only the
+  compiled binary exercises the wiring. Closed by `TestIntegration_VerboseHint`
+  (`cmd/integration_test.go`, `-tags=integration`), which asserts the hint IS
+  present on a runtime error and is NOT present for an unknown subcommand, an
+  unknown flag, or an already-`--verbose` run. Both mutants — deleting the block,
+  and forcing the condition to `true` — were reverified against it: each leaves
+  `go test ./cmd/` green and fails `go test -tags=integration ./cmd`. The
+  consequence for CI is that **the ELV-24 call site is only covered on the
+  integration leg**; dropping `-tags=integration` silently unpins it again.
 - **ELV-20** — used the semantic form the ledger prescribes (delete the
   `elevCtx`/`elevCancel` pair and pass `ctx`), since a token substitution does
   not compile.
