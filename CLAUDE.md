@@ -32,6 +32,8 @@ Custom `SCAAccessService` follows SDK conventions:
 - Create client via `isp.FromISPAuth(ispAuth, "sca", ".", "", refreshCallback)`
 - Set `X-API-Version: 2.0` header on all requests
 - `httpClient` interface for DI/testing
+- The service slug (`"sca"` / `"uar"`) is what `isp.FromISPAuth` resolves into the live host, and the retry/header tests overwrite `client.BaseURL` before issuing a request — so it is pinned separately, by asserting the constructed `BaseURL` against the fake-JWT tenant (`TestNewSCAAccessService_UsesSCAServiceSlug`, `TestNewAccessRequestService_UsesUARServiceSlug`) **before** any swap. Assert it before mutating `BaseURL`, never after
+- Wire contracts are asserted on what is *sent*: the `mockHTTPClient` in both packages records `gotRoute`/`gotBody`/`gotParams` before dispatching. Assert the exact route and the full body contents — "non-nil body" lets a nil payload through, and a canned response tells you nothing about the request
 
 ## SCA Access API
 - **Base URL:** `https://{subdomain}.sca.{platform_domain}/api`

@@ -15,14 +15,42 @@ import (
 type mockHTTPClient struct {
 	getFn  func(ctx context.Context, route string, params interface{}) (*http.Response, error)
 	postFn func(ctx context.Context, route string, body interface{}) (*http.Response, error)
+
+	// Fallbacks used when the corresponding Fn is nil.
+	getResponse  *http.Response
+	getError     error
+	postResponse *http.Response
+	postError    error
+
+	// Recorded arguments of the most recent call, populated before dispatch so
+	// wire-contract tests can assert what was actually sent.
+	gotRoute  string
+	gotBody   interface{}
+	gotParams interface{}
 }
 
 func (m *mockHTTPClient) Get(ctx context.Context, route string, params interface{}) (*http.Response, error) {
-	return m.getFn(ctx, route, params)
+	m.gotRoute = route
+	m.gotParams = params
+	if m.getFn != nil {
+		return m.getFn(ctx, route, params)
+	}
+	if m.getError != nil {
+		return nil, m.getError
+	}
+	return m.getResponse, nil
 }
 
 func (m *mockHTTPClient) Post(ctx context.Context, route string, body interface{}) (*http.Response, error) {
-	return m.postFn(ctx, route, body)
+	m.gotRoute = route
+	m.gotBody = body
+	if m.postFn != nil {
+		return m.postFn(ctx, route, body)
+	}
+	if m.postError != nil {
+		return nil, m.postError
+	}
+	return m.postResponse, nil
 }
 
 func jsonResponse(status int, body interface{}) *http.Response {
