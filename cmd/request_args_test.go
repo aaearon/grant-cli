@@ -393,8 +393,10 @@ func TestRunRequestSubmit_InvokesValidation(t *testing.T) {
 	if !strings.Contains(err.Error(), "--priority must be High, Medium, or Low") {
 		t.Errorf("error = %v, want the --priority validation message", err)
 	}
-	if got := svc.lastSubmit(); got != nil {
-		t.Errorf("nothing may be submitted after a validation failure, got %+v", got)
+	// len(submitCalls) rather than lastSubmit(): the latter cannot tell
+	// "never called" apart from "called with a nil request".
+	if len(svc.submitCalls) != 0 {
+		t.Errorf("nothing may be submitted after a validation failure, got %+v", svc.submitCalls)
 	}
 }
 
@@ -546,7 +548,9 @@ func TestRunRequestSubmit_NonInteractiveRequiresRoleID(t *testing.T) {
 	if !strings.Contains(err.Error(), "requires --role-id") {
 		t.Errorf("error = %v, want it to demand --role-id", err)
 	}
-	if got := svc.lastSubmit(); got != nil {
-		t.Errorf("nothing may be submitted, got %+v", got)
+	// len(submitCalls) rather than lastSubmit(): the latter cannot tell
+	// "never called" apart from "called with a nil request".
+	if len(svc.submitCalls) != 0 {
+		t.Errorf("nothing may be submitted, got %+v", svc.submitCalls)
 	}
 }
