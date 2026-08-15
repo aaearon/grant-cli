@@ -145,6 +145,19 @@ func runFavoritesAddProduction(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Fail fast without a terminal. This must stay AFTER the duplicate-name
+	// check above (moving it earlier makes a duplicate report "not
+	// interactive" instead of "already exists") and BEFORE the bootstrap
+	// below: everything past this point authenticates and calls the SCA
+	// eligibility API, which a scripted `grant favorites add myfav` used to do
+	// before ui.ErrNotInteractive finally surfaced from PromptName.
+	//
+	// The message is favorites-specific on purpose; earlyNonInteractiveCheck
+	// in request_picker.go would wrongly tell the user to supply a request ID.
+	if !ui.IsInteractive() {
+		return fmt.Errorf("%w; pass --target and --role, or --type groups with --group", ui.ErrNotInteractive)
+	}
+
 	// Bootstrap auth and SCA service
 	_, scaService, _, err := bootstrapSCAService()
 	if err != nil {
