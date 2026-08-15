@@ -136,6 +136,41 @@ func TestCachedRolesLister_Refresh(t *testing.T) {
 	}
 }
 
+// TestCachedRoles_RefreshStillWrites pins that --refresh bypasses the cache
+// READ but still WRITES. TestCachedRolesLister_Refresh above cannot see this:
+// its pre-warmed entry is identical to the refreshed one, so a skipped write
+// still yields a cache hit. Only distinguishable payloads detect it.
+func TestCachedRoles_RefreshStillWrites(t *testing.T) {
+	fake := &fakeRolesLister{roles: []scamodels.OnDemandResource{{ResourceID: "role-stale"}}}
+	store := newTestStore(t)
+	req := scamodels.OnDemandRequest{WorkspaceID: "ws-1", PlatformName: "azure_ad", OrgID: "ws-1"}
+
+	if _, err := NewCachedRolesLister(fake, store, false, nil).ListOnDemandResources(t.Context(), req); err != nil {
+		t.Fatalf("prewarm: %v", err)
+	}
+
+	// Distinguishable from "role-stale" on purpose — do not collapse these.
+	fake.roles = []scamodels.OnDemandResource{{ResourceID: "role-fresh"}}
+
+	if _, err := NewCachedRolesLister(fake, store, true, nil).ListOnDemandResources(t.Context(), req); err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	if fake.callCount != 2 {
+		t.Fatalf("refresh should bypass the read: want 2 inner calls, got %d", fake.callCount)
+	}
+
+	roles, err := NewCachedRolesLister(fake, store, false, nil).ListOnDemandResources(t.Context(), req)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if fake.callCount != 2 {
+		t.Errorf("read back should have hit the cache: want 2 inner calls, got %d", fake.callCount)
+	}
+	if len(roles) != 1 || roles[0].ResourceID != "role-fresh" {
+		t.Errorf("cache still holds the pre-refresh payload: %+v", roles)
+	}
+}
+
 func TestOnDemandRolesCacheKey_HandlesSlashes(t *testing.T) {
 	key := onDemandRolesCacheKey("azure_resource", "/providers/Microsoft.Management/managementGroups/abc")
 	for _, c := range key {

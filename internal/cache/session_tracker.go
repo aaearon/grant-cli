@@ -9,9 +9,15 @@ type SessionRecord struct {
 
 const sessionTimestampsKey = "session_timestamps"
 
-// maxSessionAge is the maximum age for session timestamp entries.
-// Entries older than this are filtered out on read and removed on cleanup.
-const maxSessionAge = 24 * time.Hour
+// sessionTimestampRetention is how long a locally recorded elevation timestamp
+// stays useful. Entries older than this are filtered out by SessionTimestamps.
+//
+// It is purely local retention for the remaining-time DISPLAY. It is not a
+// session lifetime, not a session limit, and not an access-control boundary:
+// dropping a timestamp only removes grant's ability to show how long a session
+// has left, and has no effect on the session itself. CleanupSessions does not
+// read this constant at all — it filters on activeIDs membership only.
+const sessionTimestampRetention = 24 * time.Hour
 
 // RecordSession stores the elevation timestamp for a session ID.
 // It performs a read-modify-write on the session timestamps cache entry.
@@ -22,13 +28,13 @@ func RecordSession(s *Store, sessionID string, now time.Time) error {
 }
 
 // SessionTimestamps returns a map of sessionID -> elevatedAt for all tracked sessions.
-// Entries older than maxSessionAge are filtered out. Returns an empty map on error.
+// Entries older than sessionTimestampRetention are filtered out. Returns an empty map on error.
 func SessionTimestamps(s *Store) map[string]time.Time {
 	records := readRecords(s)
 	now := s.now()
 	result := make(map[string]time.Time, len(records))
 	for id, rec := range records {
-		if now.Sub(rec.ElevatedAt) <= maxSessionAge {
+		if now.Sub(rec.ElevatedAt) <= sessionTimestampRetention {
 			result[id] = rec.ElevatedAt
 		}
 	}

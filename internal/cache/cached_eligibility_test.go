@@ -387,7 +387,129 @@ func TestCachedEligibilityLister_LogsRefreshBypass(t *testing.T) {
 	}
 }
 
-// writeCorruptCacheFile writes invalid JSON to a cache file.
+// writeCorruptCacheFile writes a well-formed cache envelope with a FRESH
+// cached_at and a type-mismatched "response" payload. Freshness matters: a
+// zero-valued cached_at (as unparseable garbage produces) is also a miss via
+// the TTL branch, so it would not exercise the unmarshal guard at all.
 func writeCorruptCacheFile(dir, key string) error {
-	return os.WriteFile(dir+"/"+key+".json", []byte("{invalid json"), 0o600)
+	envelope := []byte(`{"cached_at":"` + time.Now().UTC().Format(time.RFC3339Nano) + `","response":"not-an-object"}`)
+	return os.WriteFile(dir+"/"+key+".json", envelope, 0o600)
+}
+
+// TestCachedEligibility_RefreshStillWrites pins that --refresh bypasses the
+// cache READ but still WRITES the fresh response. Counting inner calls is not
+// enough: with the write skipped, the pre-warmed entry survives and a later
+// read still hits. Only re-reading and comparing the PAYLOAD detects it, which
+// is why the two responses below must stay distinguishable.
+func TestCachedEligibility_RefreshStillWrites(t *testing.T) {
+	t.Parallel()
+	store := NewStore(t.TempDir(), 4*time.Hour)
+	ctx := t.Context()
+
+	inner := &mockEligibilityLister{
+		response: &models.EligibilityResponse{
+			Response: []models.EligibleTarget{{WorkspaceID: "ws-stale"}},
+			Total:    1,
+		},
+	}
+
+	// Pre-warm the cache with the stale payload.
+	if _, err := NewCachedEligibilityLister(inner, nil, store, false, nil).ListEligibility(ctx, models.CSPAzure); err != nil {
+		t.Fatalf("prewarm: %v", err)
+	}
+
+	// Distinguishable from "ws-stale" on purpose — do not collapse these.
+	inner.response = &models.EligibilityResponse{
+		Response: []models.EligibleTarget{{WorkspaceID: "ws-fresh"}},
+		Total:    1,
+	}
+
+	if _, err := NewCachedEligibilityLister(inner, nil, store, true, nil).ListEligibility(ctx, models.CSPAzure); err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	if inner.calls != 2 {
+		t.Fatalf("refresh should bypass the read: want 2 inner calls, got %d", inner.calls)
+	}
+
+	// A non-refresh read must now hit the cache AND see the refreshed payload.
+	resp, err := NewCachedEligibilityLister(inner, nil, store, false, nil).ListEligibility(ctx, models.CSPAzure)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if inner.calls != 2 {
+		t.Errorf("read back should have hit the cache: want 2 inner calls, got %d", inner.calls)
+	}
+	if len(resp.Response) != 1 || resp.Response[0].WorkspaceID != "ws-fresh" {
+		t.Errorf("cache still holds the pre-refresh payload: %+v", resp.Response)
+	}
+}
+
+// TestCachedGroupsEligibility_RefreshStillWrites is the groups mirror of
+// TestCachedEligibility_RefreshStillWrites.
+func TestCachedGroupsEligibility_RefreshStillWrites(t *testing.T) {
+	t.Parallel()
+	store := NewStore(t.TempDir(), 4*time.Hour)
+	ctx := t.Context()
+
+	inner := &mockGroupsEligibilityLister{
+		response: &models.GroupsEligibilityResponse{
+			Response: []models.GroupsEligibleTarget{{GroupID: "g-stale"}},
+			Total:    1,
+		},
+	}
+
+	if _, err := NewCachedEligibilityLister(nil, inner, store, false, nil).ListGroupsEligibility(ctx, models.CSPAzure); err != nil {
+		t.Fatalf("prewarm: %v", err)
+	}
+
+	// Distinguishable from "g-stale" on purpose — do not collapse these.
+	inner.response = &models.GroupsEligibilityResponse{
+		Response: []models.GroupsEligibleTarget{{GroupID: "g-fresh"}},
+		Total:    1,
+	}
+
+	if _, err := NewCachedEligibilityLister(nil, inner, store, true, nil).ListGroupsEligibility(ctx, models.CSPAzure); err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	if inner.calls != 2 {
+		t.Fatalf("refresh should bypass the read: want 2 inner calls, got %d", inner.calls)
+	}
+
+	resp, err := NewCachedEligibilityLister(nil, inner, store, false, nil).ListGroupsEligibility(ctx, models.CSPAzure)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if inner.calls != 2 {
+		t.Errorf("read back should have hit the cache: want 2 inner calls, got %d", inner.calls)
+	}
+	if len(resp.Response) != 1 || resp.Response[0].GroupID != "g-fresh" {
+		t.Errorf("cache still holds the pre-refresh payload: %+v", resp.Response)
+	}
+}
+
+// TestCacheKeys_DistinctPrefixes pins that cloud and group eligibility never
+// share a cache file. Collapsing the prefixes makes the two responses
+// cross-deserialize into each other's entries.
+func TestCacheKeys_DistinctPrefixes(t *testing.T) {
+	t.Parallel()
+	for _, csp := range []models.CSP{models.CSPAzure, models.CSPAWS, models.CSPGCP} {
+		cloud := eligibilityCacheKey(csp)
+		groups := groupsEligibilityCacheKey(csp)
+		if cloud == groups {
+			t.Errorf("csp %s: cloud and groups eligibility share cache key %q", csp, cloud)
+		}
+	}
+}
+
+// TestCacheKeys_LowercaseCSP pins the documented on-disk file names. The CSP
+// constants are upper-case ("AZURE"), so without strings.ToLower the
+// documented eligibility_azure.json becomes eligibility_AZURE.json.
+func TestCacheKeys_LowercaseCSP(t *testing.T) {
+	t.Parallel()
+	if got, want := eligibilityCacheKey(models.CSPAzure), "eligibility_azure"; got != want {
+		t.Errorf("eligibilityCacheKey = %q, want %q", got, want)
+	}
+	if got, want := groupsEligibilityCacheKey(models.CSPAzure), "groups_eligibility_azure"; got != want {
+		t.Errorf("groupsEligibilityCacheKey = %q, want %q", got, want)
+	}
 }
