@@ -2,6 +2,7 @@ package ui
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
 	"sort"
 	"strings"
@@ -366,5 +367,75 @@ func TestSelectTarget_EmptyList(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "no eligible targets available") {
 		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// collidingTargets returns 15 targets in 5 groups of 3 that render identically within
+// each group. The size matters: Go's pdqsort delegates to insertion sort below n=12,
+// which happens to be stable, so a 4-element fixture cannot tell sort.Slice and
+// sort.SliceStable apart. WorkspaceID encodes the input position within its group.
+func collidingTargets() []models.EligibleTarget {
+	names := []string{"Alpha", "Bravo", "Charlie", "Delta", "Echo"}
+	var targets []models.EligibleTarget
+	// Interleaved and reversed by name so an unstable sort has plenty to scramble.
+	for copyNum := 1; copyNum <= 3; copyNum++ {
+		for n := len(names) - 1; n >= 0; n-- {
+			targets = append(targets, models.EligibleTarget{
+				WorkspaceID:   fmt.Sprintf("%s-%d", names[n], copyNum),
+				WorkspaceName: names[n],
+				WorkspaceType: models.WorkspaceTypeSubscription,
+				RoleInfo:      models.RoleInfo{Name: "Owner"},
+			})
+		}
+	}
+	return targets
+}
+
+// TestSortTargetsForDisplay_StableAmongCollisions pins the sort as *stable*, not merely
+// ordered. Rendering order is what the user sees and index resolution is resolved
+// against the same slice, so two targets that render identically must keep their input
+// order — otherwise the same keystrokes pick a different target run to run.
+func TestSortTargetsForDisplay_StableAmongCollisions(t *testing.T) {
+	t.Parallel()
+
+	targets := collidingTargets()
+	if len(targets) < 13 {
+		t.Fatalf("fixture has %d targets; needs >= 13 to distinguish sort.Slice from sort.SliceStable", len(targets))
+	}
+
+	sorted := sortTargetsForDisplay(targets)
+	if len(sorted) != len(targets) {
+		t.Fatalf("sortTargetsForDisplay() length = %d, want %d", len(sorted), len(targets))
+	}
+
+	// Displays must be non-decreasing (it is still a sort).
+	for i := 1; i < len(sorted); i++ {
+		if FormatTargetOption(sorted[i-1]) > FormatTargetOption(sorted[i]) {
+			t.Fatalf("not sorted at %d: %q > %q", i, FormatTargetOption(sorted[i-1]), FormatTargetOption(sorted[i]))
+		}
+	}
+
+	// Within each colliding display, input order must be preserved.
+	wantOrder := map[string][]string{}
+	for _, target := range targets {
+		d := FormatTargetOption(target)
+		wantOrder[d] = append(wantOrder[d], target.WorkspaceID)
+	}
+	gotOrder := map[string][]string{}
+	for _, target := range sorted {
+		d := FormatTargetOption(target)
+		gotOrder[d] = append(gotOrder[d], target.WorkspaceID)
+	}
+	if len(wantOrder) < 2 {
+		t.Fatalf("fixture no longer collides: %d distinct displays", len(wantOrder))
+	}
+	for display, want := range wantOrder {
+		if len(want) < 2 {
+			t.Fatalf("display %q does not collide; fixture is broken", display)
+		}
+		if !reflect.DeepEqual(gotOrder[display], want) {
+			t.Errorf("display %q: colliding targets reordered\n got %v\nwant %v (input order)",
+				display, gotOrder[display], want)
+		}
 	}
 }
