@@ -12,9 +12,13 @@ package selfupdate
 // Every fixture here is built in memory and is only ever fed to the in-memory
 // extractor. Nothing in this file writes to the filesystem, creates or follows
 // a link, executes anything, or reaches the network — the payload bytes are
-// inert ASCII. Every case asserts REJECTION: the test fails if grant accepts
-// the archive. Their sole purpose is to make a regression in those guards fail
+// inert ASCII. Their sole purpose is to make a regression in those guards fail
 // the build.
+//
+// Most cases assert REJECTION. The non-regular-entry cases deliberately assert
+// the opposite — that the hostile entry is SKIPPED and a valid binary beside it
+// is returned — because a rejection assertion there cannot tell which guard
+// fired; see TestExtractBinaryRejectsNonRegularEntries.
 
 import (
 	"archive/tar"
@@ -202,92 +206,159 @@ func TestCheckArchivePath(t *testing.T) {
 }
 
 // TestExtractBinaryRejectsNonRegularEntries pins the highest-severity finding
-// in the audit: dropping the `hdr.Typeflag != tar.TypeReg` operand turns a
-// zero-length symlink, hardlink or directory entry named "grant" into a
-// successful extraction of ZERO bytes. Nothing downstream catches that — the
-// checksum covers the archive, not the extracted binary, and applyBinary
-// hashes whatever it is handed, so an empty payload verifies against itself
-// and self-destructs the installed binary.
+// in the audit: dropping the `hdr.Typeflag != tar.TypeReg` operand (or the zip
+// `f.Mode()&fs.ModeType != 0` mirror) makes a symlink, hardlink or directory
+// entry named "grant" eligible to become the installed binary. For the
+// header-only types that means a successful extraction of ZERO bytes; nothing
+// downstream catches it, because the checksum covers the archive, not the
+// extracted binary, so an empty payload verifies against itself and
+// self-destructs the installed binary.
 //
-// Most fixtures carry no body, so extraction could only ever produce empty
-// bytes; they are never written, linked or followed. Those cases pin the
-// classification, but with the type operand dropped they fail on the error
-// MESSAGE (the empty-binary backstop catches them and says "is empty"), not on
-// behavior — because Go's tar.Reader forces a zero-length body for the
-// header-only types (symlink, hardlink, dir, char, block, fifo).
+// The cases are written as SUCCESS assertions, not rejections, and that shape
+// is the point. Asserting only "an error occurred, containing 'does not
+// contain a grant binary'" cannot distinguish the type guard skipping the
+// entry from isBinaryEntry failing to match it from checkArchivePath rejecting
+// it — every one of those produces the same generic fallback. Neutering
+// isBinaryEntry to return false passed such a table unchanged.
 //
-// The `tar.TypeCont` and vendor-type cases are different, and they are the
-// reason this test is a behavioral pin rather than a wording pin: those types
-// are NOT header-only, so their bodies are readable. With the type operand
-// dropped they extract non-empty attacker-chosen bytes and the zero-length
-// backstop never fires. They must fail on the bytes returned.
+// Instead each archive pairs the hostile entry with a VALID binary under the
+// other accepted name. isBinaryEntry accepts both "grant" and "grant.exe" in
+// either format, so with the type guard present the non-regular entry is
+// skipped and the valid one is returned; remove the guard and both entries
+// match, giving "archive contains more than one grant binary". That is a
+// behavioral kill: it survives no mutation of the type guard, and it fails
+// loudly if isBinaryEntry stops matching, because then nothing is extracted at
+// all.
+//
+// The valid binary is deliberately the FIRST entry in every archive. Put the
+// header-only hostile entry first and, with the guard removed, the zero-length
+// backstop fires before the second binary is ever reached — still a failure,
+// but one that reports "is empty" instead of naming the duplicate. Ordering it
+// this way makes all seven cases fail identically on the guard's own semantics.
+//
+// Nothing here is written, linked, followed or executed: the extractor is
+// in-memory and the link targets are inert strings.
 func TestExtractBinaryRejectsNonRegularEntries(t *testing.T) {
 	tests := []struct {
-		name            string
-		assetName       string
-		archive         []byte
-		wantErrContains string
+		name      string
+		assetName string
+		archive   []byte
 	}{
 		{
-			name:      "tar symlink named grant",
+			name:      "tar symlink named grant is skipped for the valid grant.exe",
 			assetName: "grant-cli_0.7.0_linux_amd64.tar.gz",
 			archive: buildHostileTarGz(t, []tarEntry{
+				{name: "grant.exe", body: fixtureBinaryContents},
 				{name: "grant", typeflag: tar.TypeSymlink, linkname: hostileSymlinkTarget},
 			}),
-			wantErrContains: "does not contain a grant binary",
 		},
 		{
-			name:      "tar hardlink named grant",
+			name:      "tar hardlink named grant is skipped for the valid grant.exe",
 			assetName: "grant-cli_0.7.0_linux_amd64.tar.gz",
 			archive: buildHostileTarGz(t, []tarEntry{
+				{name: "grant.exe", body: fixtureBinaryContents},
 				{name: "other", body: hostilePayload},
 				{name: "grant", typeflag: tar.TypeLink, linkname: "other"},
 			}),
-			wantErrContains: "does not contain a grant binary",
 		},
 		{
-			name:      "tar directory named grant",
+			// A directory entry's name normalizes to "grant", so isBinaryEntry
+			// matches it and only the type guard keeps it out.
+			name:      "tar directory named grant is skipped for the valid grant.exe",
 			assetName: "grant-cli_0.7.0_linux_amd64.tar.gz",
 			archive: buildHostileTarGz(t, []tarEntry{
+				{name: "grant.exe", body: fixtureBinaryContents},
 				{name: "grant/", typeflag: tar.TypeDir},
 			}),
-			wantErrContains: "does not contain a grant binary",
 		},
 		{
-			// Not header-only: the body is readable, so this case fails on the
-			// bytes returned rather than on the wording.
-			name:      "tar continuation entry named grant carrying bytes",
+			// Not header-only: tar.Reader will hand out this body, so without
+			// the type guard the extractor would return attacker-chosen bytes
+			// and the zero-length backstop would never fire.
+			name:      "tar continuation entry named grant is skipped for the valid grant.exe",
 			assetName: "grant-cli_0.7.0_linux_amd64.tar.gz",
 			archive: buildHostileTarGz(t, []tarEntry{
+				{name: "grant.exe", body: fixtureBinaryContents},
 				{name: "grant", typeflag: tar.TypeCont, body: hostilePayload},
 			}),
-			wantErrContains: "does not contain a grant binary",
 		},
 		{
 			// Vendor-reserved type flags ('A'..'Z') are likewise not
 			// header-only. Same behavioral pin, a different byte.
-			name:      "tar vendor-type entry named grant carrying bytes",
+			name:      "tar vendor-type entry named grant is skipped for the valid grant.exe",
+			assetName: "grant-cli_0.7.0_linux_amd64.tar.gz",
+			archive: buildHostileTarGz(t, []tarEntry{
+				{name: "grant.exe", body: fixtureBinaryContents},
+				{name: "grant", typeflag: 'Z', body: hostilePayload},
+			}),
+		},
+		{
+			name:      "zip symlink-mode entry named grant.exe is skipped for the valid grant",
+			assetName: "grant-cli_0.7.0_windows_amd64.zip",
+			archive: buildHostileZip(t, []zipEntry{
+				{name: "grant", body: fixtureBinaryContents},
+				{name: "grant.exe", mode: fs.ModeSymlink | 0o777, body: hostileSymlinkTarget},
+			}),
+		},
+		{
+			// The zip mirror of the tar directory case. IsDir() would also
+			// catch this one; the symlink case above is what separates
+			// f.Mode()&fs.ModeType from f.FileInfo().IsDir().
+			name:      "zip directory named grant is skipped for the valid grant.exe",
+			assetName: "grant-cli_0.7.0_windows_amd64.zip",
+			archive: buildHostileZip(t, []zipEntry{
+				{name: "grant.exe", body: fixtureBinaryContents},
+				{name: "grant/", mode: fs.ModeDir | 0o755},
+			}),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := extractBinary(tt.archive, tt.assetName)
+			if err != nil {
+				t.Fatalf("the non-regular entry must be skipped and the valid binary returned, got: %v", err)
+			}
+			if string(got) != fixtureBinaryContents {
+				t.Errorf("extracted %q, want the valid binary %q", string(got), fixtureBinaryContents)
+			}
+		})
+	}
+}
+
+// TestExtractBinaryRejectsNonRegularOnlyArchive keeps the rejection half of the
+// class covered: an archive whose ONLY "grant" is a non-regular entry must be
+// refused outright rather than silently yielding empty or link-target bytes.
+// The diagnostic is the generic fallback by construction — after the guard
+// skips the entry there is no binary left — so this case is deliberately
+// wording-shaped and carries no mutation-killing weight of its own. The
+// paired-binary cases above are what pin the guard.
+func TestExtractBinaryRejectsNonRegularOnlyArchive(t *testing.T) {
+	tests := []struct {
+		name      string
+		assetName string
+		archive   []byte
+	}{
+		{
+			name:      "tar symlink is the only grant",
+			assetName: "grant-cli_0.7.0_linux_amd64.tar.gz",
+			archive: buildHostileTarGz(t, []tarEntry{
+				{name: "grant", typeflag: tar.TypeSymlink, linkname: hostileSymlinkTarget},
+			}),
+		},
+		{
+			name:      "tar vendor-type entry carrying bytes is the only grant",
 			assetName: "grant-cli_0.7.0_linux_amd64.tar.gz",
 			archive: buildHostileTarGz(t, []tarEntry{
 				{name: "grant", typeflag: 'Z', body: hostilePayload},
 			}),
-			wantErrContains: "does not contain a grant binary",
 		},
 		{
-			name:      "zip symlink-mode entry named grant",
+			name:      "zip symlink-mode entry is the only grant",
 			assetName: "grant-cli_0.7.0_windows_amd64.zip",
 			archive: buildHostileZip(t, []zipEntry{
 				{name: "grant.exe", mode: fs.ModeSymlink | 0o777, body: hostileSymlinkTarget},
 			}),
-			wantErrContains: "does not contain a grant binary",
-		},
-		{
-			name:      "zip directory named grant",
-			assetName: "grant-cli_0.7.0_windows_amd64.zip",
-			archive: buildHostileZip(t, []zipEntry{
-				{name: "grant/", mode: fs.ModeDir | 0o755},
-			}),
-			wantErrContains: "does not contain a grant binary",
 		},
 	}
 
@@ -297,8 +368,11 @@ func TestExtractBinaryRejectsNonRegularEntries(t *testing.T) {
 			if err == nil {
 				t.Fatalf("expected rejection, got %d bytes", len(got))
 			}
-			if !strings.Contains(err.Error(), tt.wantErrContains) {
-				t.Errorf("error = %q, want it to contain %q", err, tt.wantErrContains)
+			if !strings.Contains(err.Error(), "does not contain a grant binary") {
+				t.Errorf("error = %q, want it to contain %q", err, "does not contain a grant binary")
+			}
+			if len(got) != 0 {
+				t.Errorf("returned %d bytes alongside the error", len(got))
 			}
 		})
 	}
@@ -362,6 +436,14 @@ func TestExtractFromTarGzRejectsOversizeDecoy(t *testing.T) {
 // entry (f.Open() is called only for the binary), so an oversized non-binary
 // entry costs nothing and is correctly ignored. Do not "fix" this by moving
 // the zip check earlier — it would reject archives that are not a threat.
+//
+// Note what tar's check is and is not: hdr.Size bounds each ENTRY, and
+// readCapped bounds the binary, but nothing bounds TOTAL inflated bytes or
+// entry count. A tar bomb of many just-under-cap entries still burns CPU
+// inside extractBinary, because Next() must inflate every skipped entry to
+// reach the following header. That is accepted, not overlooked: verifyChecksum
+// runs BEFORE extractBinary, so an attacker must already control
+// checksums.txt — which the documented trust model excludes anyway.
 func TestExtractFromZipIgnoresOversizeDecoy(t *testing.T) {
 	withMaxDownloadBytes(t, 64)
 
