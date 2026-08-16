@@ -189,6 +189,8 @@ favorites:
     role: "AdministratorAccess"
 ```
 
+`cache_ttl` must be a positive Go duration (`4h`, `30m`); omit it for the 4h default. A zero, negative or unparseable value is a fatal error at config load — edit the file named in the error to fix it. To bypass the cache for a single command, use `--refresh`.
+
 ### Environment Variables
 
 | Variable | Description | Default |
