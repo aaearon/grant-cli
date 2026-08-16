@@ -72,46 +72,10 @@ func authedLoader() *mockAuthLoader {
 	return &mockAuthLoader{token: &authmodels.IdsecToken{Token: "test-jwt"}}
 }
 
-// TestFindItemByDisplay_ReturnsMatchingItem kills ELV-01: returning
-// &items[0] instead of &items[i] at cmd/selection.go:78. The existing test only
-// asserts the result is non-nil, so it never notices that the wrong target
-// would be elevated under a display line naming the right one.
-func TestFindItemByDisplay_ReturnsMatchingItem(t *testing.T) {
-	first := &models.EligibleTarget{
-		WorkspaceName: "Aardvark-Sub",
-		WorkspaceType: models.WorkspaceTypeSubscription,
-		RoleInfo:      models.RoleInfo{ID: "role-first", Name: "Reader"},
-	}
-	second := &models.EligibleTarget{
-		WorkspaceName: "Zulu-Sub",
-		WorkspaceType: models.WorkspaceTypeSubscription,
-		RoleInfo:      models.RoleInfo{ID: "role-second", Name: "Owner"},
-	}
-	group := &models.GroupsEligibleTarget{DirectoryName: "Contoso", GroupName: "Engineering"}
-
-	items := []selectionItem{
-		{kind: selectionCloud, cloud: first},
-		{kind: selectionCloud, cloud: second},
-		{kind: selectionGroup, group: group},
-	}
-
-	got, err := findItemByDisplay(items, formatSelectionItem(items[1]))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got.cloud != second {
-		t.Errorf("got workspace %q (role %q), want Zulu-Sub / role-second",
-			got.cloud.WorkspaceName, got.cloud.RoleInfo.ID)
-	}
-
-	gotGroup, err := findItemByDisplay(items, formatSelectionItem(items[2]))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if gotGroup.kind != selectionGroup || gotGroup.group != group {
-		t.Errorf("got %+v, want the group item", gotGroup)
-	}
-}
+// ELV-01 (findItemByDisplay returning &items[0]) is closed by the index-based
+// selector fix: findItemByDisplay no longer exists. resolveSelectionItem is
+// pinned by TestResolveSelectionItem in cmd/selection_test.go, and the real
+// SelectItem wiring by the pty test in cmd/selection_pty_linux_test.go.
 
 // TestElevateCloud_RequestPayload kills ELV-02 and ELV-03: swapping
 // WorkspaceID/RoleID, or blanking CSP/OrganizationID, in the elevateCloud
