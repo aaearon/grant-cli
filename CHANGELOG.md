@@ -13,6 +13,7 @@ All notable changes to this project will be documented in this file.
 
 - `grant favorites add` now fails immediately without a terminal instead of authenticating first
 - `grant favorites add`'s non-interactive error now mentions the required favorite name, not only the flags
+- Interactive selectors now elevate the row you picked, not another target or Entra ID group that happens to render the same way
 
 ## [0.9.0] - 2026-08-14
 

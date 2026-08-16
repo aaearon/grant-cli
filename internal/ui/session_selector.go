@@ -104,6 +104,16 @@ func FindSessionByDisplay(
 }
 
 // SelectSessions presents a multi-select prompt for choosing sessions to revoke.
+// It resolves the answer by display text rather than by index, unlike the target,
+// role and request selectors.
+//
+// That rests on an assumption about the SCA API, stated here rather than left
+// implicit: every option string embeds session.SessionID, and the API is assumed to
+// return distinct session IDs, so no two options can render identically. If that ever
+// stops holding, FindSessionByDisplay fails *open* — it returns the first match — and
+// the wrong session would be revoked. Revoking is far less dangerous than elevating
+// into the wrong role, which is why this is documented rather than converted to index
+// binding, but the assumption is load-bearing.
 func SelectSessions(sessions []models.SessionInfo, nameMap map[string]string) ([]models.SessionInfo, error) {
 	if !IsInteractive() {
 		return nil, fmt.Errorf("%w; use --all or provide session IDs as arguments", ErrNotInteractive)

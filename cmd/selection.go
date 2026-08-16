@@ -57,7 +57,9 @@ func buildUnifiedOptions(items []selectionItem) ([]string, []selectionItem) {
 		pairs[i] = indexed{display: formatSelectionItem(item), item: item}
 	}
 
-	sort.Slice(pairs, func(i, j int) bool {
+	// Stable so that items which render identically keep their input order, and the
+	// options slice and the sorted items slice stay index-for-index aligned.
+	sort.SliceStable(pairs, func(i, j int) bool {
 		return pairs[i].display < pairs[j].display
 	})
 
@@ -71,12 +73,15 @@ func buildUnifiedOptions(items []selectionItem) ([]string, []selectionItem) {
 	return options, sorted
 }
 
-// findItemByDisplay finds a selectionItem by its formatted display string.
-func findItemByDisplay(items []selectionItem, display string) (*selectionItem, error) {
-	for i := range items {
-		if formatSelectionItem(items[i]) == display {
-			return &items[i], nil
-		}
+// resolveSelectionItem recovers the item at the index survey returned. Resolving by
+// index rather than by display text is what makes duplicate display strings safe:
+// formatSelectionItem carries no ID, so the same group name in two directories — or
+// the same workspace name and role in two subscriptions — renders identically, and a
+// text lookup would return the first match no matter which row the user highlighted.
+// Out-of-range indexes are an error, never clamped: guessing a row is the bug.
+func resolveSelectionItem(sorted []selectionItem, idx int) (*selectionItem, error) {
+	if idx < 0 || idx >= len(sorted) {
+		return nil, fmt.Errorf("invalid selection index %d", idx)
 	}
-	return nil, fmt.Errorf("item not found: %s", display)
+	return &sorted[idx], nil
 }

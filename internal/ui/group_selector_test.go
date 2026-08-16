@@ -1,8 +1,6 @@
 package ui
 
 import (
-	"errors"
-	"strings"
 	"testing"
 
 	"github.com/aaearon/grant-cli/internal/sca/models"
@@ -120,103 +118,5 @@ func TestBuildGroupOptions_DuplicateDisplayStrings(t *testing.T) {
 		if opt != "Group: Engineering" {
 			t.Errorf("unexpected option %q", opt)
 		}
-	}
-}
-
-func TestFindGroupByDisplay_DuplicateDisplayStrings(t *testing.T) {
-	t.Parallel()
-	// When display strings collide, FindGroupByDisplay returns the first match
-	// in the slice it's given. SelectGroup sorts a copy, so the caller controls order.
-	groups := []models.GroupsEligibleTarget{
-		{DirectoryID: "dir2", GroupID: "grp2", GroupName: "Engineering"},
-		{DirectoryID: "dir1", GroupID: "grp1", GroupName: "Engineering"},
-	}
-	got, err := FindGroupByDisplay(groups, "Group: Engineering")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	// Should return first in slice (grp2 since dir2 is first)
-	if got.GroupID != "grp2" {
-		t.Errorf("expected grp2 (first in slice), got %q", got.GroupID)
-	}
-}
-
-func TestFindGroupByDisplay(t *testing.T) {
-	t.Parallel()
-	groups := []models.GroupsEligibleTarget{
-		{DirectoryID: "dir1", DirectoryName: "Contoso", GroupID: "grp1", GroupName: "Engineering"},
-		{DirectoryID: "dir1", DirectoryName: "Contoso", GroupID: "grp2", GroupName: "DevOps"},
-	}
-
-	tests := []struct {
-		name    string
-		groups  []models.GroupsEligibleTarget
-		display string
-		wantID  string
-		wantErr bool
-	}{
-		{
-			name:    "found engineering",
-			groups:  groups,
-			display: "Directory: Contoso / Group: Engineering",
-			wantID:  "grp1",
-		},
-		{
-			name:    "found devops",
-			groups:  groups,
-			display: "Directory: Contoso / Group: DevOps",
-			wantID:  "grp2",
-		},
-		{
-			name:    "not found",
-			groups:  groups,
-			display: "Directory: Contoso / Group: NonExistent",
-			wantErr: true,
-		},
-		{
-			name:    "empty groups",
-			groups:  []models.GroupsEligibleTarget{},
-			display: "Group: Test",
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			got, err := FindGroupByDisplay(tt.groups, tt.display)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("FindGroupByDisplay() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if tt.wantErr {
-				return
-			}
-			if got.GroupID != tt.wantID {
-				t.Errorf("FindGroupByDisplay().GroupID = %q, want %q", got.GroupID, tt.wantID)
-			}
-		})
-	}
-}
-
-// Not parallel: mutates the package-global IsTerminalFunc.
-func TestSelectGroup_NonTTY(t *testing.T) {
-	original := IsTerminalFunc
-	defer func() { IsTerminalFunc = original }()
-	IsTerminalFunc = func(fd uintptr) bool { return false }
-
-	groups := []models.GroupsEligibleTarget{
-		{DirectoryID: "dir1", GroupID: "grp1", GroupName: "Engineering"},
-	}
-
-	_, err := SelectGroup(groups)
-	if err == nil {
-		t.Fatal("expected error for non-TTY")
-	}
-	if !errors.Is(err, ErrNotInteractive) {
-		t.Errorf("expected ErrNotInteractive, got: %v", err)
-	}
-	if !strings.Contains(err.Error(), "--group") {
-		t.Errorf("error should mention --group, got: %v", err)
 	}
 }

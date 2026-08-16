@@ -78,6 +78,53 @@ func TestSelectRole_NonInteractive(t *testing.T) {
 	}
 }
 
+// TestSelectRole_NonInteractiveEmptyList pins the order of the two guards: the
+// non-interactive check must win when both conditions hold at once.
+// Not parallel: mutates the package-global IsTerminalFunc.
+func TestSelectRole_NonInteractiveEmptyList(t *testing.T) {
+	orig := IsTerminalFunc
+	defer func() { IsTerminalFunc = orig }()
+	IsTerminalFunc = func(fd uintptr) bool { return false }
+
+	_, err := SelectRole(nil)
+	if err == nil {
+		t.Fatal("expected error for non-TTY with an empty list")
+	}
+	if !errors.Is(err, ErrNotInteractive) {
+		t.Errorf("expected ErrNotInteractive to win over the empty-list guard, got: %v", err)
+	}
+}
+
+// TestBuildRoleOptions_MixedCaseSort pins the strings.ToLower normalisation in the
+// role sort. A case-sensitive comparison puts every capitalised name ahead of every
+// lower-case one ("Zone" < "admin" in ASCII), scattering the list the user scans.
+// The custom-first fixture above is uniformly capitalised and cannot see that.
+func TestBuildRoleOptions_MixedCaseSort(t *testing.T) {
+	roles := []models.OnDemandResource{
+		{ResourceName: "cost-reader"},
+		{ResourceName: "Backup Operator"},
+		{ResourceName: "admin-lite"},
+		{ResourceName: "Zone Editor"},
+	}
+	opts, sorted := BuildRoleOptions(roles)
+
+	want := []string{"admin-lite", "Backup Operator", "cost-reader", "Zone Editor"}
+	// Length first: without it a regression that shortens the slice panics on the
+	// index below instead of failing with a readable message.
+	if len(sorted) != len(want) || len(opts) != len(want) {
+		t.Fatalf("BuildRoleOptions() returned %d options / %d roles, want %d of each", len(opts), len(sorted), len(want))
+	}
+	for i, name := range want {
+		if sorted[i].ResourceName != name {
+			t.Errorf("position %d: got %q, want %q", i, sorted[i].ResourceName, name)
+		}
+		// options and roles must stay index-parallel — SelectRole resolves by index.
+		if opts[i] != FormatRoleOption(sorted[i]) {
+			t.Errorf("position %d: option %q does not render roles[%d] (%q)", i, opts[i], i, FormatRoleOption(sorted[i]))
+		}
+	}
+}
+
 func TestSelectRole_EmptyList(t *testing.T) {
 	orig := IsTerminalFunc
 	defer func() { IsTerminalFunc = orig }()

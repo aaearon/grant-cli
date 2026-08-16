@@ -2,6 +2,9 @@ package ui
 
 import (
 	"errors"
+	"fmt"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
@@ -237,83 +240,203 @@ func TestSelectTarget_NonTTY(t *testing.T) {
 	}
 }
 
-func TestFindTargetByDisplay(t *testing.T) {
+// TestSelectTarget_NonTTYEmptyList pins the order of the two guards. _NonTTY passes a
+// non-empty list and _EmptyList forces a TTY, so their inputs never intersect and
+// swapping the guards survives both. This case satisfies both conditions at once.
+// Not parallel: mutates the package-global IsTerminalFunc.
+func TestSelectTarget_NonTTYEmptyList(t *testing.T) {
+	original := IsTerminalFunc
+	defer func() { IsTerminalFunc = original }()
+	IsTerminalFunc = func(fd uintptr) bool { return false }
+
+	_, err := SelectTarget(nil)
+	if err == nil {
+		t.Fatal("expected error for non-TTY with an empty list")
+	}
+	if !errors.Is(err, ErrNotInteractive) {
+		t.Errorf("expected ErrNotInteractive to win over the empty-list guard, got: %v", err)
+	}
+}
+
+// TestSortTargetsForDisplay_Ordering pins the order options are rendered in, and
+// nothing else. Which target a selection denotes is resolveTargetSelection's job.
+func TestSortTargetsForDisplay_Ordering(t *testing.T) {
+	t.Parallel()
+	// Deliberately unsorted input containing a display collision: the two "Shared"
+	// subscriptions carry the same workspace name and role, so both render identically.
+	targets := []models.EligibleTarget{
+		{OrganizationID: "org-z", WorkspaceID: "sub-zebra", WorkspaceName: "Zebra Sub", WorkspaceType: models.WorkspaceTypeSubscription, RoleInfo: models.RoleInfo{ID: "r0", Name: "Reader"}},
+		{OrganizationID: "org-1", WorkspaceID: "sub-shared-1", WorkspaceName: "Shared", WorkspaceType: models.WorkspaceTypeSubscription, RoleInfo: models.RoleInfo{ID: "r1", Name: "Owner"}},
+		{OrganizationID: "org-2", WorkspaceID: "sub-shared-2", WorkspaceName: "Shared", WorkspaceType: models.WorkspaceTypeSubscription, RoleInfo: models.RoleInfo{ID: "r1", Name: "Owner"}},
+		{OrganizationID: "org-a", WorkspaceID: "sub-alpha", WorkspaceName: "Alpha Sub", WorkspaceType: models.WorkspaceTypeSubscription, RoleInfo: models.RoleInfo{ID: "r2", Name: "Contributor"}},
+	}
+	before := append([]models.EligibleTarget(nil), targets...)
+
+	sorted := sortTargetsForDisplay(targets)
+
+	if len(sorted) != len(targets) {
+		t.Fatalf("sortTargetsForDisplay() length = %d, want %d", len(sorted), len(targets))
+	}
+
+	options := make([]string, len(sorted))
+	for i := range sorted {
+		options[i] = FormatTargetOption(sorted[i])
+	}
+	if !sort.StringsAreSorted(options) {
+		t.Errorf("rendered options are not in display order: %q", options)
+	}
+
+	// The sort is stable, so the two colliding rows keep their input order.
+	if sorted[1].WorkspaceID != "sub-shared-1" || sorted[2].WorkspaceID != "sub-shared-2" {
+		t.Errorf("colliding rows lost input order: got %q, %q", sorted[1].WorkspaceID, sorted[2].WorkspaceID)
+	}
+
+	if !reflect.DeepEqual(targets, before) {
+		t.Errorf("sortTargetsForDisplay() mutated the caller's slice: got %+v, want %+v", targets, before)
+	}
+}
+
+// TestResolveTargetSelection_DuplicateDisplayStrings pins the wrong-target fix.
+// FormatTargetOption carries no ID, so two eligible targets with the same workspace
+// name and role in different subscriptions/accounts render to the same string.
+// Recovering the answer by text returns the first match regardless of which row the
+// user highlighted — and SelectTarget searched the caller's *unsorted* slice while
+// rendering a sorted one, so the two could disagree even without a collision.
+// This covers the extracted resolver in isolation. The real SelectTarget wiring is
+// pinned separately by TestSelectTarget_PTY_DuplicateDisplay, which drives the live
+// survey prompt over a pseudo-terminal.
+func TestResolveTargetSelection_DuplicateDisplayStrings(t *testing.T) {
 	t.Parallel()
 	targets := []models.EligibleTarget{
-		{
-			OrganizationID: "org1",
-			WorkspaceID:    "sub1",
-			WorkspaceName:  "Production",
-			WorkspaceType:  models.WorkspaceTypeSubscription,
-			RoleInfo:       models.RoleInfo{ID: "role1", Name: "Owner"},
-		},
-		{
-			OrganizationID: "org1",
-			WorkspaceID:    "rg1",
-			WorkspaceName:  "rg-web",
-			WorkspaceType:  models.WorkspaceTypeResourceGroup,
-			RoleInfo:       models.RoleInfo{ID: "role2", Name: "Contributor"},
-		},
+		{OrganizationID: "org-1", WorkspaceID: "sub-1", WorkspaceName: "Shared", WorkspaceType: models.WorkspaceTypeSubscription, RoleInfo: models.RoleInfo{ID: "role-1", Name: "Owner"}},
+		{OrganizationID: "org-2", WorkspaceID: "sub-2", WorkspaceName: "Shared", WorkspaceType: models.WorkspaceTypeSubscription, RoleInfo: models.RoleInfo{ID: "role-1", Name: "Owner"}},
+	}
+	sorted := sortTargetsForDisplay(targets)
+	if len(sorted) != 2 {
+		t.Fatalf("sortTargetsForDisplay() length = %d, want 2", len(sorted))
+	}
+	if FormatTargetOption(sorted[0]) != FormatTargetOption(sorted[1]) {
+		t.Fatalf("fixture no longer collides: %q vs %q", FormatTargetOption(sorted[0]), FormatTargetOption(sorted[1]))
+	}
+	if sorted[0].WorkspaceID == sorted[1].WorkspaceID {
+		t.Fatalf("fixture targets are indistinguishable: %+v", sorted)
 	}
 
+	// The sort is stable and the two entries compare equal, so the rendered order is
+	// the input order: row 0 is sub-1, row 1 is sub-2.
 	tests := []struct {
-		name    string
-		targets []models.EligibleTarget
-		display string
-		want    *models.EligibleTarget
-		wantErr bool
+		idx             int
+		wantWorkspaceID string
+		wantOrgID       string
 	}{
-		{
-			name:    "found subscription",
-			targets: targets,
-			display: "Subscription: Production / Role: Owner",
-			want:    &targets[0],
-			wantErr: false,
-		},
-		{
-			name:    "found resource group",
-			targets: targets,
-			display: "Resource Group: rg-web / Role: Contributor",
-			want:    &targets[1],
-			wantErr: false,
-		},
-		{
-			name:    "not found",
-			targets: targets,
-			display: "Subscription: NonExistent / Role: Reader",
-			want:    nil,
-			wantErr: true,
-		},
-		{
-			name:    "empty targets",
-			targets: []models.EligibleTarget{},
-			display: "Subscription: Test / Role: Owner",
-			want:    nil,
-			wantErr: true,
-		},
+		{idx: 0, wantWorkspaceID: "sub-1", wantOrgID: "org-1"},
+		{idx: 1, wantWorkspaceID: "sub-2", wantOrgID: "org-2"},
+	}
+	for _, tt := range tests {
+		got, err := resolveTargetSelection(sorted, tt.idx)
+		if err != nil {
+			t.Fatalf("resolveTargetSelection(_, %d) error = %v", tt.idx, err)
+		}
+		if got.WorkspaceID != tt.wantWorkspaceID || got.OrganizationID != tt.wantOrgID {
+			t.Errorf("selecting row %d returned WorkspaceID=%q OrganizationID=%q, want %q/%q",
+				tt.idx, got.WorkspaceID, got.OrganizationID, tt.wantWorkspaceID, tt.wantOrgID)
+		}
+	}
+}
+
+func TestResolveTargetSelection_OutOfRange(t *testing.T) {
+	t.Parallel()
+	targets := []models.EligibleTarget{
+		{WorkspaceID: "sub-1", WorkspaceName: "Shared", WorkspaceType: models.WorkspaceTypeSubscription, RoleInfo: models.RoleInfo{Name: "Owner"}},
+	}
+	for _, idx := range []int{-1, 1} {
+		if _, err := resolveTargetSelection(targets, idx); err == nil {
+			t.Errorf("resolveTargetSelection(_, %d) = nil error, want out-of-range error", idx)
+		}
+	}
+}
+
+// Not parallel: mutates the package-global IsTerminalFunc.
+func TestSelectTarget_EmptyList(t *testing.T) {
+	original := IsTerminalFunc
+	defer func() { IsTerminalFunc = original }()
+	IsTerminalFunc = func(fd uintptr) bool { return true }
+
+	_, err := SelectTarget(nil)
+	if err == nil {
+		t.Fatal("expected error for empty list")
+	}
+	if !strings.Contains(err.Error(), "no eligible targets available") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// collidingTargets returns 15 targets in 5 groups of 3 that render identically within
+// each group. The size matters: Go's pdqsort delegates to insertion sort below n=12,
+// which happens to be stable, so a 4-element fixture cannot tell sort.Slice and
+// sort.SliceStable apart. WorkspaceID encodes the input position within its group.
+func collidingTargets() []models.EligibleTarget {
+	names := []string{"Alpha", "Bravo", "Charlie", "Delta", "Echo"}
+	var targets []models.EligibleTarget
+	// Interleaved and reversed by name so an unstable sort has plenty to scramble.
+	for copyNum := 1; copyNum <= 3; copyNum++ {
+		for n := len(names) - 1; n >= 0; n-- {
+			targets = append(targets, models.EligibleTarget{
+				WorkspaceID:   fmt.Sprintf("%s-%d", names[n], copyNum),
+				WorkspaceName: names[n],
+				WorkspaceType: models.WorkspaceTypeSubscription,
+				RoleInfo:      models.RoleInfo{Name: "Owner"},
+			})
+		}
+	}
+	return targets
+}
+
+// TestSortTargetsForDisplay_StableAmongCollisions pins the sort as *stable*, not merely
+// ordered. Rendering order is what the user sees and index resolution is resolved
+// against the same slice, so two targets that render identically must keep their input
+// order — otherwise the same keystrokes pick a different target run to run.
+func TestSortTargetsForDisplay_StableAmongCollisions(t *testing.T) {
+	t.Parallel()
+
+	targets := collidingTargets()
+	if len(targets) < 13 {
+		t.Fatalf("fixture has %d targets; needs >= 13 to distinguish sort.Slice from sort.SliceStable", len(targets))
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			got, err := FindTargetByDisplay(tt.targets, tt.display)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("FindTargetByDisplay() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if tt.want == nil && got != nil {
-				t.Errorf("FindTargetByDisplay() = %v, want nil", got)
-				return
-			}
-			if tt.want != nil {
-				if got == nil {
-					t.Errorf("FindTargetByDisplay() = nil, want %v", tt.want)
-					return
-				}
-				if got.WorkspaceID != tt.want.WorkspaceID || got.RoleInfo.ID != tt.want.RoleInfo.ID {
-					t.Errorf("FindTargetByDisplay() = %v, want %v", got, tt.want)
-				}
-			}
-		})
+	sorted := sortTargetsForDisplay(targets)
+	if len(sorted) != len(targets) {
+		t.Fatalf("sortTargetsForDisplay() length = %d, want %d", len(sorted), len(targets))
+	}
+
+	// Displays must be non-decreasing (it is still a sort).
+	for i := 1; i < len(sorted); i++ {
+		if FormatTargetOption(sorted[i-1]) > FormatTargetOption(sorted[i]) {
+			t.Fatalf("not sorted at %d: %q > %q", i, FormatTargetOption(sorted[i-1]), FormatTargetOption(sorted[i]))
+		}
+	}
+
+	// Within each colliding display, input order must be preserved.
+	wantOrder := map[string][]string{}
+	for _, target := range targets {
+		d := FormatTargetOption(target)
+		wantOrder[d] = append(wantOrder[d], target.WorkspaceID)
+	}
+	gotOrder := map[string][]string{}
+	for _, target := range sorted {
+		d := FormatTargetOption(target)
+		gotOrder[d] = append(gotOrder[d], target.WorkspaceID)
+	}
+	if len(wantOrder) < 2 {
+		t.Fatalf("fixture no longer collides: %d distinct displays", len(wantOrder))
+	}
+	for display, want := range wantOrder {
+		if len(want) < 2 {
+			t.Fatalf("display %q does not collide; fixture is broken", display)
+		}
+		if !reflect.DeepEqual(gotOrder[display], want) {
+			t.Errorf("display %q: colliding targets reordered\n got %v\nwant %v (input order)",
+				display, gotOrder[display], want)
+		}
 	}
 }

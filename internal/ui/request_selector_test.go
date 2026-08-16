@@ -78,6 +78,23 @@ func TestSelectRequest_NonInteractive(t *testing.T) {
 	}
 }
 
+// TestSelectRequest_NonInteractiveEmptyList pins the order of the two guards: the
+// non-interactive check must win when both conditions hold at once.
+// Not parallel: mutates the package-global IsTerminalFunc.
+func TestSelectRequest_NonInteractiveEmptyList(t *testing.T) {
+	orig := IsTerminalFunc
+	defer func() { IsTerminalFunc = orig }()
+	IsTerminalFunc = func(fd uintptr) bool { return false }
+
+	_, err := SelectRequest(nil)
+	if err == nil {
+		t.Fatal("expected error for non-TTY with an empty list")
+	}
+	if !errors.Is(err, ErrNotInteractive) {
+		t.Errorf("expected ErrNotInteractive to win over the empty-list guard, got: %v", err)
+	}
+}
+
 func TestBuildRequestOptions_SortedCorrectlyWithOffsets(t *testing.T) {
 	// "2026-04-20T10:00:00+02:00" == 08:00 UTC — earlier than 09:30Z
 	// String sort would put +02:00 after Z; time sort must put 09:30Z first.
@@ -91,6 +108,45 @@ func TestBuildRequestOptions_SortedCorrectlyWithOffsets(t *testing.T) {
 	}
 	if sorted[1].RequestID != "offset" {
 		t.Errorf("expected offset (08:00 UTC) second, got %q", sorted[1].RequestID)
+	}
+}
+
+// TestFormatRequestOption_RFC3339Nano pins the RFC3339Nano parse branch of
+// formatSelectorTimestamp. The textual fallback below it truncates at the '.'
+// and therefore drops the timezone offset, so the two paths genuinely differ
+// for any timestamp carrying fractional seconds — which the API does emit.
+func TestFormatRequestOption_RFC3339Nano(t *testing.T) {
+	tests := []struct {
+		name      string
+		createdAt string
+		want      string
+	}{
+		{
+			name:      "fractional seconds with offset keeps the offset",
+			createdAt: "2026-04-20T10:00:00.123456789+02:00",
+			want:      "2026-04-20T10:00:00+02:00",
+		},
+		{
+			name:      "fractional seconds in UTC",
+			createdAt: "2026-04-20T10:00:00.5Z",
+			want:      "2026-04-20T10:00:00Z",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := wfmodels.AccessRequest{
+				RequestID:    "req-nano",
+				RequestState: wfmodels.RequestStatePending,
+				CreatedBy:    "user@test",
+				CreatedAt:    tt.createdAt,
+			}
+			got := FormatRequestOption(r)
+			want := "PENDING  - / -  (by user@test, " + tt.want + ")  [req-nano]"
+			if got != want {
+				t.Errorf("FormatRequestOption() = %q, want %q", got, want)
+			}
+		})
 	}
 }
 
