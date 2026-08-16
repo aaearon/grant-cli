@@ -248,14 +248,20 @@ The seven production changes from the plan's table, plus two added by the PR7 re
 | OUT-26 | `favorites add` early non-interactive guard, favorites-specific message | PR1 | `### Fixed` |
 | CFG-02 | `ParseCacheTTL` errors on any explicitly-invalid value | PR6 | `### Changed` |
 | CACHE-07 | `maxSessionAge` → `sessionTimestampRetention` | PR6 | no (internal) |
-| UI-02 | `sortGroupsForDisplay` extraction | PR7 | no (refactor) |
+| UI-02 | `sortGroupsForDisplay` extraction | PR7 | no (refactor; since removed with `SelectGroup`) |
 | SFU-10 | `syncStagedFileFn` seam | PR3 | no (test seam; **not** a production gap) |
-| — | `SelectGroup` resolves the answer by **index** (`resolveGroupSelection`) instead of display text, matching `SelectRole`/`SelectRequest`. Two groups with the same name in different directories render identically, so the old text lookup returned the first match whatever the user highlighted. Not an audit row — found by the PR7 review. Pinned by `TestResolveGroupSelection_DuplicateDisplayStrings` | PR7 | `### Fixed` |
-| — | `SelectTarget` resolves the answer by **index** (`resolveTargetSelection`) against the same sorted copy it renders (`sortTargetsForDisplay`), instead of looking the display text up in the caller's **unsorted** slice. `FormatTargetOption` carries no ID, so two targets with the same workspace name and role in different subscriptions/accounts render identically; worse than the group case, because the rendered and searched slices were in different orders. Not an audit row — found by the PR7 review. Pinned by `TestResolveTargetSelection_DuplicateDisplayStrings` and `TestSortTargetsForDisplay_Ordering`. `SelectSessions` still resolves by text and is deliberately left alone — its option strings embed the session ID, so collisions are unreachable | PR7 | `### Fixed` |
+| — | `SelectTarget` resolves the answer by **index** (`resolveTargetSelection`) against the same sorted copy it renders (`sortTargetsForDisplay`), instead of looking the display text up in the caller's **unsorted** slice. `FormatTargetOption` carries no ID, so two targets with the same workspace name and role in different subscriptions/accounts render identically, and the rendered and searched slices were in different orders besides. Not an audit row — found by the PR7 review. Pinned by `TestSelectTarget_PTY_DuplicateDisplay`, which drives the live prompt over a pty and covers the filtered path; `TestResolveTargetSelection_DuplicateDisplayStrings` and `TestSortTargetsForDisplay_Ordering` cover the extracted helpers only and do **not** pin the wiring | PR7 | `### Fixed` |
+| — | `uiUnifiedSelector.SelectItem` resolves the answer by **index** (`resolveSelectionItem`) instead of display text, and `buildUnifiedOptions` sorts stably so options and items stay index-aligned. This is the selector plain `grant`, `grant --groups` and `grant favorites add` actually reach, and it was still bug-for-bug identical to the pre-fix `SelectGroup`: `formatSelectionItem` carries no ID, so two Entra ID groups with the same name in different directories render identically and the text lookup elevated into the first. Not an audit row — found by the PR7 adversarial re-review, which showed the original PR7 fix missed the live caller. Pinned by `TestUIUnifiedSelector_PTY_DuplicateGroupDisplay` (wiring, incl. the filtered path), `TestResolveSelectionItem` (bounds) and `TestBuildUnifiedOptions_StableAmongCollisions` (stability) | PR7 | `### Fixed` |
+| — | `SelectGroup`, `FindGroupByDisplay` and `FindTargetByDisplay` deleted — zero production callers. `sortGroupsForDisplay` and `resolveGroupSelection` existed only to serve `SelectGroup` and went with it; the group path in production is the unified selector above. Closes the deletion-candidate note that used to sit under this table | PR7 | no (dead code) |
+| — | Sort fixtures for `sortTargetsForDisplay` and `buildUnifiedOptions` widened to 15 colliding entries. At n=4 Go's pdqsort delegates to insertion sort, which is incidentally stable, so `sort.SliceStable` → `sort.Slice` survived the suite in both places. Both mutants are now killed | PR7 | no (test-only) |
+| — | `SelectSessions` still resolves by display text, deliberately. Its option strings embed `session.SessionID` and the SCA API is **assumed** to return distinct IDs, so collisions should be unreachable; `FindSessionByDisplay` fails *open* if that assumption breaks. Assumption now stated at the call site rather than asserted as fact | PR7 | no (comment only) |
 
-`FindGroupByDisplay` and `FindTargetByDisplay` are exported and still covered by tests,
-but neither has a production caller after the two index fixes. Both are follow-up
-deletion candidates; they were kept here rather than removed in a fix commit.
+The two index fixes above are pinned by pty-driven tests that drive the real
+`survey.Select` prompt (`internal/ui/pty_linux_test.go`, `cmd/pty_linux_test.go`;
+raw `/dev/ptmx` + `TIOCSPTLCK`/`TIOCGPTN`, no new module dependency, Linux-only by
+file name). This matters: tests over the extracted `resolve*` helpers alone left the
+whole suite green when the selectors were reverted to display-string resolution, so
+they pinned the helpers and not the behaviour.
 
 ### Total CONFIRMED
 

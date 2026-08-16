@@ -446,6 +446,12 @@ func selectSubmitWorkspace(workspaces []submitWorkspace) (*submitWorkspace, erro
 	if err != nil {
 		return nil, err
 	}
+	// Bounds-checked rather than trusted: survey reports an index into Options, which
+	// is built one-for-one from workspaces, so this should always be in range — but a
+	// panic here would be a poor way to find out otherwise.
+	if selected < 0 || selected >= len(workspaces) {
+		return nil, fmt.Errorf("invalid workspace selection index %d", selected)
+	}
 	return &workspaces[selected], nil
 }
 

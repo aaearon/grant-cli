@@ -302,8 +302,9 @@ func TestSortTargetsForDisplay_Ordering(t *testing.T) {
 // Recovering the answer by text returns the first match regardless of which row the
 // user highlighted — and SelectTarget searched the caller's *unsorted* slice while
 // rendering a sorted one, so the two could disagree even without a collision.
-// survey.Select cannot be driven from a test, so the index path is asserted on the
-// extracted resolver, mirroring SelectGroup/SelectRole/SelectRequest.
+// This covers the extracted resolver in isolation. The real SelectTarget wiring is
+// pinned separately by TestSelectTarget_PTY_DuplicateDisplay, which drives the live
+// survey prompt over a pseudo-terminal.
 func TestResolveTargetSelection_DuplicateDisplayStrings(t *testing.T) {
 	t.Parallel()
 	targets := []models.EligibleTarget{

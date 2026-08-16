@@ -124,7 +124,7 @@ func (p *ptySession) waitFor(t *testing.T, want string) {
 // send writes keys in a single Write so multi-byte escape sequences cannot be split.
 func (p *ptySession) send(t *testing.T, keys string) {
 	t.Helper()
-	if _, err := p.master.Write([]byte(keys)); err != nil && !errors.Is(err, io.EOF) {
+	if _, err := p.master.WriteString(keys); err != nil && !errors.Is(err, io.EOF) {
 		t.Fatalf("writing %q to pty: %v", keys, err)
 	}
 }
