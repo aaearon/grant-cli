@@ -3,8 +3,10 @@ name: CI
 on:
   push:
     branches: [main]
+  # No branch filter: a pull_request trigger scoped to [main] silently skips CI
+  # on stacked PRs (feature branch -> feature branch), which is exactly when a
+  # green signal matters most. Run on every PR regardless of its base.
   pull_request:
-    branches: [main]
 
 permissions:
   contents: read
@@ -41,6 +43,24 @@ jobs:
       - name: Test with race detector (Windows)
         if: runner.os == 'Windows'
         run: go test -race ./... -v
+
+      # Integration tests drive the compiled binary as a child process. They
+      # need no network and take ~2s, and they are the only place the real
+      # argument parsing, exit codes and error text are exercised end to end.
+      # Unguarded so both platforms are covered; the harness builds its own
+      # binary into a temp dir.
+      #
+      # -shuffle=on because the 23 untagged cmd/*_test.go files compile into
+      # this binary too: without it their order dependence is only ever
+      # shuffled in the untagged build, never here.
+      - name: Integration tests
+        run: go test -tags=integration ./cmd -count=1 -shuffle=on -v
+
+      # The suite mutates package globals (bootstrapImpl, log,
+      # ui.IsTerminalFunc). Randomising order is what surfaces a test that only
+      # passes because another test ran first.
+      - name: Test with shuffled order
+        run: go test -shuffle=on -count=1 ./...
 
       # Runs on BOTH legs so the platforms stay comparable. This is the only
       # test that replaces a real, running executable, which is where Windows

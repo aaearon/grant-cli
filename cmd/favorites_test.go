@@ -316,7 +316,10 @@ func TestFavoritesAddCommand(t *testing.T) {
 				_ = config.Save(cfg, path)
 			},
 			args:    []string{"dev"},
-			wantErr: true, // Should fail with duplicate error
+			wantErr: true,
+			// A bare wantErr passes on ANY error — an auth failure or the
+			// non-interactive guard would both satisfy it. Name the message.
+			wantContain: []string{`favorite "dev" already exists`},
 		},
 		{
 			name: "success with target and role flags",
@@ -1250,5 +1253,102 @@ func TestSurveyNamePrompter_NonTTY(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "argument") {
 		t.Errorf("error should suggest providing name as argument, got: %v", err)
+	}
+}
+
+// setTTY forces ui.IsInteractive() to the given value for the duration of the
+// test.
+//
+// Not parallel: mutates the package-global ui.IsTerminalFunc.
+func setTTY(t *testing.T, interactive bool) {
+	t.Helper()
+	original := ui.IsTerminalFunc
+	t.Cleanup(func() { ui.IsTerminalFunc = original })
+	ui.IsTerminalFunc = func(fd uintptr) bool { return interactive }
+}
+
+// TestFavoritesAdd_NonInteractiveGuard pins the BUG that `grant favorites add
+// myfav` in a script used to authenticate and call the SCA eligibility API
+// before ui.ErrNotInteractive finally surfaced from PromptName. The guard must
+// fire before bootstrapSCAService, and must sit AFTER the duplicate-name check
+// so a duplicate still reports "already exists".
+//
+// Not parallel: mutates package-global TTY and bootstrap state.
+func TestFavoritesAdd_NonInteractiveGuard(t *testing.T) {
+	tests := []struct {
+		name string
+		// interactive drives ui.IsInteractive().
+		interactive     bool
+		setupConfig     func(string)
+		args            []string
+		wantNotInteract bool     // error must wrap ui.ErrNotInteractive
+		wantContain     []string // substrings required in the error text
+	}{
+		{
+			name:        "name given but no flags and no terminal",
+			setupConfig: func(path string) { _ = config.Save(config.DefaultConfig(), path) },
+			args:        []string{"myfav"},
+			// The hint must name the favorites flags, not a request ID — and
+			// the NAME argument, which is required too and which a
+			// flags-only hint silently omits.
+			wantNotInteract: true,
+			wantContain:     []string{"name", "--target", "--role"},
+		},
+		{
+			name:            "groups type without --group and no terminal",
+			setupConfig:     func(path string) { _ = config.Save(config.DefaultConfig(), path) },
+			args:            []string{"myfav", "--type", "groups"},
+			wantNotInteract: true,
+			wantContain:     []string{"name", "--group"},
+		},
+		{
+			name: "duplicate name still reports the duplicate, not the missing terminal",
+			setupConfig: func(path string) {
+				cfg := config.DefaultConfig()
+				_ = config.AddFavorite(cfg, "dev", config.Favorite{
+					Provider: "azure", Target: "subscription-123", Role: "Contributor",
+				})
+				_ = config.Save(cfg, path)
+			},
+			args:        []string{"dev"},
+			wantContain: []string{`favorite "dev" already exists`},
+		},
+		{
+			name:        "with a terminal the guard does not fire and bootstrap is reached",
+			interactive: true,
+			setupConfig: func(path string) { _ = config.Save(config.DefaultConfig(), path) },
+			args:        []string{"myfav"},
+			// errTestBootstrapDisabled proves execution got past the guard.
+			wantContain: []string{"bootstrapImpl is disabled in unit tests"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setTTY(t, tt.interactive)
+			resetBootstrapCache()
+			t.Cleanup(resetBootstrapCache)
+
+			configPath := filepath.Join(t.TempDir(), "config.yaml")
+			t.Setenv("GRANT_CONFIG", configPath)
+			tt.setupConfig(configPath)
+
+			rootCmd := newTestRootCommand()
+			rootCmd.AddCommand(NewFavoritesCommand())
+
+			_, err := executeCommand(rootCmd, append([]string{"favorites", "add"}, tt.args...)...)
+			if err == nil {
+				t.Fatal("expected an error, got nil")
+			}
+			if gotNotInteract := errors.Is(err, ui.ErrNotInteractive); gotNotInteract != tt.wantNotInteract {
+				t.Errorf("errors.Is(err, ui.ErrNotInteractive) = %v, want %v (err = %v)",
+					gotNotInteract, tt.wantNotInteract, err)
+			}
+			for _, want := range tt.wantContain {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error missing %q, got: %v", want, err)
+				}
+			}
+		})
 	}
 }

@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- `grant favorites add` now fails immediately without a terminal instead of authenticating first
+- `grant favorites add`'s non-interactive error now mentions the required favorite name, not only the flags
+
 ## [0.9.0] - 2026-08-14
 
 ### Added

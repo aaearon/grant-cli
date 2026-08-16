@@ -5,6 +5,13 @@
 run:
   timeout: 3m
   tests: true
+  # Without these, cmd/integration_test.go and internal/selfupdate/e2e_test.go
+  # are invisible to every linter. Note the effect on cmd/: with `integration`
+  # set, cmd/main_test.go (//go:build !integration) is excluded instead, so the
+  # two tagged files are linted at the cost of that one.
+  build-tags:
+    - integration
+    - selfupdate_e2e
 
 linters:
   disable-all: true
