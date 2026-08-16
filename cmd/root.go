@@ -971,7 +971,12 @@ func (s *uiSelector) SelectTarget(targets []models.EligibleTarget) (*models.Elig
 	return ui.SelectTarget(targets)
 }
 
-// uiUnifiedSelector implements unifiedSelector using survey.Select
+// uiUnifiedSelector implements unifiedSelector using survey.Select. This is the
+// selector plain `grant`, `grant --groups` and `grant favorites add` all reach.
+// It resolves the answer by the selected index rather than by display text, and
+// renders from the same sorted slice it resolves against, so duplicate display
+// strings — two Entra ID groups with the same name in different directories, say —
+// cannot elevate into the wrong one.
 type uiUnifiedSelector struct{}
 
 func (s *uiUnifiedSelector) SelectItem(items []selectionItem) (*selectionItem, error) {
@@ -985,16 +990,16 @@ func (s *uiUnifiedSelector) SelectItem(items []selectionItem) (*selectionItem, e
 
 	options, sorted := buildUnifiedOptions(items)
 
-	var selected string
+	var selectedIdx int
 	prompt := &survey.Select{
 		Message: "Select a target:",
 		Options: options,
 		Filter:  nil,
 	}
 
-	if err := survey.AskOne(prompt, &selected, survey.WithStdio(os.Stdin, os.Stderr, os.Stderr)); err != nil {
+	if err := survey.AskOne(prompt, &selectedIdx, survey.WithStdio(os.Stdin, os.Stderr, os.Stderr)); err != nil {
 		return nil, fmt.Errorf("selection failed: %w", err)
 	}
 
-	return findItemByDisplay(sorted, selected)
+	return resolveSelectionItem(sorted, selectedIdx)
 }

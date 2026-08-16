@@ -145,59 +145,79 @@ func TestBuildUnifiedOptions(t *testing.T) {
 	}
 }
 
-func TestFindItemByDisplay(t *testing.T) {
-	cloudTarget := &scamodels.EligibleTarget{
+func TestResolveSelectionItem(t *testing.T) {
+	first := &scamodels.GroupsEligibleTarget{
+		DirectoryID: "dir-first",
+		GroupID:     "group-first",
+		GroupName:   "Cloud Admins",
+	}
+	second := &scamodels.GroupsEligibleTarget{
+		DirectoryID: "dir-second",
+		GroupID:     "group-second",
+		GroupName:   "Cloud Admins",
+	}
+	cloud := &scamodels.EligibleTarget{
+		WorkspaceID:   "sub-1",
 		WorkspaceName: "Prod-EastUS",
 		WorkspaceType: scamodels.WorkspaceTypeSubscription,
 		RoleInfo:      scamodels.RoleInfo{Name: "Contributor"},
 	}
-	groupTarget := &scamodels.GroupsEligibleTarget{
-		DirectoryName: "Contoso",
-		GroupName:     "Engineering",
-	}
 
+	// The two groups render identically, which is exactly the case a display-string
+	// lookup gets wrong.
 	items := []selectionItem{
-		{kind: selectionCloud, cloud: cloudTarget},
-		{kind: selectionGroup, group: groupTarget},
+		{kind: selectionGroup, group: first},
+		{kind: selectionGroup, group: second},
+		{kind: selectionCloud, cloud: cloud},
 	}
 
 	tests := []struct {
 		name    string
-		display string
+		idx     int
 		wantErr bool
+		wantID  string
 	}{
-		{
-			name:    "finds cloud by display",
-			display: "Subscription: Prod-EastUS / Role: Contributor",
-			wantErr: false,
-		},
-		{
-			name:    "finds group by display",
-			display: "Directory: Contoso / Group: Engineering (azure)",
-			wantErr: false,
-		},
-		{
-			name:    "returns error on mismatch",
-			display: "NonExistent Display String",
-			wantErr: true,
-		},
+		{name: "first of two identical displays", idx: 0, wantID: "group-first"},
+		{name: "second of two identical displays", idx: 1, wantID: "group-second"},
+		{name: "cloud item", idx: 2, wantID: "sub-1"},
+		{name: "negative index errors", idx: -1, wantErr: true},
+		{name: "index past end errors", idx: 3, wantErr: true},
+		{name: "far out of range errors", idx: 99, wantErr: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			item, err := findItemByDisplay(items, tt.display)
+			item, err := resolveSelectionItem(items, tt.idx)
 			if tt.wantErr {
 				if err == nil {
-					t.Error("expected error but got none")
+					t.Fatalf("resolveSelectionItem(%d) = %v, want error", tt.idx, item)
+				}
+				if item != nil {
+					t.Errorf("resolveSelectionItem(%d) item = %v, want nil", tt.idx, item)
 				}
 				return
 			}
 			if err != nil {
-				t.Errorf("unexpected error: %v", err)
+				t.Fatalf("unexpected error: %v", err)
 			}
-			if item == nil {
-				t.Fatal("expected non-nil item")
+			var gotID string
+			switch item.kind {
+			case selectionGroup:
+				gotID = item.group.GroupID
+			case selectionCloud:
+				gotID = item.cloud.WorkspaceID
+			}
+			if gotID != tt.wantID {
+				t.Errorf("resolveSelectionItem(%d) id = %q, want %q", tt.idx, gotID, tt.wantID)
 			}
 		})
+	}
+}
+
+// TestResolveSelectionItem_EmptySlice guards the degenerate case: with nothing to
+// select from, every index must be rejected rather than panicking.
+func TestResolveSelectionItem_EmptySlice(t *testing.T) {
+	if item, err := resolveSelectionItem(nil, 0); err == nil {
+		t.Errorf("resolveSelectionItem(nil, 0) = %v, want error", item)
 	}
 }
