@@ -24,6 +24,20 @@ shifted by +13 for the non-interactive guard this branch inserts at
 are noted in the Mutation cell with `(was ...)`. **File:line is always the production
 site, never the test site.**
 
+**Mutating a call whose only purpose is its side effect.** A bare deletion of
+`sdkclient.DisableTransientRetry(...)` orphans the `internal/sdkclient` import, so
+the build fails — that is a **compile kill, not a test kill**, and it proves
+nothing about coverage. The honest mutation is the assignment form
+`_ = sdkclient.DisableTransientRetry`, which keeps the import used so only
+behaviour changes. This tripped an earlier verification pass (see SCA-18). The
+same shape applies to any mutation that would leave an identifier or import
+unused: use the semantic form, not a token deletion.
+
+**A sandbox that blocks loopback TCP cannot refute a row.** Several rows were once
+recorded as "not reproducible" purely because the verifier could not bind an
+`httptest` server. That is an environmental limitation, not a property of the code;
+re-run such rows in an environment with loopback before recording a verdict.
+
 **Verdicts** are the verifiers' conclusions, not the original reports':
 `CONFIRMED` (survivor reproduced), `OVERSTATED` (survivor real, stated consequence
 weaker than claimed), `REFUTED` (the claim is false — the mutant dies, or the
@@ -87,44 +101,55 @@ premise does not hold).
 | OUT-27 | cmd/favorites | `cmd/favorites.go:248-250` | `if provider != "" { fav.Provider = provider }` → ignore the interactive `--provider`. **Mutant dies**: `TestFavoritesAddInteractiveMode/eligibility_fetch_fails` fails with `output missing "failed to fetch eligible targets"`. A genuine assertion kill — not a compile error, panic, or environment failure | REFUTED | refuted | n/a — already killed | — | todo |
 | OUT-28 | cmd/status docs | n/a | Claim: `computeRemainingTimeAt` is referenced but missing, and CLAUDE.md is stale. **False on both counts.** `rg computeRemainingTimeAt .` → no hits; the clock seam was deliberately removed in `2f34795`; current CLAUDE.md never claims it exists | REFUTED | refuted | n/a — no such symbol | — | todo |
 | OUT-29 | cmd test mocks | `cmd/test_mocks.go:26,41,54,198` | Claim: argument-ignoring mocks are the *general* root cause. Every mock already supports argument-aware callbacks (`loadFunc`, `listFunc`), and OUT-27 is killed by an argument-sensitive error-path test. The default return path is arg-blind, which explains individual weak fixtures — but not as a blanket root cause | REFUTED | refuted | n/a — superseded by PR4's capture convention | — | todo |
-| SCA-01 | internal/sca models | `internal/sca/models/elevate.go:30` | `AccessCredentials *string \`json:"accessCredentials"\`` → `json:"accessCredentialsXX"`. Passes the **entire repo suite**. Only fixtures use `"accessCredentials": null`; service tests marshal Go structs whose field is nil. This is the one field `grant env` exists to deliver | CONFIRMED | test | `TestElevateResponse_DecodesPopulatedAccessCredentials` — decode a *populated* value off the wire through `ParseAWSCredentials` and assert all three values | PR8 | todo |
-| SCA-02 | internal/sca | `internal/sca/service.go:208` | `s.httpClient.Post(ctx, "/api/access/elevate", req)` → `..., nil)` | CONFIRMED | test | `TestElevate_SendsExactBody` (add `gotBody` to `mockHTTPClient`) | PR8 | todo |
-| SCA-03 | internal/sca | `internal/sca/service.go:236` | `s.httpClient.Post(ctx, "/api/access/sessions/revoke", req)` → `..., nil)` | CONFIRMED | test | `TestRevokeSessions_SendsExactBody` | PR8 | todo |
-| SCA-04 | internal/sca | `internal/sca/service.go:390` | `s.httpClient.Post(ctx, "/api/access/elevate/groups", req)` → `..., nil)` | CONFIRMED | test | `TestElevateGroups_SendsExactBody` | PR8 | todo |
-| SCA-05 | internal/sca | `internal/sca/service.go:208` | Route `"/api/access/elevate"` → `"/WRONG"` | CONFIRMED | test | `TestElevate_Route` (add `gotRoute`) | PR8 | todo |
-| SCA-06 | internal/sca | `internal/sca/service.go:258` | Route `"/api/access/sessions"` → `"/WRONG"` | CONFIRMED | test | `TestListSessions_Route` | PR8 | todo |
-| SCA-07 | internal/sca | `internal/sca/service.go:236` | Route `"/api/access/sessions/revoke"` → `"/WRONG"` | CONFIRMED | test | `TestRevokeSessions_Route` | PR8 | todo |
-| SCA-08 | internal/sca | `internal/sca/service.go:285` | `route := fmt.Sprintf("/api/access/%s/eligibility/groups", csp)` → `fmt.Sprintf("/WRONG/%s", csp)` | CONFIRMED | test | `TestListGroupsEligibility_Route` | PR8 | todo |
-| SCA-09 | internal/sca | `internal/sca/service.go:390` | Route `"/api/access/elevate/groups"` → `"/WRONG"` | CONFIRMED | test | `TestElevateGroups_Route` | PR8 | todo |
-| SCA-10 | internal/sca | `internal/sca/service.go:323` and `:356` | `"pageSize": -1` → `"pageSize": 10` at **both** on-demand call sites. The wire contract is genuinely untested; the *consequence* ("-1 means all, so 10 truncates the role picker") is **unevidenced** — neither the repo, the pinned SDK, nor official docs document this endpoint's `-1` semantics. Assert the sent value; do not assert a truncation story | OVERSTATED | test | `TestListOnDemandResources_ExactQueryParams` | PR8 | todo |
-| SCA-11 | internal/sca | `internal/sca/service.go:326` and `:360` | `"target_category": "cloud_console"` → `"WRONG"` at **both** on-demand call sites | CONFIRMED | test | `TestListOnDemandResources_ExactQueryParams` | PR8 | todo |
-| SCA-12 | internal/sca | `internal/sca/service.go:258-262` | `ListSessions`'s `buildParams` closure returns `nil` instead of `map[string]string{"csp": string(*csp)}`. `TestListSessions_WithCSPFilter` is tautological — its canned response is already Azure and it never inspects params. `grant status --provider azure` does no local filtering, so all providers' sessions would display | CONFIRMED | test | Replace `TestListSessions_WithCSPFilter` with `TestListSessions_SendsCSPQueryParam` (add `gotParams`) | PR8 | todo |
-| SCA-13 | internal/sca | `internal/sca/service.go:144` | `s.httpClient.Get(ctx, route, p)` → `s.httpClient.Get(context.Background(), route, p)` in `paginate` | CONFIRMED | test | `TestPaginate_PropagatesContextCancellation` | PR8 | todo |
-| SCA-14 | internal/sca | `internal/sca/service.go:184` (and the sibling decoders at `:267`, `:291`) | In the `ListEligibility` decode closure, swallow the error: `if err := json.NewDecoder(r).Decode(&page); err != nil { return nil, nil, 0, nil }` | CONFIRMED | test | `TestListEligibility_PropagatesDecodeError` | PR8 | todo |
-| SCA-15 | internal/sca | `internal/sca/service.go:74` | `client.SetHeader("X-API-Version", "2.0")` → delete the call, and separately → `"1.0"`. The **only** guard lives inside `TestNewSCAAccessServiceDisablesTransientRetry`, so a retry-motivated rename silently deletes the header assertion. Verifier could not execute it (loopback prohibited in that sandbox); coverage topology confirmed by grep | OVERSTATED | test | Extract `TestNewSCAAccessService_SetsAPIVersionHeader` as its own named test | PR8 | todo |
-| SCA-16 | internal/sca models | `internal/sca/models/elevate.go:28` | `RoleID string \`json:"roleId"\`` → `json:"roleIdXX"` on the **request** model | CONFIRMED | test | `TestElevateRequest_JSONTags` | PR8 | todo |
-| SCA-17 | internal/sca models | `internal/sca/models/credentials.go:17` (`ParseAWSCredentials`) | Swap `SecretAccessKey` and `SessionToken` in the parser output. **Mutant dies repo-wide**: `env_test.go:77` and `root_elevate_test.go:426`. Nuance: swapping the *struct JSON tags* instead is also caught, by `TestAWSCredentials_JSONUnmarshal`. Recorded so this is not re-filed as a survivor | REFUTED | refuted | n/a — already killed | — | todo |
-| SCA-18 | internal/sca | `internal/sca/service.go:75-ish` (`sdkclient.DisableTransientRetry` call) | Claim: deleting the call yields `inbound requests = 4, want 1`. **Not reproducible** in the verifier's sandbox (loopback prohibited); a literal deletion is a compile kill first (`"internal/sdkclient" imported and not used`). Same for the workflows twin. The guard tests exist and are correctly aimed; only their runtime assertion was unverifiable | OVERSTATED | refuted | n/a — `internal/sca/retry_policy_test.go` / `internal/workflows/retry_policy_test.go` already guard this | — | todo |
-| WF-01 | internal/workflows | `internal/workflows/service.go:102` | Delete `if err := checkResponse(resp, "request forms"); err != nil { return nil, err }` | CONFIRMED | test | `TestWorkflows_Non200` (table over all six call sites) | PR8 | todo |
-| WF-02 | internal/workflows | `internal/workflows/service.go:161` | Delete the `checkResponse(resp, "list requests")` guard | CONFIRMED | test | `TestWorkflows_Non200` | PR8 | todo |
-| WF-03 | internal/workflows | `internal/workflows/service.go:196` | Delete the `checkResponse(resp, "get request")` guard | CONFIRMED | test | `TestWorkflows_Non200` | PR8 | todo |
-| WF-04 | internal/workflows | `internal/workflows/service.go:221` | Delete the `checkResponse(resp, "submit request")` guard. Verified consequence: a 500 carrying `{}` decodes to an empty request, so `grant request submit` prints a blank `Request ID:` / `State:` and exits 0 | CONFIRMED | test | `TestWorkflows_Non200` | PR8 | todo |
-| WF-05 | internal/workflows | `internal/workflows/service.go:245` | Delete the `checkResponse(resp, "cancel request")` guard | CONFIRMED | test | `TestWorkflows_Non200` | PR8 | todo |
-| WF-06 | internal/workflows | `internal/workflows/service.go:272` | Delete the `checkResponse(resp, "finalize request")` guard | CONFIRMED | test | `TestWorkflows_Non200` | PR8 | todo |
-| WF-07 | internal/workflows | `internal/workflows/logging_client.go:58` | Delete the `if redacted.Get("Authorization") != ""` redaction block. Real token-in-logs risk; the SCA twin is covered by `TestLoggingClient_DebugLogsHeaders` | CONFIRMED | test | new `internal/workflows/logging_client_test.go`, mirroring the sca one **including Authorization redaction** | PR8 | todo |
-| WF-08 | internal/workflows | `internal/workflows/logging_client.go:24-26` | Route `Get` through `c.inner.Post(ctx, route, params)` | CONFIRMED | test | `TestLoggingClient_GetUsesGet` (workflows) | PR8 | todo |
-| WF-09 | internal/workflows | `internal/workflows/logging_client.go:24-33` | Swallow the inner error and return a synthetic 200 response with `err = nil` | CONFIRMED | test | `TestLoggingClient_PropagatesInnerError` (workflows) | PR8 | todo |
-| WF-10 | internal/workflows models | `internal/workflows/models/submit.go:6` | `RequestDetails map[string]interface{} \`json:"requestDetails"\`` → `json:"requestDetailsXX"` | CONFIRMED | test | `TestSubmitAccessRequest_JSONTags` | PR8 | todo |
-| WF-11 | internal/workflows models | `internal/workflows/models/finalize.go:5` | `Result string \`json:"result"\`` → `json:"resultXX"` | CONFIRMED | test | `TestFinalizeAccessRequest_JSONTags` | PR8 | todo |
-| WF-12 | internal/workflows models | `internal/workflows/models/cancel.go:5` | `CancelReason *string \`json:"cancelReason"\`` → `json:"cancelReasonXX"` | CONFIRMED | test | `TestCancelAccessRequest_JSONTags` | PR8 | todo |
-| WF-13 | internal/workflows | `internal/workflows/service.go:263` | Delete `FinalizationReason: reason,` from the `FinalizeAccessRequest` literal | CONFIRMED | test | `TestFinalizeRequest_SendsFinalizationReason` | PR8 | todo |
-| WF-14 | internal/workflows | `internal/workflows/service.go:260` | `route := fmt.Sprintf("/api/workflows/requests/%s/finalize", requestID)` → `"/api/workflows/requests/finalize"`. The cancel twin *is* covered (`service_test.go:274`), which is the contrast that proves the gap | CONFIRMED | test | `TestFinalizeRequest_ExactRoute` | PR8 | todo |
-| WF-15 | internal/workflows | `internal/workflows/service.go:141` | Delete `qp["limit"] = strconv.Itoa(limit)` | CONFIRMED | test | `TestListRequests_SendsLimit` | PR8 | todo |
-| WF-16 | internal/workflows | `internal/workflows/service.go:124` | `const defaultPageSize = 50` → `= 1` | CONFIRMED | test | `TestListRequests_DefaultPageSize` | PR8 | todo |
-| WF-17 | internal/workflows | `internal/workflows/service.go:156` | `s.httpClient.Get(ctx, "/api/workflows/requests", qp)` → `Get(context.Background(), ...)` in the pagination loop | CONFIRMED | test | `TestListRequests_PropagatesContextCancellation` | PR8 | todo |
-| WF-18 | internal/workflows | `internal/workflows/service.go:201` | In `GetRequest`, swallow the decode error: `if err := json.NewDecoder(resp.Body).Decode(&result); err != nil { return &result, nil }` | CONFIRMED | test | `TestGetRequest_PropagatesDecodeError` | PR8 | todo |
-| WF-19 | internal/workflows | `internal/workflows/service_config.go:9` | `ServiceName: "access-requests"` → `"WRONG"`. There is no workflows `service_config_test.go` at all | CONFIRMED | test | new `internal/workflows/service_config_test.go` | PR8 | todo |
-| WF-20 | internal/workflows | `internal/workflows/service.go:45` | `base.Authenticator("isp")` → `base.Authenticator("WRONG")` | CONFIRMED | test | new `internal/workflows/service_config_test.go` | PR8 | todo |
+| SCA-01 | internal/sca models | `internal/sca/models/elevate.go:30` | `AccessCredentials *string \`json:"accessCredentials"\`` → `json:"accessCredentialsXX"`. Passes the **entire repo suite**. Only fixtures use `"accessCredentials": null`; service tests marshal Go structs whose field is nil. This is the one field `grant env` exists to deliver | CONFIRMED | test | `TestElevateResponse_DecodesPopulatedAccessCredentials` — decode a *populated* value off the wire through `ParseAWSCredentials` and assert all three values | PR8 | done |
+| SCA-02 | internal/sca | `internal/sca/service.go:208` | `s.httpClient.Post(ctx, "/api/access/elevate", req)` → `..., nil)` | CONFIRMED | test | `TestElevate_SendsExactRouteAndBody` (added `gotRoute`/`gotBody` to `mockHTTPClient`) — one test, shared with SCA-05 | PR8 | done |
+| SCA-03 | internal/sca | `internal/sca/service.go:236` | `s.httpClient.Post(ctx, "/api/access/sessions/revoke", req)` → `..., nil)` | CONFIRMED | test | `TestRevokeSessions_SendsExactRouteAndBody` — one test, shared with SCA-07 | PR8 | done |
+| SCA-04 | internal/sca | `internal/sca/service.go:390` | `s.httpClient.Post(ctx, "/api/access/elevate/groups", req)` → `..., nil)` | CONFIRMED | test | `TestElevateGroups_SendsExactRouteAndBody` — one test, shared with SCA-09 | PR8 | done |
+| SCA-05 | internal/sca | `internal/sca/service.go:208` | Route `"/api/access/elevate"` → `"/WRONG"` | CONFIRMED | test | Folded into `TestElevate_SendsExactRouteAndBody` (same test as SCA-02; it asserts route **and** body) | PR8 | done |
+| SCA-06 | internal/sca | `internal/sca/service.go:258` | Route `"/api/access/sessions"` → `"/WRONG"` | CONFIRMED | test | `TestGetRoutes_Exact/list_sessions` | PR8 | done |
+| SCA-07 | internal/sca | `internal/sca/service.go:236` | Route `"/api/access/sessions/revoke"` → `"/WRONG"` | CONFIRMED | test | Folded into `TestRevokeSessions_SendsExactRouteAndBody` (same test as SCA-03) | PR8 | done |
+| SCA-08 | internal/sca | `internal/sca/service.go:285` | `route := fmt.Sprintf("/api/access/%s/eligibility/groups", csp)` → `fmt.Sprintf("/WRONG/%s", csp)` | CONFIRMED | test | `TestGetRoutes_Exact/list_groups_eligibility` | PR8 | done |
+| SCA-09 | internal/sca | `internal/sca/service.go:390` | Route `"/api/access/elevate/groups"` → `"/WRONG"` | CONFIRMED | test | Folded into `TestElevateGroups_SendsExactRouteAndBody` (same test as SCA-04) | PR8 | done |
+| SCA-10 | internal/sca | `internal/sca/service.go:323` and `:356` | `"pageSize": -1` → `"pageSize": 10` at **both** on-demand call sites. The wire contract is genuinely untested; the *consequence* ("-1 means all, so 10 truncates the role picker") is **unevidenced** — neither the repo, the pinned SDK, nor official docs document this endpoint's `-1` semantics. Assert the sent value; do not assert a truncation story | OVERSTATED | test | `TestListOnDemandResources_ExactQueryParams` | PR8 | done |
+| SCA-11 | internal/sca | `internal/sca/service.go:326` and `:360` | `"target_category": "cloud_console"` → `"WRONG"` at **both** on-demand call sites | CONFIRMED | test | `TestListOnDemandResources_ExactQueryParams` | PR8 | done |
+| SCA-12 | internal/sca | `internal/sca/service.go:258-262` | `ListSessions`'s `buildParams` closure returns `nil` instead of `map[string]string{"csp": string(*csp)}`. `TestListSessions_WithCSPFilter` is tautological — its canned response is already Azure and it never inspects params. `grant status --provider azure` does no local filtering, so all providers' sessions would display | CONFIRMED | test | Replace `TestListSessions_WithCSPFilter` with `TestListSessions_SendsCSPQueryParam` (add `gotParams`) | PR8 | done |
+| SCA-13 | internal/sca | `internal/sca/service.go:144` | `s.httpClient.Get(ctx, route, p)` → `s.httpClient.Get(context.Background(), route, p)` in `paginate` | CONFIRMED | test | `TestPaginate_PropagatesContextCancellation` | PR8 | done |
+| SCA-14 | internal/sca | `internal/sca/service.go:184` (and the sibling decoders at `:267`, `:291`) | In the `ListEligibility` decode closure, swallow the error: `if err := json.NewDecoder(r).Decode(&page); err != nil { return nil, nil, 0, nil }` | CONFIRMED | test | `TestPaginate_PropagatesDecodeError` | PR8 | done |
+| SCA-15 | internal/sca | `internal/sca/service.go:74` | `client.SetHeader("X-API-Version", "2.0")` → delete the call, and separately → `"1.0"`. The **only** guard lived inside `TestNewSCAAccessServiceDisablesTransientRetry`, so a retry-motivated rename silently deletes the header assertion. Both mutants were subsequently executed and both fail `service_client_test.go:52` (deletion → `X-API-Version = ""`; `"1.0"` → `X-API-Version = "1.0"`) | OVERSTATED | test | Extract `TestNewSCAAccessService_SetsAPIVersionHeader` as its own named test | PR8 | done |
+| SCA-16 | internal/sca models | `internal/sca/models/elevate.go:6` (was `:28`, which is `ElevateTargetResult` — the **response** model, killed by the pre-existing `TestElevateResponse_Success`) | `RoleID string \`json:"roleId"\`` → `json:"roleIdXX"` on the **request** model | CONFIRMED | test | `TestElevateRequest_JSONTags` | PR8 | done |
+| SCA-17 | internal/sca models | `internal/sca/models/credentials.go:17` (`ParseAWSCredentials`) | Swap `SecretAccessKey` and `SessionToken` in the parser output. **Mutant dies repo-wide**: `env_test.go:77` and `root_elevate_test.go:426`. Nuance: swapping the *struct JSON tags* instead is also caught, by `TestAWSCredentials_JSONUnmarshal`. Recorded so this is not re-filed as a survivor | REFUTED | refuted | n/a — already killed | — | done |
+| SCA-18 | internal/sca | `internal/sca/service.go:75-ish` (`sdkclient.DisableTransientRetry` call) | `_ = sdkclient.DisableTransientRetry` (the assignment form — a bare deletion orphans the import and is a compile kill, not a test kill). Reproduced on **both** services exactly as claimed: `inbound requests = 4, want 1` from `internal/sca/retry_policy_test.go:91` and `internal/workflows/retry_policy_test.go:90` | CONFIRMED | test | `TestNewSCAAccessServiceDisablesTransientRetry` and `TestNewAccessRequestServiceDisablesTransientRetry` (both pre-existing and correctly aimed; PR8 executed them against the mutant) | PR8 | done |
+| WF-01 | internal/workflows | `internal/workflows/service.go:102` | Delete `if err := checkResponse(resp, "request forms"); err != nil { return nil, err }` | CONFIRMED | test | `TestWorkflows_Non200` (table over all six call sites) | PR8 | done |
+| WF-02 | internal/workflows | `internal/workflows/service.go:161` | Delete the `checkResponse(resp, "list requests")` guard | CONFIRMED | test | `TestWorkflows_Non200` | PR8 | done |
+| WF-03 | internal/workflows | `internal/workflows/service.go:196` | Delete the `checkResponse(resp, "get request")` guard | CONFIRMED | test | `TestWorkflows_Non200` | PR8 | done |
+| WF-04 | internal/workflows | `internal/workflows/service.go:221` | Delete the `checkResponse(resp, "submit request")` guard. Verified consequence: a 500 carrying `{}` decodes to an empty request, so `grant request submit` prints a blank `Request ID:` / `State:` and exits 0 | CONFIRMED | test | `TestWorkflows_Non200` | PR8 | done |
+| WF-05 | internal/workflows | `internal/workflows/service.go:245` | Delete the `checkResponse(resp, "cancel request")` guard | CONFIRMED | test | `TestWorkflows_Non200` | PR8 | done |
+| WF-06 | internal/workflows | `internal/workflows/service.go:272` | Delete the `checkResponse(resp, "finalize request")` guard | CONFIRMED | test | `TestWorkflows_Non200` | PR8 | done |
+| WF-07 | internal/workflows | `internal/workflows/logging_client.go:58` | Delete the `if redacted.Get("Authorization") != ""` redaction block. Real token-in-logs risk; the SCA twin is covered by `TestLoggingClient_DebugLogsHeaders` | CONFIRMED | test | new `internal/workflows/logging_client_test.go`, mirroring the sca one **including Authorization redaction** | PR8 | done |
+| WF-08 | internal/workflows | `internal/workflows/logging_client.go:24-26` | Route `Get` through `c.inner.Post(ctx, route, params)` | CONFIRMED | test | `TestLoggingClient_GetUsesGet` (workflows) | PR8 | done |
+| WF-09 | internal/workflows | `internal/workflows/logging_client.go:24-33` | Swallow the inner error and return a synthetic 200 response with `err = nil` | CONFIRMED | test | `TestLoggingClient_PropagatesInnerError` (workflows) | PR8 | done |
+| WF-10 | internal/workflows models | `internal/workflows/models/submit.go:6` | `RequestDetails map[string]interface{} \`json:"requestDetails"\`` → `json:"requestDetailsXX"` | CONFIRMED | test | `TestSubmitAccessRequest_JSONTags` | PR8 | done |
+| WF-11 | internal/workflows models | `internal/workflows/models/finalize.go:5` | `Result string \`json:"result"\`` → `json:"resultXX"` | CONFIRMED | test | `TestFinalizeAccessRequest_JSONTags` | PR8 | done |
+| WF-12 | internal/workflows models | `internal/workflows/models/cancel.go:5` | `CancelReason *string \`json:"cancelReason"\`` → `json:"cancelReasonXX"` | CONFIRMED | test | `TestCancelAccessRequest_JSONTags` | PR8 | done |
+| WF-13 | internal/workflows | `internal/workflows/service.go:263` | Delete `FinalizationReason: reason,` from the `FinalizeAccessRequest` literal | CONFIRMED | test | `TestFinalizeRequest_ExactRouteAndReason` — one test, shared with WF-14 | PR8 | done |
+| WF-14 | internal/workflows | `internal/workflows/service.go:260` | `route := fmt.Sprintf("/api/workflows/requests/%s/finalize", requestID)` → `"/api/workflows/requests/finalize"`. The cancel twin *is* covered (`TestCancelRequest`), which is the contrast that proves the gap | CONFIRMED | test | Folded into `TestFinalizeRequest_ExactRouteAndReason` (same test as WF-13) | PR8 | done |
+| WF-15 | internal/workflows | `internal/workflows/service.go:141` | Delete `qp["limit"] = strconv.Itoa(limit)` | CONFIRMED | test | `TestListRequests_SendsLimit` | PR8 | done |
+| WF-16 | internal/workflows | `internal/workflows/service.go:124` | `const defaultPageSize = 50` → `= 1` | CONFIRMED | test | `TestListRequests_SendsLimit` (same test as WF-15; its `defaultPageSize` rows pin the 50) | PR8 | done |
+| WF-17 | internal/workflows | `internal/workflows/service.go:156` | `s.httpClient.Get(ctx, "/api/workflows/requests", qp)` → `Get(context.Background(), ...)` in the pagination loop | CONFIRMED | test | `TestListRequests_PropagatesContextCancellation` | PR8 | done |
+| WF-18 | internal/workflows | `internal/workflows/service.go:201` | In `GetRequest`, swallow the decode error: `if err := json.NewDecoder(resp.Body).Decode(&result); err != nil { return &result, nil }` | CONFIRMED | test | `TestGetRequest_PropagatesDecodeError` | PR8 | done |
+| WF-19 | internal/workflows | `internal/workflows/service_config.go:9` | `ServiceName: "access-requests"` → `"WRONG"`. There is no workflows `service_config_test.go` at all | CONFIRMED | test | new `internal/workflows/service_config_test.go` | PR8 | done |
+| WF-20 | internal/workflows | `internal/workflows/service.go:45` | `base.Authenticator("isp")` → `base.Authenticator("WRONG")` | CONFIRMED | test | new `internal/workflows/service_config_test.go` | PR8 | done |
+| SCA-19 | internal/sca | `internal/sca/service.go:60` | `isp.FromISPAuth(ispAuth, "sca", ...)` → `"WRONG"`. Not in the original audit; found while closing SCA-15. Both retry-policy tests overwrite `client.BaseURL` before issuing a request, so the slug — which is what resolves the live host — was unpinned. **Decision: pin, not won't-fix.** The assertion is one line against the already-constructed client, needs no network, and the failure mode (every request to the wrong host) is total | CONFIRMED | test | `TestNewSCAAccessService_UsesSCAServiceSlug` — asserts `BaseURL == "https://testtenant.sca.example.test"` from the existing fake JWT, **before** any BaseURL swap | PR8 | done |
+| WF-21 | internal/workflows | `internal/workflows/service.go:56` | `isp.FromISPAuth(ispAuth, "uar", ...)` → `"WRONG"`. The UAR twin of SCA-19, same rationale and same decision | CONFIRMED | test | `TestNewAccessRequestService_UsesUARServiceSlug` | PR8 | done |
+| WF-22 | internal/workflows | `internal/workflows/service.go:156` | `s.httpClient.Get(ctx, "/api/workflows/requests", qp)` → `"/apiZ/workflows/requests"`. The only unpinned route in either service: `TestListRequests_SendsLimit` already recorded `mock.gotRoute` and never asserted it, so `grant request list` could be pointed anywhere and stay green | CONFIRMED | test | `TestListRequests_SendsLimit` — route assertion added alongside the existing limit assertion | PR8 | done |
+| WF-23 | internal/workflows | `internal/workflows/service.go:215` | In `SubmitRequest`, forward a stripped copy: `mangled := *req; mangled.RequestDetails = nil; s.httpClient.Post(ctx, "/api/workflows/requests", &mangled)`. `TestSubmitRequest` asserted only `TargetCategory`, so reason, role, target, dates and priority — the entire substance of `grant request submit` — were unasserted at the service boundary. The identical mutation on the two SCA pass-through POSTs dies, because those tests `DeepEqual` the whole body | CONFIRMED | test | `TestSubmitRequest_SendsExactRouteAndBody` — mirrors `TestElevate_SendsExactRouteAndBody`, `DeepEqual` against a populated, all-distinct `RequestDetails` | PR8 | done |
+| SCA-20 | internal/sca models | `internal/sca/models/groups.go:20` | `GroupID string \`json:"groupId"\`` → `json:"ZgroupId"` on `GroupsElevateTarget` — the **request** model. Its single field is the whole per-target payload of `POST /api/access/elevate/groups`: mutated, every `grant --group` elevation sends `{"targets":[{"ZgroupId":"..."}]}` and group elevation is broken outright. `TestElevateRequest_JSONTags` pins the cloud twin; there was no groups twin | CONFIRMED | test | `TestGroupsElevateRequest_JSONTags` — asserts the **nested** `groupId` inside `targets`, plus `directoryId` and `csp` | PR8 | done |
+| SCA-21 | internal/sca models | `internal/sca/models/groups.go:33` | `SessionID string \`json:"sessionId"\`` → `json:"ZsessionId"` on `GroupsElevateTargetResult`. Elevation still succeeds, but grant reports an empty session ID and the session can never be revoked by ID | CONFIRMED | test | `TestGroupsElevateResponse_DecodesPopulatedResult` | PR8 | done |
+| SCA-22 | internal/sca models | `internal/sca/models/groups.go:32` | `GroupID string \`json:"groupId"\`` → `json:"ZgroupId"` on `GroupsElevateTargetResult` | CONFIRMED | test | `TestGroupsElevateResponse_DecodesPopulatedResult` | PR8 | done |
+| SCA-23 | internal/sca models | `internal/sca/models/groups.go:40` | `DirectoryID string \`json:"directoryId"\`` → `json:"ZdirectoryId"` on `GroupsElevateResponse` | CONFIRMED | test | `TestGroupsElevateResponse_DecodesPopulatedResult` | PR8 | done |
+| SCA-24 | internal/sca models | `internal/sca/models/groups.go:41` | `CSP CSP \`json:"csp"\`` → `json:"Zcsp"` on `GroupsElevateResponse` | CONFIRMED | test | `TestGroupsElevateResponse_DecodesPopulatedResult` | PR8 | done |
+| WF-24 | internal/workflows models | `internal/workflows/models/request.go:32`, `:63` (and the rest of `AccessRequest`, `Entity`, `ApproverAction`, `ListRequestsResponse`) | Rename any response tag, e.g. `RequestDetails ... \`json:"requestDetails,omitempty"\`` → `json:"ZrequestDetails,omitempty"`, or `ApproverAction.Result \`json:"result"\`` → `json:"Zresult"`. `internal/workflows/models/wire_tags_test.go` pinned only the three request bodies while the SCA twin pinned both directions; every response test decoded a body marshaled from the same struct, so a rename round-tripped and `grant request get` / `list` would render blanks. Not claimed by the PR — recorded because it was found while closing WF-23 | CONFIRMED | test | `TestAccessRequest_DecodesPopulatedResponse` and `TestListRequestsResponse_DecodesPopulatedPage` — 18 tags verified killed (`requestId`, `targetCategory`, `requestState`, `requestResult`, `requestDetails`, `requestApprovers`, `requester`, `createdBy/At`, `updatedBy/At`, `entityId`, `entityName`, `approver`, `result`, `items`, `count`, `totalCount`) | PR8 | done |
+| WF-25 | internal/workflows models | `internal/workflows/models/form.go` (`FormQuestion`, `Validator`) | Rename any form-metadata tag, e.g. `Validator.Regex \`json:"regex,omitempty"\`` → `json:"Zregex,omitempty"`. Deliberately **not** closed in PR8: this is validation metadata for the interactive `grant request submit` form, one step removed from the user-visible output that WF-24 covers, and pinning it well needs a populated-form fixture rather than another tag list. Recorded so the gap is stated rather than silent | CONFIRMED | test | Follow-up: a populated `RequestFormResponse` decode fixture pinning `requestForms`, `requestForm`, `questions`, `key`, `required`, `valueType`, `valueChoices`, `validators` and the `Validator` fields | — | todo |
 | ELV-01 | cmd/selection | `cmd/selection.go:78` | `return &items[i], nil` → `return &items[0], nil`. `TestFindItemByDisplay` only checks non-nil/error, so selecting one display value silently elevates the first sorted target and prints a success line naming the wrong one | CONFIRMED | test | `TestFindItemByDisplay_ReturnsMatchingItem` | PR4 | todo |
 | ELV-02 | cmd/root (unified elevate builder) | `cmd/root.go:786-793` | In `elevateCloud`, swap `WorkspaceID: selectedTarget.WorkspaceID` and `RoleID: selectedTarget.RoleInfo.ID` | CONFIRMED | test | `TestElevateCloud_RequestPayload` (`mockElevateService` history) | PR4 | todo |
 | ELV-03 | cmd/root (unified elevate builder) | `cmd/root.go:786-788` | In `elevateCloud`, blank both `CSP:` and `OrganizationID:` | CONFIRMED | test | `TestElevateCloud_RequestPayload` | PR4 | todo |
@@ -217,28 +242,28 @@ premise does not hold).
 | PR5 — Output contracts | 32 | 30 |
 | PR6 — Cache and config semantics | 16 | 16 |
 | PR7 — UI behavior | 10 | 10 |
-| PR8 — SCA / workflows / models wire contracts | 36 | 34 |
-| *(no PR — settled, recorded only)* | 5 | 0 |
-| **Total** | **165** | **152** |
+| PR8 — SCA / workflows / models wire contracts | 39 | 37 |
+| *(no PR — settled, recorded only)* | 4 | 0 |
+| **Total** | **167** | **155** |
 
 ### By verdict
 
 | Verdict | Rows |
 |---|---|
-| CONFIRMED | 152 |
-| OVERSTATED | 9 |
+| CONFIRMED | 155 |
+| OVERSTATED | 8 |
 | REFUTED | 4 |
 
 ### By disposition
 
 | Disposition | Rows |
 |---|---|
-| `test` | 149 |
+| `test` | 152 |
 | `test + prod-fix` | 5 |
 | `prod-fix` | 1 |
 | `wont-fix` | 5 |
-| `refuted` | 5 |
-| **Total** | **165** |
+| `refuted` | 4 |
+| **Total** | **167** |
 
 The seven production changes, matching the plan's table:
 
@@ -254,10 +279,11 @@ The seven production changes, matching the plan's table:
 
 ### Total CONFIRMED
 
-**152 CONFIRMED**, plus **9 OVERSTATED** (real survivors whose stated consequence
-was weaker than originally claimed) and **4 REFUTED**. **165 rows total.**
-5 rows are `wont-fix` (SFU-20, SFU-21, SFU-22, UI-09, UI-10), so **160 rows require
-work**, of which 6 carry a production change.
+**155 CONFIRMED**, plus **8 OVERSTATED** (real survivors whose stated consequence
+was weaker than originally claimed) and **4 REFUTED**. **167 rows total.**
+5 rows are `wont-fix` (SFU-20, SFU-21, SFU-22, UI-09, UI-10) and 4 are closed by
+review (`refuted`), so **158 rows require work**, of which 6 carry a production
+change.
 
 ### Reconciliation against "145"
 
@@ -269,14 +295,14 @@ to a named, independently reproduced finding in a verification report.
 |---|---|---|---|
 | 1 — cmd request/auth | 22 confirmed | 23 (22 CONFIRMED + 1 OVERSTATED) | **Yes.** The 22 CONFIRMED rows are mutation-level and match exactly. REQ-23 (integration suite absent from CI) is reported *outside* the 22. |
 | 2 — cmd status/favorites/list | 25 real of 29 claimed | 29 (23 CONFIRMED, 3 OVERSTATED, 3 REFUTED) | **Approximately.** All 29 claimed items are listed so the three refutations stay recorded. 23 + 3 OVERSTATED = 26 actionable, one above the verifier's "25" — its own prose is imprecise about whether OUT-21/OUT-25/OUT-26 count as "real". |
-| 3 — internal/sca + workflows | 31 + 4 extra = 35 | 38 (34 CONFIRMED, 3 OVERSTATED, 1 REFUTED) | **Yes.** 34 CONFIRMED + SCA-10 (a real survivor, only its truncation consequence overstated) = exactly 35 survivors. The other 3 rows are SCA-15 (X-API-Version coverage topology, which PR8 acts on) and SCA-17/SCA-18, recorded so they are not re-filed. |
+| 3 — internal/sca + workflows | 31 + 4 extra = 35 | 38 (35 CONFIRMED, 2 OVERSTATED, 1 REFUTED) | **Yes.** 34 of the CONFIRMED rows + SCA-10 (a real survivor, only its truncation consequence overstated) = exactly 35 survivors. The remaining rows are SCA-15 (X-API-Version coverage topology, which PR8 acts on), SCA-18 (reproduced by PR8, above the headline) and SCA-17, recorded so it is not re-filed. |
 | 4 — cmd root/elevate/env | 22 confirmed | 27 (26 CONFIRMED, 1 OVERSTATED) | **No — +5.** The report's headline groups its own sub-lettered mutations inconsistently: H2.1–2.3, H3.1–3.4, M4.1–2, M5.1–3, M6.1–6.4 and M9.1–3 are enumerated individually in the body, each with its own `go test ./cmd/ -count=1 → ok` transcript, but collapsed in the total. Listing them individually gives 25 production mutations plus 2 test-quality rows (ELV-26, ELV-27). |
 | 5 — cache/config/ui/selfupdate | 44 reproduced, 41 actionable | 48 (all CONFIRMED, 4 of them `wont-fix`) | **Partly — +4.** Same granularity problem: M7 and M9 are two mutations each; L1, L3, L4 and L5 are three each; L9 is three survivors. Enumerating every reproduced mutation gives 48; removing the 4 unreachable/defensive `wont-fix` rows (SFU-20, SFU-21, UI-09, UI-10) gives **44 actionable**, matching "44 reproduced" but not "41 actionable" — the report never itemises which 3 it dropped. |
 
-**Net: 165 rows against a headline of 145.** Roughly 9 of the excess is finer
+**Net: 167 rows against a headline of 145.** Roughly 9 of the excess is finer
 enumeration in batches 4 and 5 (mutations the reports reproduced individually but
-totalled in groups); the rest is the 13 OVERSTATED/REFUTED rows the headline count
-deliberately excluded but which belong here as settled questions. Nothing was
+totalled in groups); most of the rest is the 12 OVERSTATED/REFUTED rows the headline
+count deliberately excluded but which belong here as settled questions. Nothing was
 invented and nothing was dropped to hit a number.
 
 There are no `NEEDS-REVIEW` rows: every row's source report is unambiguous about

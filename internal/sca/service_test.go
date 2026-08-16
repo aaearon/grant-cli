@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -21,9 +22,19 @@ type mockHTTPClient struct {
 	getFunc func(ctx context.Context, route string, params interface{}) (*http.Response, error)
 	// postFunc, when set, overrides postResponse/postError for dynamic responses.
 	postFunc func(ctx context.Context, route string, body interface{}) (*http.Response, error)
+
+	// Recorded arguments of the most recent call. They are populated before the
+	// call is dispatched, so they are available whichever response mechanism is
+	// in use. Wire-contract tests assert on them; without them, passing nil
+	// bodies or a typo'd route is invisible.
+	gotRoute  string
+	gotBody   interface{}
+	gotParams interface{}
 }
 
 func (m *mockHTTPClient) Get(ctx context.Context, route string, params interface{}) (*http.Response, error) {
+	m.gotRoute = route
+	m.gotParams = params
 	if m.getFunc != nil {
 		return m.getFunc(ctx, route, params)
 	}
@@ -34,6 +45,8 @@ func (m *mockHTTPClient) Get(ctx context.Context, route string, params interface
 }
 
 func (m *mockHTTPClient) Post(ctx context.Context, route string, body interface{}) (*http.Response, error) {
+	m.gotRoute = route
+	m.gotBody = body
 	if m.postFunc != nil {
 		return m.postFunc(ctx, route, body)
 	}
@@ -508,44 +521,59 @@ func TestListSessions_Empty(t *testing.T) {
 	}
 }
 
-func TestListSessions_WithCSPFilter(t *testing.T) {
-	csp := models.CSPAzure
-	resp := models.SessionsResponse{
-		Response: []models.SessionInfo{
-			{
-				SessionID:       "session1",
-				UserID:          "user1",
-				CSP:             models.CSPAzure,
-				WorkspaceID:     "sub1",
-				RoleID:          "role1",
-				SessionDuration: 3600,
-			},
-		},
-		NextToken: nil,
-		Total:     1,
+// TestListSessions_SendsCSPQueryParam replaces the former
+// TestListSessions_WithCSPFilter, which asserted only that the canned response
+// it fed the mock contained CSPAzure — returning nil query params survived it.
+// The filter is server-side (grant does no local filtering), so if the param is
+// dropped `grant status --provider azure` silently lists every provider.
+func TestListSessions_SendsCSPQueryParam(t *testing.T) {
+	tests := []struct {
+		name       string
+		csp        *models.CSP
+		wantParams map[string]string // nil means: expect no params at all
+	}{
+		{name: "filter sends csp param", csp: cspPtr(models.CSPAzure), wantParams: map[string]string{"csp": "AZURE"}},
+		{name: "aws filter sends its own csp", csp: cspPtr(models.CSPAWS), wantParams: map[string]string{"csp": "AWS"}},
+		{name: "no filter sends no params", csp: nil, wantParams: nil},
 	}
 
-	body, _ := json.Marshal(resp)
-	mock := &mockHTTPClient{
-		getResponse: &http.Response{
-			StatusCode: http.StatusOK,
-			Body:       io.NopCloser(strings.NewReader(string(body))),
-		},
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body, _ := json.Marshal(models.SessionsResponse{
+				Response: []models.SessionInfo{{SessionID: "session1", CSP: models.CSPAzure}},
+				Total:    1,
+			})
+			mock := &mockHTTPClient{
+				getResponse: &http.Response{
+					StatusCode: http.StatusOK,
+					Body:       io.NopCloser(strings.NewReader(string(body))),
+				},
+			}
 
-	svc := &SCAAccessService{httpClient: mock}
-	result, err := svc.ListSessions(t.Context(), &csp)
+			svc := &SCAAccessService{httpClient: mock}
+			if _, err := svc.ListSessions(t.Context(), tt.csp); err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
 
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	if len(result.Response) != 1 {
-		t.Errorf("expected 1 session, got %d", len(result.Response))
-	}
-	if result.Response[0].CSP != models.CSPAzure {
-		t.Errorf("expected CSP AZURE, got %s", result.Response[0].CSP)
+			if tt.wantParams == nil {
+				if mock.gotParams != nil {
+					t.Fatalf("params = %#v, want nil", mock.gotParams)
+				}
+				return
+			}
+
+			got, ok := mock.gotParams.(map[string]string)
+			if !ok {
+				t.Fatalf("params = %#v (%T), want map[string]string", mock.gotParams, mock.gotParams)
+			}
+			if !reflect.DeepEqual(got, tt.wantParams) {
+				t.Errorf("params = %#v, want %#v", got, tt.wantParams)
+			}
+		})
 	}
 }
+
+func cspPtr(c models.CSP) *models.CSP { return &c }
 
 func TestListGroupsEligibility_Success(t *testing.T) {
 	resp := models.GroupsEligibilityResponse{
