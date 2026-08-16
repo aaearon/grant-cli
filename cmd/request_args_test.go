@@ -92,6 +92,37 @@ func TestRequestApprove_SendsApprovedDecision(t *testing.T) {
 	}
 }
 
+// TestRequestFinalize_EmptyReasonCollapsesToUnset pins the deliberate
+// behavior of runFinalize's `if v != "" { reason = &v }`: an explicitly empty
+// --reason is indistinguishable from no --reason at all on the wire. The mock's
+// reasonSet flag is what makes the two expressible, so the distinction is
+// asserted rather than merely representable.
+func TestRequestFinalize_EmptyReasonCollapsesToUnset(t *testing.T) {
+	svc := &mockAccessRequestService{
+		finalizeResult: &wfmodels.AccessRequest{
+			RequestID:     "req-approve-2",
+			RequestResult: wfmodels.RequestResultApproved,
+		},
+	}
+
+	cmd := NewRequestCommandWithDeps(svc)
+	root := newTestRootCommand()
+	root.AddCommand(cmd)
+
+	output, err := executeCommand(root, "request", "approve", "req-approve-2", "--reason", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v\noutput: %s", err, output)
+	}
+
+	if len(svc.finalizeCalls) != 1 {
+		t.Fatalf("expected exactly 1 FinalizeRequest call, got %d", len(svc.finalizeCalls))
+	}
+	got := svc.lastFinalize()
+	if got.reasonSet {
+		t.Errorf(`--reason "" must collapse to a nil reason, got %q`, got.reason)
+	}
+}
+
 // TestRequestCancel_PassesRequestID kills REQ-02: sending anything other than
 // the requested ID at cmd/request_cancel.go:60.
 func TestRequestCancel_PassesRequestID(t *testing.T) {
@@ -107,6 +138,14 @@ func TestRequestCancel_PassesRequestID(t *testing.T) {
 			args:          []string{"request", "cancel", "req-cancel-7", "--reason", "changed my mind"},
 			wantReason:    "changed my mind",
 			wantReasonSet: true,
+		},
+		{
+			// runRequestCancel deliberately collapses an explicitly empty
+			// --reason into "unset" (`if v != "" { reason = &v }`), so the API
+			// sees nil rather than a pointer to "". Pinned so that a future
+			// change to that collapse cannot slip through unnoticed.
+			name: "explicitly empty reason collapses to unset",
+			args: []string{"request", "cancel", "req-cancel-7", "--reason", ""},
 		},
 	}
 
@@ -299,64 +338,99 @@ func submitStubWorkspace(t *testing.T, ws *submitWorkspace) {
 // TestRunRequestSubmit_SubmitPayload kills REQ-08, REQ-09 and REQ-10: the
 // hardcoded TargetCategory, the workspace ID in the request details, and the
 // timeFrom/timeTo pair (distinct values, so a swap dies).
+//
+// Table over both CSPs that buildRequestDetails special-cases. The AWS row is
+// the load-bearing one: "AWS" is exactly where locationType stops being a
+// naive string(ws.CSP), so an Azure-only fixture leaves that mapping unpinned.
+//
+// The assertion is exhaustive, not a subset: comparing len(RequestDetails)
+// against len(wantDetails) is what makes an *extra* key fail too.
 func TestRunRequestSubmit_SubmitPayload(t *testing.T) {
-	submitStubWorkspace(t, &submitWorkspace{
-		WorkspaceName:  "Prod-EastUS",
-		WorkspaceID:    "ws-payload-1",
-		WorkspaceType:  models.WorkspaceTypeSubscription,
-		CSP:            models.CSPAzure,
-		OrganizationID: "org-payload-9",
-	})
-
-	svc := &mockAccessRequestService{
-		submitResult: &wfmodels.AccessRequest{
-			RequestID:    "req-new",
-			RequestState: wfmodels.RequestStatePending,
+	tests := []struct {
+		name             string
+		csp              models.CSP
+		workspaceType    models.WorkspaceType
+		wantLocationType string
+	}{
+		{
+			name:             "azure subscription",
+			csp:              models.CSPAzure,
+			workspaceType:    models.WorkspaceTypeSubscription,
+			wantLocationType: "Azure",
+		},
+		{
+			name:             "aws account",
+			csp:              models.CSPAWS,
+			workspaceType:    models.WorkspaceTypeAccount,
+			wantLocationType: "AWS",
 		},
 	}
 
-	cmd := NewRequestCommandWithDeps(svc)
-	root := newTestRootCommand()
-	root.AddCommand(cmd)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			submitStubWorkspace(t, &submitWorkspace{
+				WorkspaceName:  "Prod-EastUS",
+				WorkspaceID:    "ws-payload-1",
+				WorkspaceType:  tt.workspaceType,
+				CSP:            tt.csp,
+				OrganizationID: "org-payload-9",
+			})
 
-	output, err := executeCommand(root, "request", "submit",
-		"--target", "Prod-EastUS", "--role-id", "role-payload-3", "--role", "Contributor",
-		"--reason", "need access", "--date", "2026-04-21",
-		"--timezone", "UTC",
-		// Distinguishable on purpose: identical values would not kill a swap.
-		"--from", "08:15", "--to", "19:45",
-		"--yes")
-	if err != nil {
-		t.Fatalf("unexpected error: %v\noutput: %s", err, output)
-	}
+			svc := &mockAccessRequestService{
+				submitResult: &wfmodels.AccessRequest{
+					RequestID:    "req-new",
+					RequestState: wfmodels.RequestStatePending,
+				},
+			}
 
-	if len(svc.submitCalls) != 1 {
-		t.Fatalf("expected exactly 1 SubmitRequest call, got %d", len(svc.submitCalls))
-	}
-	sent := svc.lastSubmit()
-	if sent.TargetCategory != "CLOUD_CONSOLE" {
-		t.Errorf("targetCategory = %q, want CLOUD_CONSOLE", sent.TargetCategory)
-	}
+			cmd := NewRequestCommandWithDeps(svc)
+			root := newTestRootCommand()
+			root.AddCommand(cmd)
 
-	wantDetails := map[string]interface{}{
-		"locationType":  "Azure",
-		"roleId":        "role-payload-3",
-		"roleName":      "Contributor",
-		"workspaceId":   "ws-payload-1",
-		"workspaceName": "Prod-EastUS",
-		"workspaceType": string(models.WorkspaceTypeSubscription),
-		"orgId":         "org-payload-9",
-		"reason":        "need access",
-		"priority":      "Medium",
-		"requestDate":   "2026-04-21",
-		"timezone":      "UTC",
-		"timeFrom":      "08:15",
-		"timeTo":        "19:45",
-	}
-	for key, want := range wantDetails {
-		if got := sent.RequestDetails[key]; got != want {
-			t.Errorf("requestDetails[%q] = %v, want %v", key, got, want)
-		}
+			output, err := executeCommand(root, "request", "submit",
+				"--target", "Prod-EastUS", "--role-id", "role-payload-3", "--role", "Contributor",
+				"--reason", "need access", "--date", "2026-04-21",
+				"--timezone", "UTC",
+				// Distinguishable on purpose: identical values would not kill a swap.
+				"--from", "08:15", "--to", "19:45",
+				"--yes")
+			if err != nil {
+				t.Fatalf("unexpected error: %v\noutput: %s", err, output)
+			}
+
+			if len(svc.submitCalls) != 1 {
+				t.Fatalf("expected exactly 1 SubmitRequest call, got %d", len(svc.submitCalls))
+			}
+			sent := svc.lastSubmit()
+			if sent.TargetCategory != "CLOUD_CONSOLE" {
+				t.Errorf("targetCategory = %q, want CLOUD_CONSOLE", sent.TargetCategory)
+			}
+
+			wantDetails := map[string]interface{}{
+				"locationType":  tt.wantLocationType,
+				"roleId":        "role-payload-3",
+				"roleName":      "Contributor",
+				"workspaceId":   "ws-payload-1",
+				"workspaceName": "Prod-EastUS",
+				"workspaceType": string(tt.workspaceType),
+				"orgId":         "org-payload-9",
+				"reason":        "need access",
+				"priority":      "Medium",
+				"requestDate":   "2026-04-21",
+				"timezone":      "UTC",
+				"timeFrom":      "08:15",
+				"timeTo":        "19:45",
+			}
+			if len(sent.RequestDetails) != len(wantDetails) {
+				t.Errorf("requestDetails has %d keys, want %d: got %v",
+					len(sent.RequestDetails), len(wantDetails), sent.RequestDetails)
+			}
+			for key, want := range wantDetails {
+				if got := sent.RequestDetails[key]; got != want {
+					t.Errorf("requestDetails[%q] = %v, want %v", key, got, want)
+				}
+			}
+		})
 	}
 }
 

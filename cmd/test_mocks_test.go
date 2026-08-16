@@ -97,11 +97,16 @@ func (m *mockElevateService) Elevate(ctx context.Context, req *models.ElevateReq
 }
 
 // lastElevate returns the most recent request, or nil if Elevate never ran.
+//
+// Returns a pointer to a copy, not into the history's backing array: a test
+// that holds the pointer across a later call would otherwise read a stale
+// array once append reallocates.
 func (m *mockElevateService) lastElevate() *models.ElevateRequest {
 	if len(m.elevateCalls) == 0 {
 		return nil
 	}
-	return &m.elevateCalls[len(m.elevateCalls)-1]
+	c := m.elevateCalls[len(m.elevateCalls)-1]
+	return &c
 }
 
 // mockTargetSelector implements the targetSelector interface for testing
@@ -258,11 +263,13 @@ func (m *mockGroupsElevator) ElevateGroups(ctx context.Context, req *models.Grou
 }
 
 // lastElevateGroups returns the most recent request, or nil if never called.
+// Returns a pointer to a copy; see mockElevateService.lastElevate.
 func (m *mockGroupsElevator) lastElevateGroups() *models.GroupsElevateRequest {
 	if len(m.elevateCalls) == 0 {
 		return nil
 	}
-	return &m.elevateCalls[len(m.elevateCalls)-1]
+	c := m.elevateCalls[len(m.elevateCalls)-1]
+	return &c
 }
 
 // mockUnifiedSelector implements unifiedSelector for testing
@@ -399,27 +406,33 @@ func (m *mockAccessRequestService) lastListParams() workflows.ListRequestsParams
 }
 
 // lastSubmit returns the most recent submitted request, or nil if never called.
+// Returns a pointer to a copy; see mockElevateService.lastElevate.
 func (m *mockAccessRequestService) lastSubmit() *wfmodels.SubmitAccessRequest {
 	if len(m.submitCalls) == 0 {
 		return nil
 	}
-	return &m.submitCalls[len(m.submitCalls)-1]
+	c := m.submitCalls[len(m.submitCalls)-1]
+	return &c
 }
 
 // lastCancel returns the most recent cancel call, or nil if never called.
+// Returns a pointer to a copy; see mockElevateService.lastElevate.
 func (m *mockAccessRequestService) lastCancel() *cancelCall {
 	if len(m.cancelCalls) == 0 {
 		return nil
 	}
-	return &m.cancelCalls[len(m.cancelCalls)-1]
+	c := m.cancelCalls[len(m.cancelCalls)-1]
+	return &c
 }
 
 // lastFinalize returns the most recent finalize call, or nil if never called.
+// Returns a pointer to a copy; see mockElevateService.lastElevate.
 func (m *mockAccessRequestService) lastFinalize() *finalizeCall {
 	if len(m.finalizeCalls) == 0 {
 		return nil
 	}
-	return &m.finalizeCalls[len(m.finalizeCalls)-1]
+	c := m.finalizeCalls[len(m.finalizeCalls)-1]
+	return &c
 }
 
 // countingEligibilityLister wraps an eligibilityLister and counts calls per CSP.
