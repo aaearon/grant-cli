@@ -4,7 +4,8 @@
 //
 // # What it does not cover
 //
-// The redirect is a list of known variables (see redirectedVars), not a
+// The redirect is a list of known variables (see redirectedVars, plus
+// unsetVars for the ones that are removed rather than pointed elsewhere), not a
 // containment boundary. Anything that reaches user state by another route
 // escapes it:
 //
@@ -88,6 +89,27 @@ var redirectedVars = []string{
 	"IDSEC_BASIC_KEYRING",
 }
 
+// unsetVars lists environment variables Run REMOVES for the duration of the
+// run instead of redirecting. They select behavior rather than a location, so
+// there is no sandbox value to point them at — the only safe state is absent,
+// which is what CI has and what a developer's shell may not:
+//
+//   - IDSEC_PROFILE — the SDK profile loader
+//     (pkg/profiles/idsec_profile_loader.go) reads it to choose the DEFAULT
+//     PROFILE NAME. A developer with it exported runs the suite against a
+//     different profile than CI does, from the same source tree.
+//   - DEPLOY_ENV — feeds tenant-environment resolution inside
+//     isp.FromISPAuth (pkg/common/isp/idsec_isp_service_client.go), which the
+//     internal/sca and internal/workflows retry-policy tests now drive for
+//     real, so an exported value changes what those constructors resolve.
+//
+// Restoration is exact: a variable that was set comes back with its original
+// value, one that was unset stays unset.
+var unsetVars = []string{
+	"IDSEC_PROFILE",
+	"DEPLOY_ENV",
+}
+
 // nonPathVars are the entries of redirectedVars whose value is a mode switch
 // rather than a filesystem path, so "must resolve under the sandbox root" does
 // not apply to them.
@@ -139,21 +161,35 @@ func Run(run func() int) int {
 	// Deferred so a panic inside run — a -race detection, a stray panic in a
 	// test — still restores the environment and removes the sandbox instead of
 	// leaking the directory and leaving the process redirected.
-	restore := make(map[string]*string, len(redirectedVars))
+	restore := make(map[string]*string, len(redirectedVars)+len(unsetVars))
 	defer func() {
 		restoreEnv(restore)
 		_ = os.RemoveAll(root)
 	}()
 
-	for _, k := range redirectedVars {
+	// capture records k's current state so restoreEnv can put it back exactly,
+	// preserving the set-with-value / unset distinction.
+	capture := func(k string) {
 		if v, ok := os.LookupEnv(k); ok {
 			prev := v
 			restore[k] = &prev
-		} else {
-			restore[k] = nil
+			return
 		}
+		restore[k] = nil
+	}
+
+	for _, k := range redirectedVars {
+		capture(k)
 		if err := os.Setenv(k, values[k]); err != nil {
 			fmt.Fprintf(os.Stderr, "testenv: failed to set %s: %v\n", k, err)
+			return 1
+		}
+	}
+
+	for _, k := range unsetVars {
+		capture(k)
+		if err := os.Unsetenv(k); err != nil {
+			fmt.Fprintf(os.Stderr, "testenv: failed to unset %s: %v\n", k, err)
 			return 1
 		}
 	}

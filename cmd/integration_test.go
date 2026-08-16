@@ -26,10 +26,17 @@ var testBinary string
 // and GOMODCACHE default to locations under the user's home: without this the
 // build inside the sandbox would start from an empty module cache and need the
 // network.
+//
+// GOENV is in the list for the same reason and one more. The child `go build`
+// locates its env file through os.UserConfigDir: $XDG_CONFIG_HOME/go/env on
+// Linux — which the redirect points at an empty sandbox — but %AppData%\go\env
+// on Windows, which is not redirected at all. Without pinning GOENV the two CI
+// legs resolve different files, and any `go env -w GOPROXY=…` / `GOFLAGS` /
+// `GOPRIVATE` the developer or runner configured is silently dropped on Linux.
 var goEnvPassthrough []string
 
 func TestMain(m *testing.M) {
-	goEnvPassthrough = resolveGoEnv("GOCACHE", "GOMODCACHE", "GOPATH")
+	goEnvPassthrough = resolveGoEnv("GOCACHE", "GOMODCACHE", "GOPATH", "GOENV")
 
 	os.Exit(testenv.Run(func() int {
 		dir, err := os.MkdirTemp("", "grant-integration-bin-")

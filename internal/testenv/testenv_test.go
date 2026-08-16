@@ -1,6 +1,7 @@
 package testenv
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -19,8 +20,31 @@ type recordingTB struct {
 func (r *recordingTB) Helper() { r.helperCalls++ }
 
 func (r *recordingTB) Errorf(format string, args ...any) {
-	r.errs = append(r.errs, format)
-	_ = args
+	// Formatted, not the raw format string: the resolver name is an *argument*
+	// of assertUnder's message, so only the formatted text says WHICH assertion
+	// failed — and naming the failing assertion is what makes each block in
+	// AssertSandboxed individually killable.
+	r.errs = append(r.errs, fmt.Sprintf(format, args...))
+}
+
+// assertFailedResolvers requires exactly len(want) recorded failures, one
+// matching each want substring. The COUNT is the load-bearing half: a bare
+// "at least one failure" is satisfied by any *other* assertion inside
+// AssertSandboxed, so the block under test could be deleted outright and the
+// test would still pass.
+func assertFailedResolvers(t *testing.T, rec *recordingTB, want ...string) {
+	t.Helper()
+
+	if len(rec.errs) != len(want) {
+		t.Errorf("AssertSandboxed reported %d failures, want exactly %d (%v): %v",
+			len(rec.errs), len(want), want, rec.errs)
+		return
+	}
+	for _, w := range want {
+		if !slices.ContainsFunc(rec.errs, func(e string) bool { return strings.Contains(e, w) }) {
+			t.Errorf("no reported failure mentions %q; got %v", w, rec.errs)
+		}
+	}
 }
 
 // wantRedirectedVars is an explicit literal, deliberately NOT derived from
@@ -47,6 +71,61 @@ var wantRedirectedVars = []string{
 func TestRedirectedVarsIsExactlyTheExpectedSet(t *testing.T) {
 	if !slices.Equal(redirectedVars, wantRedirectedVars) {
 		t.Errorf("redirectedVars = %q, want exactly %q", redirectedVars, wantRedirectedVars)
+	}
+}
+
+// wantUnsetVars pins the unset list for the same reason wantRedirectedVars
+// pins the redirect list: an explicit literal, deliberately not derived from
+// the production slice.
+var wantUnsetVars = []string{
+	"IDSEC_PROFILE",
+	"DEPLOY_ENV",
+}
+
+// Not parallel: kept serial with the rest of the file.
+func TestUnsetVarsIsExactlyTheExpectedSet(t *testing.T) {
+	if !slices.Equal(unsetVars, wantUnsetVars) {
+		t.Errorf("unsetVars = %q, want exactly %q", unsetVars, wantUnsetVars)
+	}
+}
+
+// TestRun_UnsetsSDKBehaviorVarsAndRestoresThem covers both halves of the
+// contract: inside Run the variables must be absent (not empty — the SDK's own
+// checks distinguish the two), and afterwards each must return to its exact
+// prior state, including "was never set".
+//
+// Not parallel: mutates process-wide environment variables.
+func TestRun_UnsetsSDKBehaviorVarsAndRestoresThem(t *testing.T) {
+	// One var pre-set, one deliberately unset, so a restore that writes "" for
+	// an originally-absent var is caught.
+	const preset = "developer-profile"
+	t.Setenv("IDSEC_PROFILE", preset)
+
+	if err := os.Unsetenv("DEPLOY_ENV"); err != nil {
+		t.Fatalf("Unsetenv: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Unsetenv("DEPLOY_ENV") })
+
+	inside := map[string]bool{} // var -> was present inside Run
+	Run(func() int {
+		for _, k := range wantUnsetVars {
+			_, ok := os.LookupEnv(k)
+			inside[k] = ok
+		}
+		return 0
+	})
+
+	for _, k := range wantUnsetVars {
+		if inside[k] {
+			t.Errorf("%s was still set inside Run; it must be unset, not redirected", k)
+		}
+	}
+
+	if got, ok := os.LookupEnv("IDSEC_PROFILE"); !ok || got != preset {
+		t.Errorf("IDSEC_PROFILE = %q (set=%v) after Run, want the pre-existing %q", got, ok, preset)
+	}
+	if v, ok := os.LookupEnv("DEPLOY_ENV"); ok {
+		t.Errorf("DEPLOY_ENV is set to %q after Run; an originally-unset var must stay unset", v)
 	}
 }
 
@@ -177,6 +256,58 @@ func TestAssertSandboxed_FailsOnAHostileFileLogPath(t *testing.T) {
 			t.Errorf("AssertSandboxed reported %d failures, want exactly 1 (the escaped file log path): %v",
 				len(rec.errs), rec.errs)
 		}
+		return 0
+	})
+}
+
+// TestAssertSandboxed_FailsOnAHostileConfigPath is what makes the
+// config.ConfigPath() block in AssertSandboxed load-bearing. GRANT_CONFIG
+// overrides config.ConfigPath outright, bypassing ConfigDir, so it is the only
+// input that fails that block and nothing else: deleting the block makes this
+// test see zero failures.
+//
+// Not parallel: mutates process-wide environment variables.
+func TestAssertSandboxed_FailsOnAHostileConfigPath(t *testing.T) {
+	escapee := filepath.Join(t.TempDir(), "config.yaml")
+
+	Run(func() int {
+		//nolint:usetesting // t.Setenv's cleanup would fire after Run restores.
+		if err := os.Setenv("GRANT_CONFIG", escapee); err != nil {
+			t.Errorf("Setenv: %v", err)
+			return 1
+		}
+		rec := &recordingTB{}
+		AssertSandboxed(rec)
+		assertFailedResolvers(t, rec, "config.ConfigPath()")
+		return 0
+	})
+}
+
+// TestAssertSandboxed_FailsOnAHostileHome is what makes the config.ConfigDir()
+// and cache.CacheDir() blocks load-bearing. Both resolve through
+// os.UserHomeDir (cache.CacheDir delegates to config.ConfigDir), and every
+// other resolver has an explicit env override that still points in-sandbox, so
+// an escaped home fails exactly those two. Deleting either block drops the
+// count to one and this test fails.
+//
+// Not parallel: mutates process-wide environment variables.
+func TestAssertSandboxed_FailsOnAHostileHome(t *testing.T) {
+	escapee := t.TempDir()
+
+	Run(func() int {
+		// Both variables: POSIX os.UserHomeDir reads HOME, the Windows one
+		// reads USERPROFILE. Setting both makes the case real on either leg
+		// instead of skipping half the matrix.
+		for _, k := range []string{"HOME", "USERPROFILE"} {
+			//nolint:usetesting // t.Setenv's cleanup would fire after Run restores.
+			if err := os.Setenv(k, escapee); err != nil {
+				t.Errorf("Setenv %s: %v", k, err)
+				return 1
+			}
+		}
+		rec := &recordingTB{}
+		AssertSandboxed(rec)
+		assertFailedResolvers(t, rec, "config.ConfigDir()", "cache.CacheDir()")
 		return 0
 	})
 }
