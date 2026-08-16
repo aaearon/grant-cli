@@ -385,9 +385,14 @@ func rejectGCPWorkspace(ws *submitWorkspace) error {
 }
 
 func resolveSubmitTarget(ctx context.Context, provider, targetName string, refresh bool) (*submitWorkspace, error) {
-	// Load the config before authenticating. An unusable config — an invalid
-	// cache_ttl, say — must fail the command, not be quietly replaced by
-	// defaults, and there is no point authenticating first to find that out.
+	// Load the config first, ahead of the SCA service bootstrap below. An
+	// unusable config — an invalid cache_ttl, say — must fail the command
+	// rather than be quietly replaced by defaults.
+	//
+	// This orders the work inside this function only; it is not a fail-fast
+	// guarantee for the command. `request submit` bootstraps the access-request
+	// service in its RunE wrapper before resolveSubmitTarget runs, so an
+	// unauthenticated user hits the auth prompt and never reaches this error.
 	cfg, _, err := config.LoadDefaultWithPath()
 	if err != nil {
 		return nil, err
