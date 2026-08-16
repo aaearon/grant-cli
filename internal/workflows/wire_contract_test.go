@@ -183,9 +183,9 @@ func TestListRequests_SendsLimit(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mock := &mockHTTPClient{
-				getResponse: jsonResponse(200, models.ListRequestsResponse{
+				getResponses: []*http.Response{jsonResponse(200, models.ListRequestsResponse{
 					Items: []models.AccessRequest{{RequestID: "id-1"}}, Count: 1, TotalCount: 1,
-				}),
+				})},
 			}
 			svc := NewAccessRequestServiceWithClient(mock)
 
@@ -260,7 +260,7 @@ func TestGetRequest_PropagatesDecodeError(t *testing.T) {
 // endpoint alongside its route.
 func TestGetRequestForms_SendsExactParams(t *testing.T) {
 	mock := &mockHTTPClient{
-		getResponse: jsonResponse(200, models.RequestFormResponse{}),
+		getResponses: []*http.Response{jsonResponse(200, models.RequestFormResponse{})},
 	}
 	svc := NewAccessRequestServiceWithClient(mock)
 

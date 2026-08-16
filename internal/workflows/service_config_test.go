@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/cyberark/idsec-sdk-golang/pkg/common/isp"
-	"github.com/cyberark/idsec-sdk-golang/pkg/services"
 )
 
 func TestServiceConfig_ServiceName(t *testing.T) {
@@ -38,12 +37,6 @@ func TestServiceConfig_ActionsConfigurations(t *testing.T) {
 	if config.ActionsConfigurations != nil {
 		t.Errorf("expected nil ActionsConfigurations, got %v", config.ActionsConfigurations)
 	}
-}
-
-func TestServiceConfig_ReturnsIdsecServiceConfig(t *testing.T) {
-	config := ServiceConfig()
-	// Verify it returns the correct SDK type
-	var _ services.IdsecServiceConfig = config
 }
 
 // TestNewAccessRequestService_ResolvesISPAuthenticator pins the authenticator

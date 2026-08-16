@@ -16,8 +16,12 @@ type mockHTTPClient struct {
 	getFn  func(ctx context.Context, route string, params interface{}) (*http.Response, error)
 	postFn func(ctx context.Context, route string, body interface{}) (*http.Response, error)
 
-	// Fallbacks used when the corresponding Fn is nil.
-	getResponse  *http.Response
+	// Fallbacks used when the corresponding Fn is nil. getResponse is consumed
+	// once per call: ListRequests paginates, and an *http.Response returned a
+	// second time has an already-drained Body, which surfaces as a confusing
+	// "failed to decode" instead of a clear assertion failure. Set getResponses
+	// to queue one response per page.
+	getResponses []*http.Response
 	getError     error
 	postResponse *http.Response
 	postError    error
@@ -38,7 +42,12 @@ func (m *mockHTTPClient) Get(ctx context.Context, route string, params interface
 	if m.getError != nil {
 		return nil, m.getError
 	}
-	return m.getResponse, nil
+	if len(m.getResponses) == 0 {
+		return nil, errors.New("mockHTTPClient: Get called with no queued response left")
+	}
+	resp := m.getResponses[0]
+	m.getResponses = m.getResponses[1:]
+	return resp, nil
 }
 
 func (m *mockHTTPClient) Post(ctx context.Context, route string, body interface{}) (*http.Response, error) {

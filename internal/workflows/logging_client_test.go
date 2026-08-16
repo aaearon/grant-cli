@@ -71,7 +71,7 @@ func TestLoggingClient_Get(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ml := &mockLogger{}
-			inner := &mockHTTPClient{getResponse: tt.resp, getError: tt.err}
+			inner := &mockHTTPClient{getResponses: []*http.Response{tt.resp}, getError: tt.err}
 			lc := newLoggingClient(inner, ml)
 
 			resp, err := lc.Get(t.Context(), tt.route, nil)
@@ -231,7 +231,7 @@ func TestLoggingClient_PropagatesInnerError(t *testing.T) {
 
 func TestLoggingClient_LogsDuration(t *testing.T) {
 	ml := &mockLogger{}
-	inner := &mockHTTPClient{getResponse: &http.Response{StatusCode: 200, Header: http.Header{}}}
+	inner := &mockHTTPClient{getResponses: []*http.Response{{StatusCode: 200, Header: http.Header{}}}}
 	lc := newLoggingClient(inner, ml)
 
 	_, _ = lc.Get(t.Context(), "/api/workflows/requests", nil)
@@ -248,7 +248,7 @@ func TestLoggingClient_DebugLogsHeaders(t *testing.T) {
 	h := http.Header{}
 	h.Set("Content-Type", "application/json")
 	h.Set("Authorization", "Bearer eyJhbGci.secret.token")
-	inner := &mockHTTPClient{getResponse: &http.Response{StatusCode: 200, Header: h}}
+	inner := &mockHTTPClient{getResponses: []*http.Response{{StatusCode: 200, Header: h}}}
 	lc := newLoggingClient(inner, ml)
 
 	_, _ = lc.Get(t.Context(), "/api/workflows/requests", nil)
