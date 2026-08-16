@@ -515,16 +515,26 @@ func TestConfigureLongHelpHasNoLegacyPath(t *testing.T) {
 	}
 }
 
-// TestConfigure_RecoversFromInvalidCacheTTL pins that `grant configure` stays
-// usable when the on-disk config is unloadable. Now that config.Load rejects an
-// invalid cache_ttl, configure is the recovery path for rewriting the broken
-// file — it must never read the old config, only overwrite it.
+// TestConfigure_OverwritesInvalidCacheTTLAndClobbersFavorites pins what
+// `grant configure` actually does to a config it cannot load: it never reads the
+// old file, it builds a fresh Config from scratch and writes that over the top.
+//
+// That keeps configure reachable with a broken config — the no-lockout property
+// — but it is NOT an endorsed recovery path for a bad cache_ttl, and no error
+// text, doc or help string should point a user at it. runConfigure discards
+// every favorite and resets default_provider, so using it to fix a
+// one-character typo silently destroys unrelated config. The documented remedy
+// is to edit the file named in the load error. The favorites assertion below
+// pins that loss so it stays visible; it is recorded behavior, not desired
+// behavior, and is flagged as a follow-up in CLAUDE.md.
 //
 // Not parallel: sets GRANT_CONFIG and IDSEC_PROFILES_FOLDER for the process.
-func TestConfigure_RecoversFromInvalidCacheTTL(t *testing.T) {
+func TestConfigure_OverwritesInvalidCacheTTLAndClobbersFavorites(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yaml")
-	if err := os.WriteFile(cfgPath, []byte("profile: grant\ncache_ttl: garbage\n"), 0o600); err != nil {
+	broken := "profile: grant\ndefault_provider: aws\ncache_ttl: garbage\n" +
+		"favorites:\n  prod:\n    provider: azure\n    target: Prod-EastUS\n    role: Contributor\n"
+	if err := os.WriteFile(cfgPath, []byte(broken), 0o600); err != nil {
 		t.Fatalf("write broken config: %v", err)
 	}
 	t.Setenv("GRANT_CONFIG", cfgPath)
@@ -544,5 +554,15 @@ func TestConfigure_RecoversFromInvalidCacheTTL(t *testing.T) {
 	}
 	if cfg.CacheTTL != "" {
 		t.Errorf("cache_ttl = %q after configure, want it rewritten away", cfg.CacheTTL)
+	}
+
+	// The sharp edge: everything else in the file went with it. Pinned so a
+	// future change to runConfigure has to acknowledge this, and so nobody
+	// mistakes configure for a safe repair tool.
+	if len(cfg.Favorites) != 0 {
+		t.Errorf("favorites = %v after configure, want them clobbered (pinned pre-existing behavior)", cfg.Favorites)
+	}
+	if cfg.DefaultProvider != "azure" {
+		t.Errorf("default_provider = %q after configure, want the hardcoded %q (the user's \"aws\" is lost)", cfg.DefaultProvider, "azure")
 	}
 }
