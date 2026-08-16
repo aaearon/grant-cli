@@ -59,18 +59,6 @@ func BuildOptions(targets []models.EligibleTarget) []string {
 	return options
 }
 
-// FindTargetByDisplay finds a target by its formatted display string. SelectTarget no
-// longer uses it — it resolves by index — so this has no production caller today.
-// On a display collision it returns the first match in the slice it is given.
-func FindTargetByDisplay(targets []models.EligibleTarget, display string) (*models.EligibleTarget, error) {
-	for i := range targets {
-		if FormatTargetOption(targets[i]) == display {
-			return &targets[i], nil
-		}
-	}
-	return nil, fmt.Errorf("target not found: %s", display)
-}
-
 // sortTargetsForDisplay returns a copy of targets ordered by display string, leaving
 // the caller's slice untouched. It only fixes the order the options are rendered in;
 // which target a selection denotes is decided by index in resolveTargetSelection.
