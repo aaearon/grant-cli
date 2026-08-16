@@ -22,9 +22,18 @@ import (
 // fails rather than blocking; the assertion is on the announcement plus the
 // fact that authentication was never attempted.
 func TestRunLogin_AutoConfiguresMissingProfile(t *testing.T) {
-	// runConfigure prompts through survey, which reads os.Stdin directly and
-	// has no injectable seam. On a real terminal that would block forever, so
-	// skip rather than hang; CI and every non-interactive run still cover it.
+	// KNOWN COVERAGE GAP (ledger COV-02). Under a PTY this test does not run at
+	// all, so the auto-configure branch has ZERO coverage there and REQ-20 is
+	// unpinned for anyone running `go test` from a terminal that hands the
+	// process a real stdin.
+	//
+	// There is no seam to close it with: runConfigure prompts through survey,
+	// which reads os.Stdin directly and offers no injection point, so on a real
+	// terminal this would block on input forever rather than fail. Skipping is
+	// the lesser evil. `go test`, CI and every non-interactive run get a
+	// non-TTY stdin and do exercise the branch — which is why this is accepted
+	// rather than fixed. Closing it properly means giving runConfigure a stdin
+	// seam first.
 	if isatty.IsTerminal(os.Stdin.Fd()) {
 		t.Skip("stdin is a terminal: the configure prompt would block on real input")
 	}
