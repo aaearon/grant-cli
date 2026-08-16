@@ -592,3 +592,120 @@ func TestFavoritesListJSON_Contract(t *testing.T) {
   }
 ]`)
 }
+
+// --- access request list ------------------------------------------------------
+
+// TestRequestListJSON_Contract pins the whole `grant request list -o json`
+// document. The envelope was entirely unpinned: renaming the `requests` key, or
+// adding a field to accessRequestListOutput, survived every existing test —
+// they all unmarshalled into the very struct under test, so the tags could
+// drift freely. totalCount deliberately differs from len(requests): it comes
+// from the service's pagination total, not from the returned page.
+func TestRequestListJSON_Contract(t *testing.T) {
+	svc := &mockAccessRequestService{
+		listItems:      []wfmodels.AccessRequest{*requestFixture()},
+		listTotalCount: 7,
+	}
+
+	root := newTestRootCommand()
+	root.AddCommand(NewRequestCommandWithDeps(svc))
+
+	stdout, stderr, err := executeCommandStreams(root, "request", "list", "--output", "json")
+	if err != nil {
+		t.Fatalf("unexpected error: %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
+	}
+
+	assertJSONEqual(t, []byte(stdout), `{
+  "requests": [
+    {
+      "requestId": "req-id",
+      "targetCategory": "CLOUD_CONSOLE",
+      "state": "PENDING",
+      "result": "UNKNOWN",
+      "priority": "priority-fixture",
+      "reason": "reason-fixture",
+      "provider": "provider-fixture",
+      "target": "ws-name",
+      "role": "role-name",
+      "requestDate": "2026-04-21",
+      "timezone": "tz-fixture",
+      "timeFrom": "01:11",
+      "timeTo": "22:22",
+      "finalizationReason": "finalization-fixture",
+      "requestLink": "https://example.test/req-id",
+      "createdBy": "creator-fixture",
+      "createdAt": "2026-04-20T10:00:00Z",
+      "updatedBy": "updater-fixture",
+      "updatedAt": "2026-04-21T11:00:00Z"
+    }
+  ],
+  "totalCount": 7
+}`)
+}
+
+// --- revoke -------------------------------------------------------------------
+
+// TestRevokeJSON_Contract pins the whole `grant revoke --output json` array.
+// Every existing revoke test unmarshalled into []revocationOutput, so renaming
+// sessionId or outcome survived — and outcome is the single classification
+// field callers switch on, which makes it the weakest point in the surface.
+//
+// The fixture carries four requested sessions with four DIFFERENT outcomes plus
+// an unattributed row, so the per-row mapping is pinned, not just the envelope:
+// a row-to-outcome shuffle changes the document.
+func TestRevokeJSON_Contract(t *testing.T) {
+	revoker := &mockSessionRevoker{response: revokeResponse(
+		"sess-revoked", scamodels.RevocationSuccessful,
+		"sess-inprogress", scamodels.RevocationInProgress,
+		"sess-notapplicable", scamodels.RevocationNotApplicable,
+		"sess-unrequested", scamodels.RevocationSuccessful,
+	)}
+
+	cmd := NewRevokeCommandWithDeps(testAuthLoader(), &mockSessionLister{}, &mockEligibilityLister{},
+		revoker, &mockSessionSelector{}, &mockConfirmPrompter{})
+	root := newTestRootCommand()
+	root.AddCommand(cmd)
+
+	// sess-missing is requested but never answered, so it must still appear.
+	stdout, _, err := executeCommandStreams(root, "revoke",
+		"sess-revoked", "sess-inprogress", "sess-notapplicable", "sess-missing",
+		"--yes", "--output", "json")
+	if err == nil {
+		t.Fatal("expected a non-zero exit: not_applicable and a missing row are both failures")
+	}
+
+	// A confirmed revocation carries no reason, so `reason` must be ABSENT from
+	// the first entry — omitempty on that field is part of the contract.
+	assertJSONEqual(t, []byte(stdout), `[
+  {
+    "sessionId": "sess-revoked",
+    "status": "SUCCESSFULLY_REVOKED",
+    "outcome": "revoked"
+  },
+  {
+    "sessionId": "sess-inprogress",
+    "status": "REVOCATION_IN_PROGRESS",
+    "outcome": "in_progress",
+    "reason": "accepted by the service, not yet confirmed complete"
+  },
+  {
+    "sessionId": "sess-notapplicable",
+    "status": "REVOCATION_NOT_APPLICABLE",
+    "outcome": "not_applicable",
+    "reason": "the service reported revocation is not applicable to this session"
+  },
+  {
+    "sessionId": "sess-missing",
+    "status": "",
+    "outcome": "unknown",
+    "reason": "no result returned by the service for this session"
+  },
+  {
+    "sessionId": "sess-unrequested",
+    "status": "SUCCESSFULLY_REVOKED",
+    "outcome": "unknown",
+    "reason": "result was not requested and satisfies no requested session",
+    "unexpected": true
+  }
+]`)
+}
