@@ -24,8 +24,27 @@ import (
 	"testing"
 )
 
-// FuzzCheckArchivePath asserts the guard's CONTRACT rather than its wording:
-// any name it accepts must be relative, non-escaping and not Windows-absolute.
+// fuzzHasDriveLetter is the oracle's OWN drive-letter predicate, deliberately
+// not the production hasDriveLetter. An oracle that calls the code under test
+// is blind to defects inside it: with the shared call, narrowing
+// hasDriveLetter to uppercase-only drives survived 2.5M execs untouched, while
+// TestCheckArchivePath/lowercase_drive caught it instantly. Keep this
+// independent — if it ever drifts from the production predicate, the fuzzer
+// reports it, which is the whole point.
+func fuzzHasDriveLetter(normalized string) bool {
+	if len(normalized) < 2 || normalized[1] != ':' {
+		return false
+	}
+	c := normalized[0]
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+}
+
+// FuzzCheckArchivePath checks a NECESSARY CONDITION on the guard, not its full
+// contract: anything it accepts must be relative, non-escaping and not
+// Windows-absolute. It cannot prove the converse — an over-eager guard that
+// rejects legitimate names passes this target trivially, because the property
+// body returns early on any error. TestCheckArchivePath owns the
+// accept-and-diagnostic side.
 func FuzzCheckArchivePath(f *testing.F) {
 	seeds := []string{
 		"grant",
@@ -65,7 +84,7 @@ func FuzzCheckArchivePath(f *testing.F) {
 			t.Fatalf("accepted a UNC path: %q", name)
 		case path.IsAbs(cleaned):
 			t.Fatalf("accepted an absolute path: %q", name)
-		case hasDriveLetter(normalized):
+		case fuzzHasDriveLetter(normalized):
 			t.Fatalf("accepted a drive-absolute path: %q", name)
 		case cleaned == ".." || strings.HasPrefix(cleaned, "../"):
 			t.Fatalf("accepted a traversal path: %q", name)
