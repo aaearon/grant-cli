@@ -423,10 +423,8 @@ func resolveSubmitTarget(ctx context.Context, provider, targetName string, refre
 
 	// Non-interactive: match by --target flag
 	if targetName != "" {
-		for i := range workspaces {
-			if strings.EqualFold(workspaces[i].WorkspaceName, targetName) {
-				return &workspaces[i], nil
-			}
+		if ws := matchWorkspaceByName(workspaces, targetName); ws != nil {
+			return ws, nil
 		}
 		return nil, fmt.Errorf("no eligible workspace found matching target=%q", targetName)
 	}
@@ -438,6 +436,19 @@ func resolveSubmitTarget(ctx context.Context, provider, targetName string, refre
 
 	// Interactive selection
 	return submitWorkspaceSelectorFn(workspaces)
+}
+
+// matchWorkspaceByName resolves the --target flag against the deduplicated
+// workspace list. The match is on WorkspaceName — the same value `grant list
+// --output json` emits as `target` — which is what makes the emitted name
+// directly reusable as `grant request submit --target`.
+func matchWorkspaceByName(workspaces []submitWorkspace, targetName string) *submitWorkspace {
+	for i := range workspaces {
+		if strings.EqualFold(workspaces[i].WorkspaceName, targetName) {
+			return &workspaces[i]
+		}
+	}
+	return nil
 }
 
 func selectSubmitWorkspace(workspaces []submitWorkspace) (*submitWorkspace, error) {
