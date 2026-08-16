@@ -1288,16 +1288,18 @@ func TestFavoritesAdd_NonInteractiveGuard(t *testing.T) {
 			name:        "name given but no flags and no terminal",
 			setupConfig: func(path string) { _ = config.Save(config.DefaultConfig(), path) },
 			args:        []string{"myfav"},
-			// The hint must name the favorites flags, not a request ID.
+			// The hint must name the favorites flags, not a request ID — and
+			// the NAME argument, which is required too and which a
+			// flags-only hint silently omits.
 			wantNotInteract: true,
-			wantContain:     []string{"--target", "--role"},
+			wantContain:     []string{"name", "--target", "--role"},
 		},
 		{
 			name:            "groups type without --group and no terminal",
 			setupConfig:     func(path string) { _ = config.Save(config.DefaultConfig(), path) },
 			args:            []string{"myfav", "--type", "groups"},
 			wantNotInteract: true,
-			wantContain:     []string{"--group"},
+			wantContain:     []string{"name", "--group"},
 		},
 		{
 			name: "duplicate name still reports the duplicate, not the missing terminal",

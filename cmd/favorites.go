@@ -155,7 +155,7 @@ func runFavoritesAddProduction(cmd *cobra.Command, args []string) error {
 	// The message is favorites-specific on purpose; earlyNonInteractiveCheck
 	// in request_picker.go would wrongly tell the user to supply a request ID.
 	if !ui.IsInteractive() {
-		return fmt.Errorf("%w; pass --target and --role, or --type groups with --group", ui.ErrNotInteractive)
+		return fmt.Errorf("%w; pass a favorite name plus --target and --role, or a name plus --type groups with --group", ui.ErrNotInteractive)
 	}
 
 	// Bootstrap auth and SCA service
