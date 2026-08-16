@@ -93,7 +93,7 @@ func TestCancelAccessRequest_JSONTags(t *testing.T) {
 // test decoded a body produced by marshaling the same Go struct, so a renamed
 // tag round-tripped trivially while `grant request get` / `grant request list`
 // rendered blanks. These pin the keys that reach the user's screen. The
-// validation metadata on form.go is still unpinned — see ledger row WF-16.
+// validation metadata on form.go is still unpinned — see ledger row WF-25.
 
 // TestAccessRequest_DecodesPopulatedResponse pins the response keys that
 // `grant request get` renders, decoding a literal wire body rather than a
