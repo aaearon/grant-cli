@@ -38,6 +38,12 @@ import (
 var (
 	prepareFn = minio.PrepareAndCheckBinary
 	commitFn  = minio.CommitBinary
+	// syncStagedFileFn is a seam only: syncStagedFile already reports its
+	// errors and applyWithOptions already aborts on them. It exists so tests
+	// can assert the call ORDER (sync strictly before commit) and the
+	// abort-before-commit behavior without needing a filesystem on which
+	// fsync fails.
+	syncStagedFileFn = syncStagedFile
 )
 
 // applyBinary replaces the currently running executable with newBinary.
@@ -48,6 +54,12 @@ func applyBinary(newBinary []byte) error {
 // applyBinaryTo replaces the binary at targetPath. An empty targetPath means
 // the running executable.
 func applyBinaryTo(newBinary []byte, targetPath string) error {
+	// Independent of the extractor's own empty check: the checksum minio
+	// verifies is computed here, from these bytes, so an empty payload would
+	// verify against itself and replace a working binary with nothing.
+	if len(newBinary) == 0 {
+		return errors.New("refusing to install an empty binary")
+	}
 	sum := sha256.Sum256(newBinary)
 	return applyWithOptions(bytes.NewReader(newBinary), minio.Options{
 		TargetPath: targetPath,
@@ -71,7 +83,7 @@ func applyWithOptions(update io.Reader, opts minio.Options) error {
 
 	// minio closes the staged file but never syncs it; do that before any
 	// rename so a crash cannot promote a partially materialized file.
-	if err := syncStagedFile(target); err != nil {
+	if err := syncStagedFileFn(target); err != nil {
 		_ = os.Remove(stagedPath(target))
 		return fmt.Errorf("failed to flush the staged binary to disk: %w", err)
 	}

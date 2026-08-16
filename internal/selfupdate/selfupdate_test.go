@@ -2,7 +2,6 @@ package selfupdate
 
 import (
 	"archive/tar"
-	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
@@ -154,12 +153,15 @@ func TestVerifyChecksum(t *testing.T) {
 	sum := sha256.Sum256(payload)
 	good := hex.EncodeToString(sum[:])
 
+	// wantErrContains, not wantErr: a malformed line that is skipped instead of
+	// rejected still ends in an error ("has no entry for"), so only the
+	// message can tell the two apart.
 	tests := []struct {
-		name      string
-		checksums string
-		filename  string
-		data      []byte
-		wantErr   bool
+		name            string
+		checksums       string
+		filename        string
+		data            []byte
+		wantErrContains string
 	}{
 		{
 			name:      "match",
@@ -187,101 +189,104 @@ func TestVerifyChecksum(t *testing.T) {
 			data:      payload,
 		},
 		{
-			name:      "mismatch",
-			checksums: "0000000000000000000000000000000000000000000000000000000000000000  grant-cli_0.7.0_linux_amd64.tar.gz\n",
-			filename:  "grant-cli_0.7.0_linux_amd64.tar.gz",
-			data:      payload,
-			wantErr:   true,
+			name:            "mismatch",
+			checksums:       "0000000000000000000000000000000000000000000000000000000000000000  grant-cli_0.7.0_linux_amd64.tar.gz\n",
+			filename:        "grant-cli_0.7.0_linux_amd64.tar.gz",
+			data:            payload,
+			wantErrContains: "checksum mismatch",
 		},
 		{
-			name:      "filename absent",
-			checksums: good + "  some-other-file.tar.gz\n",
-			filename:  "grant-cli_0.7.0_linux_amd64.tar.gz",
-			data:      payload,
-			wantErr:   true,
+			name:            "filename absent",
+			checksums:       good + "  some-other-file.tar.gz\n",
+			filename:        "grant-cli_0.7.0_linux_amd64.tar.gz",
+			data:            payload,
+			wantErrContains: "has no entry for",
 		},
 		{
-			name:      "malformed line",
-			checksums: "deadbeef\n",
-			filename:  "grant-cli_0.7.0_linux_amd64.tar.gz",
-			data:      payload,
-			wantErr:   true,
+			name:            "malformed line with one field",
+			checksums:       "deadbeef\n",
+			filename:        "grant-cli_0.7.0_linux_amd64.tar.gz",
+			data:            payload,
+			wantErrContains: "malformed line",
 		},
 		{
-			name:      "empty checksums",
-			checksums: "",
-			filename:  "grant-cli_0.7.0_linux_amd64.tar.gz",
-			data:      payload,
-			wantErr:   true,
+			name:            "malformed line with three fields",
+			checksums:       good + "  extra  grant-cli_0.7.0_linux_amd64.tar.gz\n",
+			filename:        "grant-cli_0.7.0_linux_amd64.tar.gz",
+			data:            payload,
+			wantErrContains: "malformed line",
+		},
+		{
+			name:            "empty checksums",
+			checksums:       "",
+			filename:        "grant-cli_0.7.0_linux_amd64.tar.gz",
+			data:            payload,
+			wantErrContains: "has no entry for",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := verifyChecksum([]byte(tt.checksums), tt.filename, tt.data)
-			if tt.wantErr && err == nil {
-				t.Fatal("expected error, got nil")
+			if tt.wantErrContains == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
 			}
-			if !tt.wantErr && err != nil {
-				t.Fatalf("unexpected error: %v", err)
+			if err == nil {
+				t.Fatalf("expected an error containing %q, got nil", tt.wantErrContains)
+			}
+			if !strings.Contains(err.Error(), tt.wantErrContains) {
+				t.Errorf("error = %q, want it to contain %q", err, tt.wantErrContains)
 			}
 		})
 	}
 }
 
-// buildTarGz builds an in-memory tar.gz archive from name -> contents.
-func buildTarGz(t *testing.T, entries [][2]string) []byte {
+// buildTarGz builds an in-memory tar.gz archive from name -> contents. It is a
+// convenience wrapper over buildTarGzEntries (archive_security_test.go) for the
+// common case of well-formed regular files; tests that need a non-regular type
+// flag, a link name or a lying declared size call buildTarGzEntries directly.
+func buildTarGz(t testing.TB, entries [][2]string) []byte {
 	t.Helper()
-	var buf bytes.Buffer
-	gz := gzip.NewWriter(&buf)
-	tw := tar.NewWriter(gz)
+	full := make([]tarEntry, 0, len(entries))
 	for _, e := range entries {
-		hdr := &tar.Header{Name: e[0], Mode: 0o755, Size: int64(len(e[1])), Typeflag: tar.TypeReg}
-		if err := tw.WriteHeader(hdr); err != nil {
-			t.Fatalf("write tar header: %v", err)
-		}
-		if _, err := tw.Write([]byte(e[1])); err != nil {
-			t.Fatalf("write tar body: %v", err)
-		}
+		full = append(full, tarEntry{name: e[0], body: e[1]})
 	}
-	if err := tw.Close(); err != nil {
-		t.Fatalf("close tar: %v", err)
-	}
-	if err := gz.Close(); err != nil {
-		t.Fatalf("close gzip: %v", err)
-	}
-	return buf.Bytes()
+	return buildTarGzEntries(t, full)
 }
 
-// buildZip builds an in-memory zip archive from name -> contents.
-func buildZip(t *testing.T, entries [][2]string) []byte {
+// buildZip builds an in-memory zip archive from name -> contents. Wrapper over
+// buildZipEntries, mirroring buildTarGz.
+func buildZip(t testing.TB, entries [][2]string) []byte {
 	t.Helper()
-	var buf bytes.Buffer
-	zw := zip.NewWriter(&buf)
+	full := make([]zipEntry, 0, len(entries))
 	for _, e := range entries {
-		w, err := zw.Create(e[0])
-		if err != nil {
-			t.Fatalf("create zip entry: %v", err)
-		}
-		if _, err := w.Write([]byte(e[1])); err != nil {
-			t.Fatalf("write zip entry: %v", err)
-		}
+		full = append(full, zipEntry{name: e[0], body: e[1]})
 	}
-	if err := zw.Close(); err != nil {
-		t.Fatalf("close zip: %v", err)
-	}
-	return buf.Bytes()
+	return buildZipEntries(t, full)
 }
 
+// TestExtractBinary drives the whole extractor. Two conventions matter here:
+//
+//   - wantErrContains, not a bare wantErr bool. Several of the path guards are
+//     interchangeable as far as "an error happened" is concerned, so only
+//     message discrimination can tell them apart - and a guard that is silently
+//     replaced by a later, more general one is exactly the regression this
+//     table exists to catch.
+//   - every hostile entry sits BESIDE a valid "grant". Without it the archive
+//     also fails the "does not contain a grant binary" check, so removing the
+//     guard under test still produces an error and the case proves nothing.
 func TestExtractBinary(t *testing.T) {
 	const binContents = "\x7fELF fake grant binary"
 
 	tests := []struct {
-		name      string
-		assetName string
-		archive   []byte
-		wantErr   bool
-		want      string
+		name            string
+		assetName       string
+		archive         []byte
+		wantErrContains string // empty means the extraction must succeed
+		want            string
 	}{
 		{
 			name:      "tar.gz with decoy files",
@@ -306,55 +311,124 @@ func TestExtractBinary(t *testing.T) {
 			name:      "tar.gz path traversal rejected",
 			assetName: "grant-cli_0.7.0_linux_amd64.tar.gz",
 			archive: buildTarGz(t, [][2]string{
-				{"../evil", "pwned"},
+				{hostileTraversalName, hostilePayload},
 				{"grant", binContents},
 			}),
-			wantErr: true,
+			wantErrContains: "illegal path traversal",
+		},
+		{
+			name:      "tar.gz backslash traversal rejected",
+			assetName: "grant-cli_0.7.0_linux_amd64.tar.gz",
+			archive: buildTarGz(t, [][2]string{
+				{hostileBackslashTraversalName, hostilePayload},
+				{"grant", binContents},
+			}),
+			wantErrContains: "illegal path traversal",
 		},
 		{
 			name:      "zip path traversal rejected",
 			assetName: "grant-cli_0.7.0_windows_amd64.zip",
 			archive: buildZip(t, [][2]string{
-				{"../evil", "pwned"},
+				{hostileTraversalName, hostilePayload},
 				{"grant.exe", binContents},
 			}),
-			wantErr: true,
+			wantErrContains: "illegal path traversal",
 		},
 		{
 			name:      "tar.gz absolute path rejected",
 			assetName: "grant-cli_0.7.0_linux_amd64.tar.gz",
 			archive: buildTarGz(t, [][2]string{
-				{"/etc/passwd", "pwned"},
+				{hostileAbsoluteName, hostilePayload},
+				{"grant", binContents},
 			}),
-			wantErr: true,
+			wantErrContains: "illegal absolute path",
 		},
 		{
 			name:      "tar.gz windows drive-absolute path rejected",
 			assetName: "grant-cli_0.7.0_linux_amd64.tar.gz",
 			archive: buildTarGz(t, [][2]string{
-				{`C:\grant.exe`, "pwned"},
+				{hostileDriveName, hostilePayload},
+				{"grant", binContents},
 			}),
-			wantErr: true,
+			wantErrContains: "illegal drive-absolute path",
+		},
+		{
+			name:      "tar.gz lowercase drive-absolute path rejected",
+			assetName: "grant-cli_0.7.0_linux_amd64.tar.gz",
+			archive: buildTarGz(t, [][2]string{
+				{hostileDriveLowerName, hostilePayload},
+				{"grant", binContents},
+			}),
+			wantErrContains: "illegal drive-absolute path",
+		},
+		{
+			name:      "tar.gz forward-slash drive-absolute path rejected",
+			assetName: "grant-cli_0.7.0_linux_amd64.tar.gz",
+			archive: buildTarGz(t, [][2]string{
+				{hostileDriveSlashName, hostilePayload},
+				{"grant", binContents},
+			}),
+			wantErrContains: "illegal drive-absolute path",
 		},
 		{
 			name:      "zip windows drive-absolute path rejected",
 			assetName: "grant-cli_0.7.0_windows_amd64.zip",
 			archive: buildZip(t, [][2]string{
-				{`C:\grant.exe`, "pwned"},
+				{hostileDriveName, hostilePayload},
+				{"grant.exe", binContents},
 			}),
-			wantErr: true,
+			wantErrContains: "illegal drive-absolute path",
 		},
 		{
 			name:      "tar.gz UNC path rejected",
 			assetName: "grant-cli_0.7.0_linux_amd64.tar.gz",
-			archive:   buildTarGz(t, [][2]string{{"//host/share/grant", "pwned"}}),
-			wantErr:   true,
+			archive: buildTarGz(t, [][2]string{
+				{hostileUNCName, hostilePayload},
+				{"grant", binContents},
+			}),
+			wantErrContains: "illegal UNC path",
 		},
 		{
-			name:      "nested binary is not selected",
+			name:      "tar.gz backslash UNC path rejected",
 			assetName: "grant-cli_0.7.0_linux_amd64.tar.gz",
-			archive:   buildTarGz(t, [][2]string{{"nested/dir/grant", "pwned"}}),
-			wantErr:   true,
+			archive: buildTarGz(t, [][2]string{
+				{hostileBackslashUNCName, hostilePayload},
+				{"grant", binContents},
+			}),
+			wantErrContains: "illegal UNC path",
+		},
+		{
+			name:      "zip UNC path rejected",
+			assetName: "grant-cli_0.7.0_windows_amd64.zip",
+			archive: buildZip(t, [][2]string{
+				{hostileUNCName, hostilePayload},
+				{"grant.exe", binContents},
+			}),
+			wantErrContains: "illegal UNC path",
+		},
+		{
+			name:      "tar.gz empty entry name rejected",
+			assetName: "grant-cli_0.7.0_linux_amd64.tar.gz",
+			archive: buildTarGzEntries(t, []tarEntry{
+				{name: hostileEmptyName, body: hostilePayload},
+				{name: "grant", body: binContents},
+			}),
+			wantErrContains: "empty name",
+		},
+		{
+			name:      "zip empty entry name rejected",
+			assetName: "grant-cli_0.7.0_windows_amd64.zip",
+			archive: buildZipEntries(t, []zipEntry{
+				{name: hostileEmptyName, body: hostilePayload},
+				{name: "grant.exe", body: binContents},
+			}),
+			wantErrContains: "empty name",
+		},
+		{
+			name:            "nested binary is not selected",
+			assetName:       "grant-cli_0.7.0_linux_amd64.tar.gz",
+			archive:         buildTarGz(t, [][2]string{{"nested/dir/grant", hostilePayload}}),
+			wantErrContains: "does not contain a grant binary",
 		},
 		{
 			name:      "dot-slash prefixed binary is accepted",
@@ -369,7 +443,7 @@ func TestExtractBinary(t *testing.T) {
 				{"grant", binContents},
 				{"grant.exe", "a different binary"},
 			}),
-			wantErr: true,
+			wantErrContains: "more than one grant binary",
 		},
 		{
 			name:      "zip with two candidate binaries rejected",
@@ -378,46 +452,51 @@ func TestExtractBinary(t *testing.T) {
 				{"grant.exe", binContents},
 				{"grant", "a different binary"},
 			}),
-			wantErr: true,
+			wantErrContains: "more than one grant binary",
 		},
 		{
-			name:      "tar.gz without binary",
-			assetName: "grant-cli_0.7.0_linux_amd64.tar.gz",
-			archive:   buildTarGz(t, [][2]string{{"README.md", "nope"}}),
-			wantErr:   true,
+			name:            "tar.gz without binary",
+			assetName:       "grant-cli_0.7.0_linux_amd64.tar.gz",
+			archive:         buildTarGz(t, [][2]string{{"README.md", "nope"}}),
+			wantErrContains: "does not contain a grant binary",
 		},
 		{
-			name:      "zip without binary",
-			assetName: "grant-cli_0.7.0_windows_amd64.zip",
-			archive:   buildZip(t, [][2]string{{"README.md", "nope"}}),
-			wantErr:   true,
+			name:            "zip without binary",
+			assetName:       "grant-cli_0.7.0_windows_amd64.zip",
+			archive:         buildZip(t, [][2]string{{"README.md", "nope"}}),
+			wantErrContains: "does not contain a grant binary",
 		},
 		{
-			name:      "corrupt gzip",
-			assetName: "grant-cli_0.7.0_linux_amd64.tar.gz",
-			archive:   []byte("not a gzip stream"),
-			wantErr:   true,
+			name:            "corrupt gzip",
+			assetName:       "grant-cli_0.7.0_linux_amd64.tar.gz",
+			archive:         []byte("not a gzip stream"),
+			wantErrContains: "failed to open gzip stream",
 		},
 		{
-			name:      "corrupt zip",
-			assetName: "grant-cli_0.7.0_windows_amd64.zip",
-			archive:   []byte("not a zip file"),
-			wantErr:   true,
+			name:            "corrupt zip",
+			assetName:       "grant-cli_0.7.0_windows_amd64.zip",
+			archive:         []byte("not a zip file"),
+			wantErrContains: "failed to open zip archive",
 		},
 		{
-			name:      "unknown archive format",
-			assetName: "grant-cli_0.7.0_linux_amd64.rar",
-			archive:   []byte("whatever"),
-			wantErr:   true,
+			// Kills a default arm that falls through to tar.gz: that would
+			// fail on the gzip header instead, with a different message.
+			name:            "unknown archive format",
+			assetName:       "grant-cli_0.7.0_linux_amd64.rar",
+			archive:         []byte("whatever"),
+			wantErrContains: "unsupported archive format",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := extractBinary(tt.archive, tt.assetName)
-			if tt.wantErr {
+			if tt.wantErrContains != "" {
 				if err == nil {
-					t.Fatalf("expected error, got %d bytes", len(got))
+					t.Fatalf("expected an error containing %q, got %d bytes", tt.wantErrContains, len(got))
+				}
+				if !strings.Contains(err.Error(), tt.wantErrContains) {
+					t.Errorf("error = %q, want it to contain %q", err, tt.wantErrContains)
 				}
 				return
 			}
@@ -450,6 +529,66 @@ func newFixtureServer(t *testing.T, archiveName string, archive, checksums []byt
 	mux.HandleFunc("/download/"+archiveName, func(w http.ResponseWriter, r *http.Request) {
 		w.Write(archive) //nolint:errcheck // test server
 	})
+	return srv
+}
+
+// fixtureServerOpts configures newFixtureServerWith. A nil handler keeps the
+// default (the same behavior newFixtureServer provides); releaseBody replaces
+// only the JSON body while keeping the default 200 handler.
+type fixtureServerOpts struct {
+	archiveName string
+	archive     []byte
+	checksums   []byte
+
+	// releaseBody receives the server URL and returns the releases/latest
+	// body. Ignored when releaseHandler is set.
+	releaseBody func(srvURL string) string
+
+	releaseHandler   http.HandlerFunc
+	archiveHandler   http.HandlerFunc
+	checksumsHandler http.HandlerFunc
+}
+
+// newFixtureServerWith is newFixtureServer with per-path handler overrides, so
+// tests can drive a non-200 on either download, an empty body, or a release
+// payload the happy path never produces. It is a sibling rather than a change
+// to newFixtureServer's signature: the simple form has three call sites that
+// have no interest in any of this.
+func newFixtureServerWith(t *testing.T, opts fixtureServerOpts) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	release := opts.releaseHandler
+	if release == nil {
+		release = func(w http.ResponseWriter, r *http.Request) {
+			if opts.releaseBody != nil {
+				fmt.Fprint(w, opts.releaseBody(srv.URL))
+				return
+			}
+			fmt.Fprintf(w, `{"tag_name":"v0.7.0","assets":[
+				{"name":"checksums.txt","browser_download_url":"%[1]s/download/checksums.txt"},
+				{"name":%[2]q,"browser_download_url":"%[1]s/download/%[2]s"}
+			]}`, srv.URL, opts.archiveName)
+		}
+	}
+	checksums := opts.checksumsHandler
+	if checksums == nil {
+		checksums = func(w http.ResponseWriter, r *http.Request) {
+			w.Write(opts.checksums) //nolint:errcheck // test server
+		}
+	}
+	archive := opts.archiveHandler
+	if archive == nil {
+		archive = func(w http.ResponseWriter, r *http.Request) {
+			w.Write(opts.archive) //nolint:errcheck // test server
+		}
+	}
+
+	mux.HandleFunc("/repos/aaearon/grant-cli/releases/latest", release)
+	mux.HandleFunc("/download/checksums.txt", checksums)
+	mux.HandleFunc("/download/"+opts.archiveName, archive)
 	return srv
 }
 
@@ -565,11 +704,130 @@ func TestUpdateSelf(t *testing.T) {
 	})
 }
 
+// TestFetchLatestReleaseRejectsBadPayloads covers the two release-payload
+// failures the happy path cannot reach. Both assert the SPECIFIC message: an
+// empty body also produces an empty tag_name, so a test that only demanded
+// "some error" would pass with the JSON error check deleted.
+func TestFetchLatestReleaseRejectsBadPayloads(t *testing.T) {
+	tests := []struct {
+		name            string
+		body            string
+		wantErrContains string
+	}{
+		{
+			name:            "empty body",
+			body:            "",
+			wantErrContains: "failed to decode GitHub release response",
+		},
+		{
+			name:            "empty tag_name",
+			body:            `{"tag_name":"","assets":[]}`,
+			wantErrContains: "no tag_name",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := tt.body
+			srv := newFixtureServerWith(t, fixtureServerOpts{
+				archiveName: "grant-cli_0.7.0_linux_amd64.tar.gz",
+				releaseBody: func(string) string { return body },
+			})
+
+			u := New("aaearon/grant-cli", "v0.6.1")
+			u.apiBaseURL = srv.URL
+
+			rel, err := u.fetchLatestRelease(t.Context())
+			if err == nil {
+				t.Fatalf("expected an error, got release %+v", rel)
+			}
+			if !strings.Contains(err.Error(), tt.wantErrContains) {
+				t.Errorf("error = %q, want it to contain %q", err, tt.wantErrContains)
+			}
+		})
+	}
+}
+
+// TestUpdateSelfFailsOnAssetDownloadStatus covers a non-200 on each of the two
+// asset downloads. Neither is reachable through the release-lookup fixture,
+// and both must abort before anything is applied.
+func TestUpdateSelfFailsOnAssetDownloadStatus(t *testing.T) {
+	archiveName := "grant-cli_0.7.0_linux_amd64.tar.gz"
+	archive := buildTarGz(t, [][2]string{{"grant", "new binary"}})
+
+	tests := []struct {
+		name            string
+		mutate          func(o *fixtureServerOpts)
+		wantErrContains string
+	}{
+		{
+			name: "archive download returns 500",
+			mutate: func(o *fixtureServerOpts) {
+				o.archiveHandler = func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(http.StatusInternalServerError)
+				}
+			},
+			// The status must be named. A 500 with an empty body also trips
+			// the empty-download check, so asserting only the "failed to
+			// download <asset>" wrapper would pass with the status check
+			// deleted.
+			wantErrContains: "failed to download " + archiveName + ": download returned status 500",
+		},
+		{
+			name: "checksums download returns 404",
+			mutate: func(o *fixtureServerOpts) {
+				o.checksumsHandler = func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(http.StatusNotFound)
+				}
+			},
+			wantErrContains: "failed to download checksums.txt: download returned status 404",
+		},
+		{
+			name: "archive download returns an empty body",
+			mutate: func(o *fixtureServerOpts) {
+				o.archiveHandler = func(w http.ResponseWriter, r *http.Request) {}
+			},
+			wantErrContains: "failed to download " + archiveName + ": download was empty",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := fixtureServerOpts{
+				archiveName: archiveName,
+				archive:     archive,
+				checksums:   checksumsFor(archiveName, archive),
+			}
+			tt.mutate(&opts)
+			srv := newFixtureServerWith(t, opts)
+
+			u := New("aaearon/grant-cli", "v0.6.1")
+			u.apiBaseURL = srv.URL
+			u.goos, u.goarch = "linux", "amd64"
+
+			applied := false
+			u.applyFn = func([]byte) error { applied = true; return nil }
+
+			_, _, err := u.UpdateSelf(t.Context(), "0.6.1")
+			if err == nil {
+				t.Fatal("expected an error, got nil")
+			}
+			if !strings.Contains(err.Error(), tt.wantErrContains) {
+				t.Errorf("error = %q, want it to contain %q", err, tt.wantErrContains)
+			}
+			if applied {
+				t.Error("a failed download must never reach the apply step")
+			}
+		})
+	}
+}
+
 // withMaxDownloadBytes shrinks the download/decompression cap for one test and
 // restores it via t.Cleanup, so an early t.Fatal cannot leak the change into
 // another test. maxDownloadBytes is package-global mutable state: callers of
-// this helper MUST NOT call t.Parallel().
-func withMaxDownloadBytes(t *testing.T, limit int64) {
+// this helper MUST NOT call t.Parallel(). It takes testing.TB so the fuzz
+// targets can bound each exec through the same seam (see fuzz_test.go).
+func withMaxDownloadBytes(t testing.TB, limit int64) {
 	t.Helper()
 	orig := maxDownloadBytes
 	maxDownloadBytes = limit
@@ -619,14 +877,18 @@ func TestExtractBinaryRejectsOversizedEntry(t *testing.T) {
 	withMaxDownloadBytes(t, 64)
 	big := strings.Repeat("A", 300)
 
+	// The declared-size pre-filters must be what rejects these, not readCapped
+	// downstream: "declares" is the pre-filter's wording, "exceeds" is
+	// readCapped's. Asserting the exact wording is what keeps the pre-filters
+	// from being deleted as redundant.
 	t.Run("tar.gz", func(t *testing.T) {
 		archive := buildTarGz(t, [][2]string{{"grant", big}})
 		got, err := extractBinary(archive, "grant-cli_0.7.0_linux_amd64.tar.gz")
 		if err == nil {
 			t.Fatalf("expected error, got %d bytes", len(got))
 		}
-		if !strings.Contains(err.Error(), "limit") {
-			t.Errorf("error should mention the limit: %v", err)
+		if !strings.Contains(err.Error(), "declares 300 bytes, over the 64 byte limit") {
+			t.Errorf("error should be the tar declared-size rejection: %v", err)
 		}
 	})
 
@@ -636,8 +898,8 @@ func TestExtractBinaryRejectsOversizedEntry(t *testing.T) {
 		if err == nil {
 			t.Fatalf("expected error, got %d bytes", len(got))
 		}
-		if !strings.Contains(err.Error(), "limit") {
-			t.Errorf("error should mention the limit: %v", err)
+		if !strings.Contains(err.Error(), "declares 300 bytes, over the 64 byte limit") {
+			t.Errorf("error should be the zip declared-size rejection: %v", err)
 		}
 	})
 
@@ -654,9 +916,16 @@ func TestExtractBinaryRejectsOversizedEntry(t *testing.T) {
 	})
 }
 
-// TestExtractBinaryRejectsTruncatedEntry covers a tar whose header declares
-// more bytes than the stream actually carries.
-func TestExtractBinaryRejectsTruncatedEntry(t *testing.T) {
+// TestExtractBinaryRejectsTruncatedArchive covers a gzip stream that is cut
+// short mid-entry.
+//
+// It pins GZIP-STREAM truncation, and nothing else. In particular it does NOT
+// cover the `len(data) != hdr.Size` cross-check in extractFromTarGz: that
+// branch is unreachable, because a stream that runs out early fails inside
+// readCapped with io.ErrUnexpectedEOF long before the comparison. The
+// cross-check is retained as defense in depth with no coverage claimed - see
+// the comment on it in selfupdate.go.
+func TestExtractBinaryRejectsTruncatedArchive(t *testing.T) {
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gz)

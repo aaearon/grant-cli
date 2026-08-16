@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"path"
 	"runtime"
@@ -342,10 +343,14 @@ func checkArchivePath(name string) error {
 	switch {
 	case name == "":
 		return errors.New("archive contains an entry with an empty name")
-	case path.IsAbs(cleaned):
-		return fmt.Errorf("archive contains illegal absolute path %q", name)
+	// The UNC arm must precede the absolute arm: path.Clean collapses
+	// "//host/share/x" to "/host/share/x", so path.IsAbs would always match
+	// first and this arm would be unreachable. Specificity before generality -
+	// the rejection is the same either way, only the diagnostic differs.
 	case strings.HasPrefix(normalized, "//"):
 		return fmt.Errorf("archive contains illegal UNC path %q", name)
+	case path.IsAbs(cleaned):
+		return fmt.Errorf("archive contains illegal absolute path %q", name)
 	case hasDriveLetter(normalized):
 		return fmt.Errorf("archive contains illegal drive-absolute path %q", name)
 	case cleaned == ".." || strings.HasPrefix(cleaned, "../"):
@@ -399,8 +404,20 @@ func extractFromTarGz(archive []byte) ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to read %s from archive: %w", hdr.Name, err)
 		}
+		// Defense in depth, and UNREACHABLE by construction: a successful
+		// readCapped returns exactly hdr.Size bytes, and a stream that runs
+		// out early fails inside readCapped with io.ErrUnexpectedEOF. Kept
+		// because the invariant is worth stating, but no test claims coverage
+		// of this branch - it cannot be provoked through tar.Reader.
 		if int64(len(data)) != hdr.Size {
 			return nil, fmt.Errorf("%s in archive is truncated: got %d bytes, header declares %d", hdr.Name, len(data), hdr.Size)
+		}
+		// A zero-length binary must never reach the apply step: the checksum
+		// covers the archive, not the extracted bytes, so an empty payload
+		// would be hashed and installed over the working binary. This is a
+		// backstop for the type and size guards above, not a replacement.
+		if len(data) == 0 {
+			return nil, fmt.Errorf("%s in archive is empty", hdr.Name)
 		}
 		found = data
 	}
@@ -421,7 +438,12 @@ func extractFromZip(archive []byte) ([]byte, error) {
 		if err := checkArchivePath(f.Name); err != nil {
 			return nil, err
 		}
-		if f.FileInfo().IsDir() || !isBinaryEntry(f.Name) {
+		// Mirrors the tar `Typeflag != tar.TypeReg` guard: only a regular file
+		// may be the binary. IsDir() alone would accept a symlink-mode entry,
+		// whose "contents" are the link target string. Not exploitable —
+		// extraction is in-memory and never follows the link — but the two
+		// formats must reject the same shapes.
+		if f.Mode()&fs.ModeType != 0 || !isBinaryEntry(f.Name) {
 			continue
 		}
 		if found != nil {
@@ -434,8 +456,16 @@ func extractFromZip(archive []byte) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
+		// Defense in depth, and UNREACHABLE for the same reason as the tar
+		// cross-check above: readCapped either returns the full entry or
+		// fails. No test claims coverage of this branch.
 		if uint64(len(data)) != f.UncompressedSize64 {
 			return nil, fmt.Errorf("%s in archive is truncated: got %d bytes, directory declares %d", f.Name, len(data), f.UncompressedSize64)
+		}
+		// See extractFromTarGz: an empty payload would be checksum-valid and
+		// would self-destruct the installed binary.
+		if len(data) == 0 {
+			return nil, fmt.Errorf("%s in archive is empty", f.Name)
 		}
 		found = data
 	}

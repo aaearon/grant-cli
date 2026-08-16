@@ -84,6 +84,29 @@ func TestApplyBinaryToReplacesTarget(t *testing.T) {
 	}
 }
 
+// TestApplyBinaryToRejectsEmptyBinary is the second, independent guard against
+// the zero-byte self-destruct: whatever the extractor did, the apply boundary
+// refuses to install nothing. minio would otherwise happily verify an empty
+// payload against a checksum computed from that same empty payload.
+func TestApplyBinaryToRejectsEmptyBinary(t *testing.T) {
+	path := writeFakeBinary(t)
+
+	err := applyBinaryTo(nil, path)
+	if err == nil {
+		t.Fatal("expected an empty binary to be refused, got nil")
+	}
+	if !strings.Contains(err.Error(), "empty binary") {
+		t.Errorf("error = %q, want it to name the empty binary", err)
+	}
+	if got := readFile(t, path); got != oldBinaryContents {
+		t.Errorf("target was modified: %q", got)
+	}
+
+	if err := applyBinaryTo([]byte{}, path); err == nil {
+		t.Fatal("expected a zero-length slice to be refused, got nil")
+	}
+}
+
 // TestApplyBinaryFailsBeforeTouchingTarget covers the failures that happen
 // while staging, i.e. before the original binary is renamed at all.
 func TestApplyBinaryFailsBeforeTouchingTarget(t *testing.T) {
@@ -320,6 +343,22 @@ func TestInterruptedUpdate(t *testing.T) {
 			t.Error("missing binary without a backup must not be reported as interrupted")
 		}
 	})
+
+	// The Windows steady state after EVERY successful update: minio cannot
+	// remove the backup while a process still runs from that image, so it
+	// hides it and leaves it behind. Both files present is healthy - if the
+	// target-exists guard broke, every Windows user would be told their
+	// install is interrupted and handed a recovery command that would
+	// overwrite a perfectly good binary with the previous version.
+	t.Run("target present with backup present", func(t *testing.T) {
+		path := writeFakeBinary(t)
+		if err := os.WriteFile(oldPathFor(path), []byte(oldBinaryContents), 0o755); err != nil { //nolint:gosec // test fixture
+			t.Fatalf("write backup: %v", err)
+		}
+		if hint, ok := InterruptedUpdate(path); ok {
+			t.Errorf("a present binary with a leftover backup is not interrupted, got hint %q", hint)
+		}
+	})
 }
 
 // TestApplyBinaryStagedFileIsSynced pins that grant syncs the staged file
@@ -349,6 +388,87 @@ func TestApplyBinaryStagedFileIsSynced(t *testing.T) {
 	}
 	if !synced {
 		t.Error("commit step never ran")
+	}
+}
+
+// withSyncStagedFileFn swaps the sync seam for one test and restores it via
+// t.Cleanup. Not parallel: syncStagedFileFn is package-global.
+func withSyncStagedFileFn(t *testing.T, fn func(string) error) {
+	t.Helper()
+	orig := syncStagedFileFn
+	syncStagedFileFn = fn
+	t.Cleanup(func() { syncStagedFileFn = orig })
+}
+
+// TestApplyWithOptionsSyncsBeforeCommit pins the ORDER: the staged file must
+// be fsynced before minio renames anything, because minio writes and closes it
+// without syncing. A commit that happens first would leave a crash window in
+// which a zero-length .new file gets renamed into place.
+func TestApplyWithOptionsSyncsBeforeCommit(t *testing.T) {
+	path := writeFakeBinary(t)
+
+	var calls []string
+	var syncedPath string
+	withSyncStagedFileFn(t, func(target string) error {
+		calls = append(calls, "sync")
+		syncedPath = target
+		return syncStagedFile(target)
+	})
+
+	origCommit := commitFn
+	t.Cleanup(func() { commitFn = origCommit })
+	commitFn = func(opts minio.Options) error {
+		calls = append(calls, "commit")
+		return origCommit(opts)
+	}
+
+	if err := applyBinaryTo([]byte(newBinaryContents), path); err != nil {
+		t.Fatalf("applyBinaryTo: %v", err)
+	}
+
+	want := []string{"sync", "commit"}
+	if len(calls) != len(want) || calls[0] != want[0] || calls[1] != want[1] {
+		t.Errorf("call order = %v, want %v", calls, want)
+	}
+	if syncedPath != path {
+		t.Errorf("synced %q, want the target %q", syncedPath, path)
+	}
+}
+
+// TestApplyWithOptionsAbortsOnSyncError pins that a sync failure aborts BEFORE
+// the commit: the target is untouched, the staged file is cleaned up, and the
+// error says what failed.
+func TestApplyWithOptionsAbortsOnSyncError(t *testing.T) {
+	path := writeFakeBinary(t)
+
+	withSyncStagedFileFn(t, func(string) error { return errTestApply })
+
+	committed := false
+	origCommit := commitFn
+	t.Cleanup(func() { commitFn = origCommit })
+	commitFn = func(opts minio.Options) error {
+		committed = true
+		return origCommit(opts)
+	}
+
+	err := applyBinaryTo([]byte(newBinaryContents), path)
+	if err == nil {
+		t.Fatal("expected the sync failure to abort the update, got nil")
+	}
+	if !errors.Is(err, errTestApply) {
+		t.Errorf("error does not wrap the sync failure: %v", err)
+	}
+	if !strings.Contains(err.Error(), "flush the staged binary to disk") {
+		t.Errorf("error = %q, want it to name the failed flush", err)
+	}
+	if committed {
+		t.Error("commit ran despite the sync failure")
+	}
+	if got := readFile(t, path); got != oldBinaryContents {
+		t.Errorf("target was modified: %q", got)
+	}
+	if _, err := os.Stat(stagedPath(path)); err == nil {
+		t.Error("staged file was left behind after the aborted apply")
 	}
 }
 
