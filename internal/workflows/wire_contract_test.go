@@ -163,9 +163,11 @@ func TestFinalizeRequest_ExactRouteAndReason(t *testing.T) {
 
 func strPtr(s string) *string { return &s }
 
-// TestListRequests_SendsLimit pins the limit query parameter. Offset pagination
-// is already well covered; limit was never asserted, so deleting it, or
-// changing defaultPageSize, went unnoticed.
+// TestListRequests_SendsLimit pins the route and the limit query parameter.
+// Offset pagination is already well covered; limit was never asserted, so
+// deleting it, or changing defaultPageSize, went unnoticed. The route was the
+// only unpinned route in either service — the mock already recorded it and no
+// test looked, so `grant request list` could have been pointed anywhere.
 func TestListRequests_SendsLimit(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -191,6 +193,9 @@ func TestListRequests_SendsLimit(t *testing.T) {
 				t.Fatalf("ListRequests: %v", err)
 			}
 
+			if mock.gotRoute != "/api/workflows/requests" {
+				t.Errorf("route = %q, want %q", mock.gotRoute, "/api/workflows/requests")
+			}
 			qp, ok := mock.gotParams.(map[string]string)
 			if !ok {
 				t.Fatalf("params = %#v (%T), want map[string]string", mock.gotParams, mock.gotParams)
@@ -268,5 +273,49 @@ func TestGetRequestForms_SendsExactParams(t *testing.T) {
 	want := map[string]string{"targetCategory": "CLOUD_CONSOLE", "requestType": "ON_DEMAND"}
 	if !reflect.DeepEqual(mock.gotParams, want) {
 		t.Errorf("params = %#v, want %#v", mock.gotParams, want)
+	}
+}
+
+// TestSubmitRequest_SendsExactRouteAndBody pins the submit wire contract.
+// TestSubmitRequest asserts only TargetCategory, so RequestDetails — reason,
+// role, target, dates, priority, i.e. the entire substance of
+// `grant request submit` — could be dropped at the service boundary and every
+// test still passed. Mirrors TestElevate_SendsExactRouteAndBody in internal/sca.
+func TestSubmitRequest_SendsExactRouteAndBody(t *testing.T) {
+	mock := &mockHTTPClient{
+		postResponse: jsonResponse(200, models.AccessRequest{RequestID: "req-submit-1"}),
+	}
+	svc := NewAccessRequestServiceWithClient(mock)
+
+	// Distinguishable values: no two keys share a value, so a swap cannot be
+	// masked. Do not "tidy" these to "test".
+	req := &models.SubmitAccessRequest{
+		TargetCategory: "CLOUD_CONSOLE",
+		RequestDetails: map[string]interface{}{
+			"reason":      "reason-submit-2",
+			"roleId":      "role-id-submit-3",
+			"roleName":    "Role Name Submit Four",
+			"targetId":    "target-submit-5",
+			"priority":    "priority-submit-6",
+			"startDate":   "2025-08-12T09:41:00",
+			"endDate":     "2025-08-12T17:41:00",
+			"timezone":    "timezone-submit-7",
+			"provider":    "provider-submit-8",
+			"workspaceId": "ws-submit-9",
+		},
+	}
+	if _, err := svc.SubmitRequest(t.Context(), req); err != nil {
+		t.Fatalf("SubmitRequest: %v", err)
+	}
+
+	if mock.gotRoute != "/api/workflows/requests" {
+		t.Errorf("route = %q, want %q", mock.gotRoute, "/api/workflows/requests")
+	}
+	got, ok := mock.gotBody.(*models.SubmitAccessRequest)
+	if !ok {
+		t.Fatalf("body = %#v (%T), want *models.SubmitAccessRequest", mock.gotBody, mock.gotBody)
+	}
+	if !reflect.DeepEqual(got, req) {
+		t.Errorf("body = %#v, want %#v", got, req)
 	}
 }
