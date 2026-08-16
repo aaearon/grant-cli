@@ -115,7 +115,7 @@ func TestFindItemByDisplay_ReturnsMatchingItem(t *testing.T) {
 
 // TestElevateCloud_RequestPayload kills ELV-02 and ELV-03: swapping
 // WorkspaceID/RoleID, or blanking CSP/OrganizationID, in the elevateCloud
-// request builder (cmd/root.go:786).
+// request builder in elevateCloud (cmd/root.go).
 func TestElevateCloud_RequestPayload(t *testing.T) {
 	target := &models.EligibleTarget{
 		CSP:            models.CSPAWS,
@@ -139,7 +139,7 @@ func TestElevateCloud_RequestPayload(t *testing.T) {
 }
 
 // TestResolveAndElevate_RequestPayload kills ELV-04: the same swap in the
-// second, byte-identical builder used by grant env (cmd/root.go:497).
+// second, byte-identical builder in resolveAndElevate, used by grant env.
 //
 // The duplication between the two builders is real; extracting a shared helper
 // is a refactor and is filed as follow-up, not done here.
@@ -205,7 +205,7 @@ func envConfigWithFavorites(favs map[string]config.Favorite) *config.Config {
 }
 
 // TestEnv_FavoriteMode kills ELV-05: the `--favorite` branch in
-// resolveAndElevate (cmd/root.go:429) is registered and advertised by grant env
+// resolveAndElevate (cmd/root.go) is registered and advertised by grant env
 // but was exercised by no test at all.
 func TestEnv_FavoriteMode(t *testing.T) {
 	elevator := awsFixtureElevator()
@@ -224,8 +224,8 @@ func TestEnv_FavoriteMode(t *testing.T) {
 	assertElevateRequest(t, elevator, models.CSPAWS, "o-env-1", "111122223333", "role-env-9")
 }
 
-// TestEnv_RejectsGroupFavorite kills ELV-06: the group-favorite rejection at
-// cmd/root.go:438.
+// TestEnv_RejectsGroupFavorite kills ELV-06: the group-favorite rejection in
+// resolveAndElevate's --favorite branch (cmd/root.go).
 func TestEnv_RejectsGroupFavorite(t *testing.T) {
 	elevator := awsFixtureElevator()
 	cfg := envConfigWithFavorites(map[string]config.Favorite{
@@ -245,8 +245,8 @@ func TestEnv_RejectsGroupFavorite(t *testing.T) {
 	}
 }
 
-// TestEnv_FavoriteProviderMismatch kills ELV-07: the provider-mismatch check at
-// cmd/root.go:443.
+// TestEnv_FavoriteProviderMismatch kills ELV-07: the provider-mismatch check in
+// resolveAndElevate's --favorite branch (cmd/root.go).
 func TestEnv_FavoriteProviderMismatch(t *testing.T) {
 	elevator := awsFixtureElevator()
 	cfg := envConfigWithFavorites(map[string]config.Favorite{
@@ -267,7 +267,7 @@ func TestEnv_FavoriteProviderMismatch(t *testing.T) {
 }
 
 // TestEnv_RequiresBothTargetAndRole kills ELV-08: the paired --target/--role
-// validation at cmd/root.go:456.
+// validation in resolveAndElevate (cmd/root.go).
 func TestEnv_RequiresBothTargetAndRole(t *testing.T) {
 	tests := []struct {
 		name string
@@ -298,7 +298,7 @@ func TestEnv_RequiresBothTargetAndRole(t *testing.T) {
 }
 
 // TestResolveFavoriteFlags_DetectsGroupFavorite kills ELV-09: the group
-// detection in resolveFavoriteFlags (cmd/root.go:577), which is the root
+// detection in resolveFavoriteFlags (cmd/root.go), which is the root
 // command's equivalent of the env check above and is separately unpinned.
 func TestResolveFavoriteFlags_DetectsGroupFavorite(t *testing.T) {
 	cfg := envConfigWithFavorites(map[string]config.Favorite{
@@ -328,7 +328,7 @@ func TestResolveFavoriteFlags_DetectsGroupFavorite(t *testing.T) {
 }
 
 // TestElevateGroup_SurfacesErrorInfo kills ELV-10: dropping the ErrorInfo check
-// in elevateGroup (cmd/root.go:837) makes a policy denial print as a success
+// in elevateGroup (cmd/root.go) makes a policy denial print as a success
 // and exit 0.
 func TestElevateGroup_SurfacesErrorInfo(t *testing.T) {
 	elevator := &mockGroupsElevator{
@@ -357,8 +357,8 @@ func TestElevateGroup_SurfacesErrorInfo(t *testing.T) {
 	}
 }
 
-// TestEnv_SurfacesErrorInfo kills ELV-11: the same check on the env path
-// (cmd/root.go:525).
+// TestEnv_SurfacesErrorInfo kills ELV-11: the same check on the env path, in
+// resolveAndElevate (cmd/root.go).
 func TestEnv_SurfacesErrorInfo(t *testing.T) {
 	// Credentials are present alongside the error so that dropping the guard
 	// produces the real false-success — exports printed, exit 0 — rather than
@@ -446,7 +446,8 @@ func TestElevate_EmptyResultsGuards(t *testing.T) {
 }
 
 // TestFetchEligibility_AllCSPsFail kills ELV-19: the aggregate guard at
-// cmd/root.go:342. Without it a total multi-CSP failure returns (nil, nil) and
+// the end of fetchEligibility's multi-CSP branch (cmd/root.go). Without it a
+// total multi-CSP failure returns (nil, nil) and
 // each caller substitutes its own, less accurate message.
 func TestFetchEligibility_AllCSPsFail(t *testing.T) {
 	lister := &mockEligibilityLister{
@@ -468,7 +469,8 @@ func TestFetchEligibility_AllCSPsFail(t *testing.T) {
 }
 
 // TestEnv_SlowPromptTimeout kills ELV-20: elevating on the original ctx rather
-// than a fresh one (cmd/root.go:510). A user who takes longer than apiTimeout
+// than a fresh one, in resolveAndElevate (cmd/root.go). A user who takes
+// longer than apiTimeout
 // to pick a target would get a deadline error instead of an elevation. Root's
 // three dispatch paths have this coverage; env did not.
 func TestEnv_SlowPromptTimeout(t *testing.T) {
@@ -565,7 +567,8 @@ func assertCachedAuth(t *testing.T, got []bool) {
 }
 
 // TestEnv_SelectorReceivesAllTargets kills ELV-23: passing nil (or anything
-// else) to SelectTarget at cmd/root.go:480. mockTargetSelector returns its
+// else) to SelectTarget in resolveAndElevate (cmd/root.go). mockTargetSelector
+// returns its
 // canned target without looking at the slice, so nothing else notices.
 func TestEnv_SelectorReceivesAllTargets(t *testing.T) {
 	second := models.EligibleTarget{
@@ -637,7 +640,8 @@ func TestExecute_VerboseHintCondition(t *testing.T) {
 }
 
 // TestRootElevate_GroupAndGroupsPrecedence kills ELV-25: --group and --groups
-// are not mutually exclusive, so their dispatch order (cmd/root.go:631) is a
+// are not mutually exclusive, so their dispatch order in
+// resolveAndElevateUnified (cmd/root.go) is a
 // real, user-visible policy. --group names a specific group and must win over
 // the --groups interactive filter.
 func TestRootElevate_GroupAndGroupsPrecedence(t *testing.T) {

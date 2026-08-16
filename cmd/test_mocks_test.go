@@ -64,11 +64,16 @@ func (m *mockEligibilityLister) ListEligibility(ctx context.Context, csp models.
 // method body *before* dispatching to elevateFunc, so a test that supplies a
 // callback still gets the history.
 //
-// No mutex, deliberately. Only the eligibility listers fan out across
-// goroutines (cmd/helpers.go:44,59,71 and cmd/root.go:316,326,734,739); every
-// Elevate call site is sequential — cmd/root.go:514 (resolveAndElevate),
-// :797 (elevateCloud, reached only after the fan-out channels have been
-// joined). `make test-race` is what keeps that assumption honest.
+// No mutex, deliberately. The only mocks reached from more than one goroutine
+// are the eligibility listers, via the fan-outs in fetchEligibility and
+// fetchGroupsEligibility (cmd/root.go), resolveAndElevateUnifiedPath
+// (cmd/root.go) and fetchAllTargets/fetchAllGroups (cmd/helpers.go). Every
+// Elevate call site is sequential — resolveAndElevate and elevateCloud, the
+// latter reached only after those fan-out channels have been joined.
+// `make test-race` is what keeps that assumption honest.
+//
+// Function names, not line numbers: an unrelated insertion elsewhere in
+// cmd/root.go already invalidated the line-number form of this comment once.
 type mockElevateService struct {
 	elevateFunc func(ctx context.Context, req *models.ElevateRequest) (*models.ElevateResponse, error)
 	response    *models.ElevateResponse
@@ -231,7 +236,7 @@ func (m *mockGroupsEligibilityLister) ListGroupsEligibility(ctx context.Context,
 
 // mockGroupsElevator implements groupsElevator for testing.
 // Same capture convention and same no-mutex reasoning as mockElevateService:
-// the sole call site, cmd/root.go:827 (elevateGroup), is sequential.
+// the sole call site, elevateGroup (cmd/root.go), is sequential.
 type mockGroupsElevator struct {
 	elevateFunc func(ctx context.Context, req *models.GroupsElevateRequest) (*models.GroupsElevateResponse, error)
 	response    *models.GroupsElevateResponse
