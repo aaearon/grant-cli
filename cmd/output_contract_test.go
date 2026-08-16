@@ -709,3 +709,130 @@ func TestRevokeJSON_Contract(t *testing.T) {
   }
 ]`)
 }
+
+// --- absent optional fields ----------------------------------------------------
+//
+// The tests above populate every optional field, which pins the PRESENT state.
+// Dropping `omitempty` from a field is invisible to them: the key is emitted
+// either way. These three pin the ABSENT state — the key must not appear at
+// all, rather than appearing as null or "". A consumer doing a key-presence
+// check sees a contract change where a struct-unmarshalling test sees none.
+
+// TestElevationJSON_AzureOmitsCredentials pins that a non-AWS elevation emits
+// NO `credentials` key. Dropping omitempty turns it into "credentials": null.
+func TestElevationJSON_AzureOmitsCredentials(t *testing.T) {
+	target := &scamodels.EligibleTarget{
+		CSP:            scamodels.CSPAzure,
+		OrganizationID: "org-id",
+		WorkspaceID:    "ws-id",
+		WorkspaceName:  "ws-name",
+		WorkspaceType:  scamodels.WorkspaceTypeSubscription,
+		RoleInfo:       scamodels.RoleInfo{ID: "role-id", Name: "role-name"},
+	}
+
+	auth := &mockAuthLoader{token: &authmodels.IdsecToken{Token: "jwt", Username: "user-fixture@example.test"}}
+	elig := &mockEligibilityLister{response: &scamodels.EligibilityResponse{
+		Response: []scamodels.EligibleTarget{*target}, Total: 1,
+	}}
+	// No AccessCredentials: Azure elevations never carry them.
+	elev := &mockElevateService{response: &scamodels.ElevateResponse{Response: scamodels.ElevateAccessResult{
+		CSP: scamodels.CSPAzure, OrganizationID: "org-id",
+		Results: []scamodels.ElevateTargetResult{{
+			WorkspaceID: "ws-id", RoleID: "role-id", SessionID: "sess-id",
+		}},
+	}}}
+	sel := &mockUnifiedSelector{item: &selectionItem{kind: selectionCloud, cloud: target}}
+
+	cmd := NewRootCommandWithDeps(nil, auth, elig, elev, sel,
+		&mockGroupsEligibilityLister{listErr: errNotAuthenticated}, nil, config.DefaultConfig())
+
+	stdout, stderr, err := executeCommandStreams(cmd, "--output", "json", "--provider", "azure")
+	if err != nil {
+		t.Fatalf("unexpected error: %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
+	}
+
+	assertJSONEqual(t, []byte(stdout), `{
+  "type": "cloud",
+  "provider": "azure",
+  "sessionId": "sess-id",
+  "target": "ws-name",
+  "role": "role-name"
+}`)
+}
+
+// TestStatusJSON_OmitsAbsentOptionalFields pins the absent state of the status
+// document: an unnamed token emits NO `username`, and a session whose workspace
+// ID is missing from the name map emits NO `workspaceName`. Dropping omitempty
+// from either turns it into an empty string.
+func TestStatusJSON_OmitsAbsentOptionalFields(t *testing.T) {
+	auth := &mockAuthLoader{token: &authmodels.IdsecToken{Token: "jwt"}}
+
+	sessions := &mockSessionLister{sessions: &scamodels.SessionsResponse{
+		Response: []scamodels.SessionInfo{{
+			SessionID: "sess-unnamed", CSP: scamodels.CSPAzure,
+			WorkspaceID: "ws-id-unknown", RoleID: "role-id", SessionDuration: 3600,
+		}},
+		Total: 1,
+	}}
+	// Eligibility knows a different workspace, so the lookup misses.
+	elig := &mockEligibilityLister{response: &scamodels.EligibilityResponse{
+		Response: []scamodels.EligibleTarget{{WorkspaceID: "ws-id-other", WorkspaceName: "ws-name"}},
+		Total:    1,
+	}}
+
+	cmd := NewStatusCommandWithDeps(auth, sessions, elig, nil, nil)
+	root := newTestRootCommand()
+	root.AddCommand(cmd)
+
+	stdout, stderr, err := executeCommandStreams(root, "status", "--output", "json")
+	if err != nil {
+		t.Fatalf("unexpected error: %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
+	}
+
+	assertJSONEqual(t, []byte(stdout), `{
+  "authenticated": true,
+  "sessions": [
+    {
+      "sessionId": "sess-unnamed",
+      "provider": "azure",
+      "workspaceId": "ws-id-unknown",
+      "roleId": "role-id",
+      "duration": 3600,
+      "type": "cloud"
+    }
+  ]
+}`)
+}
+
+// TestListJSON_OmitsAbsentDirectory pins that a group with no directory name
+// emits NO `directory` key. Dropping omitempty turns it into "directory": "".
+func TestListJSON_OmitsAbsentDirectory(t *testing.T) {
+	auth := &mockAuthLoader{token: &authmodels.IdsecToken{Token: "jwt"}}
+	elig := &mockEligibilityLister{response: &scamodels.EligibilityResponse{}}
+	groupsElig := &mockGroupsEligibilityLister{response: &scamodels.GroupsEligibilityResponse{
+		Response: []scamodels.GroupsEligibleTarget{{
+			GroupName: "grp-name", GroupID: "grp-id", DirectoryID: "dir-id",
+		}},
+		Total: 1,
+	}}
+
+	cmd := NewListCommandWithDeps(auth, elig, groupsElig)
+	root := newTestRootCommand()
+	root.AddCommand(cmd)
+
+	stdout, stderr, err := executeCommandStreams(root, "list", "--output", "json")
+	if err != nil {
+		t.Fatalf("unexpected error: %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
+	}
+
+	assertJSONEqual(t, []byte(stdout), `{
+  "cloud": [],
+  "groups": [
+    {
+      "groupName": "grp-name",
+      "groupId": "grp-id",
+      "directoryId": "dir-id"
+    }
+  ]
+}`)
+}
