@@ -66,6 +66,12 @@ func Load(path string) (*Config, error) {
 		cfg.Favorites = make(map[string]Favorite)
 	}
 
+	// Validate here so an unusable cache_ttl surfaces at load rather than
+	// later, when some command happens to build a cache.
+	if _, err := ParseCacheTTL(cfg); err != nil {
+		return nil, err
+	}
+
 	return cfg, nil
 }
 
@@ -93,7 +99,9 @@ func LoadDefaultWithPath() (*Config, string, error) {
 	}
 	cfg, err := Load(cfgPath)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to load config: %w", err)
+		// Name the file: with GRANT_CONFIG set, the value alone leaves the
+		// user guessing which config to edit.
+		return nil, "", fmt.Errorf("failed to load config %s: %w", cfgPath, err)
 	}
 	return cfg, cfgPath, nil
 }
@@ -108,16 +116,23 @@ func ConfigDir() (string, error) {
 }
 
 // ParseCacheTTL returns the configured cache TTL duration.
-// Falls back to DefaultCacheTTL if the config value is empty or unparseable.
-func ParseCacheTTL(cfg *Config) time.Duration {
+//
+// An absent value means "use the default". Any explicitly supplied value that
+// cannot serve as a TTL — unparseable, zero or negative — is an error. The two
+// are deliberately treated the same way: silently defaulting one while
+// rejecting the other would validate a single field by two opposite rules.
+func ParseCacheTTL(cfg *Config) (time.Duration, error) {
 	if cfg.CacheTTL == "" {
-		return DefaultCacheTTL
+		return DefaultCacheTTL, nil
 	}
 	d, err := time.ParseDuration(cfg.CacheTTL)
 	if err != nil {
-		return DefaultCacheTTL
+		return 0, fmt.Errorf("invalid cache_ttl %q: must be a positive Go duration such as 4h or 30m: %w", cfg.CacheTTL, err)
 	}
-	return d
+	if d <= 0 {
+		return 0, fmt.Errorf("invalid cache_ttl %q: must be greater than zero; use --refresh to bypass the cache for a single command", cfg.CacheTTL)
+	}
+	return d, nil
 }
 
 // ConfigPath returns the config file path, respecting the GRANT_CONFIG env var.

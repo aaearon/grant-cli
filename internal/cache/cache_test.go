@@ -64,16 +64,21 @@ func TestGet_CorruptJSON(t *testing.T) {
 	dir := t.TempDir()
 	s := NewStore(dir, 4*time.Hour)
 
-	// Write garbage to the cache file
+	// The envelope must carry a FRESH cached_at: an unparseable file or a
+	// zero-valued cached_at also produces a miss via the TTL branch, which
+	// would let a broken unmarshal guard pass this test. A well-formed
+	// envelope whose "response" has the wrong type leaves the unmarshal
+	// guard as the only thing that can produce the miss.
 	path := filepath.Join(dir, "corrupt.json")
-	if err := os.WriteFile(path, []byte("{not valid json"), 0o600); err != nil {
+	envelope := []byte(`{"cached_at":"` + time.Now().UTC().Format(time.RFC3339Nano) + `","response":12345}`)
+	if err := os.WriteFile(path, envelope, 0o600); err != nil {
 		t.Fatalf("failed to write corrupt file: %v", err)
 	}
 
-	var out string
+	var out string // dst is a string; the stored "response" is a number
 	ok := Get(s, "corrupt", &out)
 	if ok {
-		t.Fatal("expected miss for corrupt JSON")
+		t.Fatal("expected miss for a type-mismatched payload with a fresh cached_at")
 	}
 }
 

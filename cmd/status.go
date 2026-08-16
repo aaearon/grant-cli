@@ -42,7 +42,10 @@ func NewStatusCommand() *cobra.Command {
 			return err
 		}
 
-		cachedLister := buildCachedLister(cfg, false, svc, svc)
+		cachedLister, err := buildCachedLister(cfg, false, svc, svc)
+		if err != nil {
+			return err
+		}
 
 		// Build session timestamp tracker (best-effort)
 		var tracker *cache.Store

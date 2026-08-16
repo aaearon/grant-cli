@@ -232,22 +232,30 @@ func runElevateProduction(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	cachedLister := buildCachedLister(cfg, flags.refresh, scaService, scaService)
+	cachedLister, err := buildCachedLister(cfg, flags.refresh, scaService, scaService)
+	if err != nil {
+		return err
+	}
 
 	return runElevateWithDeps(cmd, flags, profile, ispAuth, cachedLister, scaService, &uiUnifiedSelector{}, cachedLister, scaService, cfg)
 }
 
 // buildCachedLister creates a CachedEligibilityLister wrapping the given services.
 // If the cache directory cannot be resolved, it falls back to the unwrapped services.
-func buildCachedLister(cfg *config.Config, refresh bool, cloudInner cache.EligibilityLister, groupsInner cache.GroupsEligibilityLister) *cache.CachedEligibilityLister {
+// An invalid cache_ttl is an error: config.Load already rejects one, so reaching
+// this with a bad value means the config was built in memory, not read from disk.
+func buildCachedLister(cfg *config.Config, refresh bool, cloudInner cache.EligibilityLister, groupsInner cache.GroupsEligibilityLister) (*cache.CachedEligibilityLister, error) {
 	cacheLog := common.GetLogger("grant", -1)
 	cacheDir, err := cache.CacheDir()
 	if err != nil {
-		return cache.NewCachedEligibilityLister(cloudInner, groupsInner, cache.NewStore("", 0), true, nil)
+		return cache.NewCachedEligibilityLister(cloudInner, groupsInner, cache.NewStore("", 0), true, nil), nil
 	}
-	ttl := config.ParseCacheTTL(cfg)
+	ttl, err := config.ParseCacheTTL(cfg)
+	if err != nil {
+		return nil, err
+	}
 	store := cache.NewStore(cacheDir, ttl)
-	return cache.NewCachedEligibilityLister(cloudInner, groupsInner, store, refresh, cacheLog)
+	return cache.NewCachedEligibilityLister(cloudInner, groupsInner, store, refresh, cacheLog), nil
 }
 
 // NewRootCommandWithDeps creates a root command with injected dependencies for testing.

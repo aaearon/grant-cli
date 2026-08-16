@@ -145,10 +145,12 @@ Custom `SCAAccessService` follows SDK conventions:
 ## Cache
 - Eligibility responses cached in `~/.grant/cache/` as JSON files (e.g., `eligibility_azure.json`, `groups_eligibility_azure.json`)
 - Default TTL: 4 hours, configurable via `cache_ttl` in `~/.grant/config.yaml` (Go duration syntax: `2h`, `30m`)
+- `config.ParseCacheTTL` returns `(time.Duration, error)`. **Absent** means "use the default"; **any explicitly supplied** value that cannot serve as a TTL — unparseable, zero or negative — is an error. Treating those two the same way is the point: silently defaulting `garbage` while rejecting `0s` would validate one field by two opposite rules. `config.Load` validates it so a bad value surfaces at load, not when some command happens to build a cache. `buildCachedLister` (`cmd/root.go`) therefore returns an error too — its bad-TTL arm is reachable only for a `Config` assembled in memory. Both rejection messages must name a remedy: the unparseable arm names the expected syntax (`must be a positive Go duration such as 4h or 30m`) and still wraps the `time.ParseDuration` error with `%w`; the non-positive arm names `--refresh` as the way to bypass the cache for one command, since `0s` used to work as an accidental kill-switch. Neither may point at `grant configure` (see Config)
 - `--refresh` flag on `grant` and `grant env` bypasses cache reads but still writes fresh data
 - `internal/cache/cache.go` — generic `Store` with `Get[T]`/`Set[T]`, injectable clock for testing
 - `internal/cache/cached_eligibility.go` — `CachedEligibilityLister` decorator implementing `eligibilityLister` + `groupsEligibilityLister`
-- `internal/cache/session_tracker.go` — `RecordSession`, `SessionTimestamps`, `CleanupSessions` for tracking elevation timestamps in `session_timestamps.json` (25h TTL, auto-cleanup of inactive sessions)
+- `internal/cache/session_tracker.go` — `RecordSession`, `SessionTimestamps`, `CleanupSessions` for tracking elevation timestamps in `session_timestamps.json`
+  - `sessionTimestampRetention` (24h) is **local retention for the remaining-time display only** — not a session lifetime, not a session limit, not an access-control boundary. Dropping a timestamp only costs grant the ability to show how long a session has left. `SessionTimestamps` filters on it; `CleanupSessions` does **not** read it at all — that filters purely on `activeIDs` membership
 - `buildCachedLister()` in `cmd/root.go` — shared factory used by all commands (root, env, status, revoke, favorites add)
 - Commands without `--refresh` (status, revoke, favorites add) always pass `refresh: false` — they use eligibility for display only
 - Cache failures (read/write) silently fall through to the live API
@@ -168,6 +170,7 @@ Custom `SCAAccessService` follows SDK conventions:
 ## Config
 - App config: `~/.grant/config.yaml`
 - SDK profile: `~/.idsec/profiles/grant` (default; override via `IDSEC_PROFILES_FOLDER`)
+- **`runConfigure` rebuilds the config from scratch** (`cmd/configure.go`): it never reads the existing file, it constructs a fresh `&config.Config{}` with a hardcoded `default_provider` and an empty `Favorites` map and `Save`s that, so every favorite and the user's `default_provider` are silently destroyed. That is also what keeps `grant configure` reachable when the on-disk config is unloadable (the no-lockout property, pinned by `TestConfigure_OverwritesInvalidCacheTTLAndClobbersFavorites`), so it is not purely a bug — but it means **`grant configure` must never be advertised as the remedy for a bad config value**. The user-facing remedy is to edit the file, whose path every load error names. Known sharp edge, follow-up, deliberately not fixed here
 - Always resolve the profile directory with `profiles.GetProfilesFolder()` (SDK) — never hand-roll it. The SDK reads `os.Getenv("HOME")`, not `os.UserHomeDir()`; on Windows `HOME` is frequently unset, so it resolves to a **relative** `.idsec/profiles` under the process CWD. Any code that prints or computes the profile path must agree with the loader, so reproduce the SDK's behavior rather than "correcting" it
 
 ## Keyring
@@ -228,7 +231,7 @@ make clean              # Clean build artifacts
 - `.golangci.yml` sets `run.build-tags: [integration, selfupdate_e2e]` so both tagged files are linted. Side effect: with `integration` set, `cmd/main_test.go` (`//go:build !integration`) is excluded from linting
 - Lint (`golangci-lint-action`) runs on Linux only — a second pass on Windows adds minutes and finds nothing new
 - Tests must be OS-portable. Never assert POSIX permission bits without a `runtime.GOOS == "windows"` skip: Go synthesizes `0666`/`0777` for Windows files and `os.Chmod` there only toggles the read-only attribute. Current skips: `internal/config/config_test.go` (`TestLoadConfig_PermissionError`, `TestConfigDir_Error` — chmod 0000 and `HOME`) and `internal/cache/cache_test.go` (`TestSet_FilePermissions`)
-- Prefer a portable construction over a skip where one exists. To force a write failure, point at a path whose parent component is an existing regular file (`MkdirAll` fails with ENOTDIR on POSIX and ERROR_DIRECTORY on Windows) rather than a hardcoded `/dev/null/...` path, which is an ordinary writable location on Windows
+- Prefer a portable construction over a skip where one exists. To force a write failure, point at a path whose parent component is an existing regular file rather than a hardcoded `/dev/null/...` path, which is an ordinary writable location on Windows. `MkdirAll` fails with `ENOTDIR` on **both** platforms — no Windows error code is involved: `os.MkdirAll` (`os/path.go`) stats the parent itself and synthesizes `&PathError{Op: "mkdir", Err: syscall.ENOTDIR}` in platform-independent Go, which is also why asserting `Op == "mkdir"` is portable
 
 ## CHANGELOG Style
 Entries are short and concise. This applies to `[Unreleased]` and everything added from now on; already-released sections are published history and are not rewritten.

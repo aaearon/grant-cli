@@ -78,7 +78,10 @@ func NewRevokeCommand() *cobra.Command {
 			return err
 		}
 
-		cachedLister := buildCachedLister(cfg, false, svc, nil)
+		cachedLister, err := buildCachedLister(cfg, false, svc, nil)
+		if err != nil {
+			return err
+		}
 
 		return runRevoke(cmd, args, ispAuth, svc, cachedLister, svc, &uiSessionSelector{}, &uiConfirmPrompter{}, profile)
 	})
