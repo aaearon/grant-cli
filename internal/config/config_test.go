@@ -499,16 +499,43 @@ func TestParseCacheTTL(t *testing.T) {
 		// value is the raw cache_ttl string.
 		value string
 		want  time.Duration
-		// wantErrContains empty means the call must succeed.
-		wantErrContains string
+		// wantErrContains empty means the call must succeed. Every entry must
+		// appear in the error: rejecting a value is only half the job, the
+		// message must also say what a valid one looks like.
+		wantErrContains []string
 	}{
 		{name: "empty uses default", value: "", want: DefaultCacheTTL},
 		{name: "custom 2h", value: "2h", want: 2 * time.Hour},
 		// Positive control: the guard below must not widen to swallow valid values.
 		{name: "custom 30m", value: "30m", want: 30 * time.Minute},
-		{name: "unparseable is rejected", value: "garbage", wantErrContains: `invalid cache_ttl "garbage"`},
-		{name: "zero is rejected", value: "0s", wantErrContains: "must be greater than zero"},
-		{name: "negative is rejected", value: "-1h", wantErrContains: "must be greater than zero"},
+		{
+			name:  "unparseable is rejected with the expected syntax",
+			value: "garbage",
+			wantErrContains: []string{
+				`invalid cache_ttl "garbage"`,
+				"must be a positive Go duration such as 4h or 30m",
+				// The wrapped time.ParseDuration error must survive.
+				`time: invalid duration "garbage"`,
+			},
+		},
+		{
+			name:  "zero is rejected and names the --refresh alternative",
+			value: "0s",
+			wantErrContains: []string{
+				`invalid cache_ttl "0s"`,
+				"must be greater than zero",
+				"use --refresh to bypass the cache for a single command",
+			},
+		},
+		{
+			name:  "negative is rejected and names the --refresh alternative",
+			value: "-1h",
+			wantErrContains: []string{
+				`invalid cache_ttl "-1h"`,
+				"must be greater than zero",
+				"use --refresh to bypass the cache for a single command",
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -517,12 +544,14 @@ func TestParseCacheTTL(t *testing.T) {
 			cfg := &Config{CacheTTL: tt.value}
 			got, err := ParseCacheTTL(cfg)
 
-			if tt.wantErrContains != "" {
+			if len(tt.wantErrContains) > 0 {
 				if err == nil {
 					t.Fatalf("ParseCacheTTL(%q) = %v, want error containing %q", tt.value, got, tt.wantErrContains)
 				}
-				if !strings.Contains(err.Error(), tt.wantErrContains) {
-					t.Errorf("ParseCacheTTL(%q) error = %q, want it to contain %q", tt.value, err, tt.wantErrContains)
+				for _, want := range tt.wantErrContains {
+					if !strings.Contains(err.Error(), want) {
+						t.Errorf("ParseCacheTTL(%q) error = %q, want it to contain %q", tt.value, err, want)
+					}
 				}
 				return
 			}
@@ -671,6 +700,15 @@ func TestLoadDefaultWithPath_ErrorNamesTheFile(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), `invalid cache_ttl "garbage"`) {
 		t.Errorf("error = %q, want it to name the offending value", err)
+	}
+	if !strings.Contains(err.Error(), "must be a positive Go duration such as 4h or 30m") {
+		t.Errorf("error = %q, want it to say what a valid value looks like", err)
+	}
+	// The remedy is to edit the named file. `grant configure` rewrites the
+	// config from scratch and drops favorites and default_provider, so the
+	// error must never send the user there.
+	if strings.Contains(err.Error(), "grant configure") {
+		t.Errorf("error = %q, must not suggest `grant configure` as the remedy", err)
 	}
 }
 
