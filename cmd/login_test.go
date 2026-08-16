@@ -259,7 +259,7 @@ func TestLoginCommandUsage(t *testing.T) {
 	}
 }
 
-func TestLoginCommandAutoConfigure(t *testing.T) {
-	// Placeholder test — auto-configure DI not yet wired
-	t.Skip("Auto-configure not yet implemented")
-}
+// Auto-configure is covered by TestRunLogin_AutoConfiguresMissingProfile in
+// login_args_test.go. The former placeholder here skipped with the factually
+// wrong reason "Auto-configure not yet implemented" — the feature is
+// implemented (cmd/login.go:52).

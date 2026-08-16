@@ -4,9 +4,48 @@ package cmd
 
 import (
 	"bytes"
+	"os"
+	"testing"
 
+	"github.com/aaearon/grant-cli/internal/ui"
 	"github.com/spf13/cobra"
 )
+
+// withInteractiveTTY forces ui.IsInteractive() to the given answer for the
+// duration of the test, restoring the package global via t.Cleanup.
+//
+// Use it in every test whose behavior depends on interactivity: `go test`
+// happens to run with a non-TTY stdin, but that is an accident of the harness,
+// not an assertion, and it silently reverses under a PTY.
+func withInteractiveTTY(t *testing.T, interactive bool) {
+	t.Helper()
+	orig := ui.IsTerminalFunc
+	t.Cleanup(func() { ui.IsTerminalFunc = orig })
+	ui.IsTerminalFunc = func(_ uintptr) bool { return interactive }
+}
+
+// withDiscardedStdout points os.Stdout at a throwaway file for the duration of
+// the test, restoring it via t.Cleanup.
+//
+// survey writes its prompts straight to os.Stdout rather than to the cobra
+// output buffer, so any test that reaches a prompt sprays terminal control
+// sequences over the developer's console. One of them, ESC[6n (Device Status
+// Report), makes the terminal write its reply back on stdin, which corrupts the
+// shell prompt after `go test`. Redirecting os.Stdout keeps that off the real
+// terminal without adding a production seam to the prompting code.
+func withDiscardedStdout(t *testing.T) {
+	t.Helper()
+	f, err := os.CreateTemp(t.TempDir(), "stdout-")
+	if err != nil {
+		t.Fatalf("creating stdout sink: %v", err)
+	}
+	orig := os.Stdout
+	t.Cleanup(func() {
+		os.Stdout = orig
+		_ = f.Close()
+	})
+	os.Stdout = f
+}
 
 // newTestRootCommand creates a root command for testing (no elevation RunE)
 func newTestRootCommand() *cobra.Command {
@@ -84,7 +123,9 @@ func executeWithHint(cmd *cobra.Command, args []string) string {
 		return ""
 	}
 	out := err.Error() + "\n"
-	if !verbose && passedArgValidation {
+	// Call the production predicate rather than restating it, so this helper
+	// cannot drift away from Execute().
+	if shouldShowVerboseHint(verbose, passedArgValidation) {
 		out += "Hint: re-run with --verbose for more details\n"
 	}
 	return out

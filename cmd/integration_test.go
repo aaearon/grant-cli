@@ -314,6 +314,63 @@ func TestIntegration_InvalidCommand(t *testing.T) {
 	}
 }
 
+// TestIntegration_VerboseHint pins the hint's CALL SITE in Execute(), not just
+// the shouldShowVerboseHint predicate.
+//
+// The unit-level coverage cannot do this: cmd/test_helpers_test.go's
+// executeWithHint calls the same predicate, so it is a reimplementation of
+// Execute()'s error path that can never disagree with it — deleting the whole
+// `if shouldShowVerboseHint(...) { Fprintln(...) }` block from Execute() leaves
+// `go test ./cmd/` green. Only the real binary exercises the wiring.
+func TestIntegration_VerboseHint(t *testing.T) {
+	const hint = "Hint: re-run with --verbose for more details"
+
+	tests := []struct {
+		name     string
+		args     []string
+		wantHint bool
+		why      string
+	}{
+		{
+			name:     "runtime error prints the hint",
+			args:     []string{"--provider", "azure"},
+			wantHint: true,
+			why:      "PersistentPreRunE ran, so --verbose would have added detail",
+		},
+		{
+			name:     "argument validation error does not",
+			args:     []string{"nonexistent-command"},
+			wantHint: false,
+			why:      "PersistentPreRunE never ran, so --verbose would add nothing",
+		},
+		{
+			name:     "unknown flag does not",
+			args:     []string{"--no-such-flag"},
+			wantHint: false,
+			why:      "flag parsing fails before PersistentPreRunE",
+		},
+		{
+			name:     "already verbose does not",
+			args:     []string{"--verbose", "--provider", "azure"},
+			wantHint: false,
+			why:      "the hint tells the user to do what they already did",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := runGrant(t, isolatedEnv(t), tt.args...)
+			if got.exitCode != 1 {
+				t.Fatalf("exit code = %d, want 1\noutput:\n%s", got.exitCode, got.output)
+			}
+			if hasHint := got.contains(hint); hasHint != tt.wantHint {
+				t.Errorf("hint present = %v, want %v (%s)\noutput:\n%s",
+					hasHint, tt.wantHint, tt.why, got.output)
+			}
+		})
+	}
+}
+
 // TestIntegration_SandboxIsolation asserts the harness itself is sandboxed, so
 // a regression in TestMain surfaces here rather than as writes to the
 // developer's real home directory.

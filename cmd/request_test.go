@@ -188,6 +188,7 @@ func TestRequestCancelCommand(t *testing.T) {
 		name        string
 		svc         *mockAccessRequestService
 		args        []string
+		nonTTY      bool
 		wantContain []string
 		wantErr     bool
 	}{
@@ -220,15 +221,23 @@ func TestRequestCancelCommand(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "cancel no args",
-			svc:     &mockAccessRequestService{},
-			args:    []string{"cancel"},
-			wantErr: true,
+			// Not merely "errors": without an explicit non-TTY this case
+			// passed only because `go test` happens to run with a non-terminal
+			// stdin, and it asserted nothing about which error came back.
+			name:        "cancel no args without a terminal",
+			svc:         &mockAccessRequestService{},
+			args:        []string{"cancel"},
+			nonTTY:      true,
+			wantErr:     true,
+			wantContain: []string{"interactive selection requires a terminal"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.nonTTY {
+				withInteractiveTTY(t, false)
+			}
 			cmd := NewRequestCommandWithDeps(tt.svc)
 			root := newTestRootCommand()
 			root.AddCommand(cmd)
@@ -617,6 +626,8 @@ func TestRunRequestSubmit_ServiceError(t *testing.T) {
 }
 
 func TestRunRequestSubmit_MissingFlags_NonInteractive(t *testing.T) {
+	withInteractiveTTY(t, false)
+
 	original := resolveSubmitTargetFn
 	defer func() { resolveSubmitTargetFn = original }()
 
@@ -767,7 +778,7 @@ func TestRunRequestSubmit_InteractiveRoleSelection(t *testing.T) {
 		t.Fatalf("unexpected error: %v\noutput: %s", err, output)
 	}
 
-	submitted := svc.submitRequest
+	submitted := svc.lastSubmit()
 	if submitted == nil {
 		t.Fatal("expected a submitted request")
 	}
@@ -1017,8 +1028,10 @@ func TestRunRequestSubmit_GCPWorkspaceWithRoleIDRejected(t *testing.T) {
 			if !strings.Contains(err.Error(), "not supported for GCP") {
 				t.Errorf("error %q does not say GCP is unsupported", err.Error())
 			}
-			if svc.submitRequest != nil {
-				t.Errorf("request must not be submitted, got %+v", svc.submitRequest)
+			// len(submitCalls) rather than lastSubmit(): the latter cannot
+			// tell "never called" apart from "called with a nil request".
+			if len(svc.submitCalls) != 0 {
+				t.Errorf("request must not be submitted, got %+v", svc.submitCalls)
 			}
 		})
 	}
