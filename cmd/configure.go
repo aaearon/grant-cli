@@ -114,19 +114,34 @@ func runConfigure(cmd *cobra.Command, saver profileSaver, tenantURL, username st
 	profileDir := profiles.GetProfilesFolder()
 	profilePath := filepath.Join(profileDir, "grant")
 
-	// Create app config
-	cfg := &config.Config{
-		Profile:         "grant",
-		DefaultProvider: "azure",
-		Favorites:       make(map[string]config.Favorite),
-	}
-
-	// Save app config
-	log.Info("Saving config...")
+	// Merge onto the existing app config so a re-run keeps everything the user
+	// was not just prompted for (favorites, default_provider, cache_ttl).
 	cfgPath, err := config.ConfigPath()
 	if err != nil {
 		return err
 	}
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		// The file exists but cannot be used. Rebuilding from defaults is what
+		// keeps configure reachable with a broken config (the no-lockout
+		// property) — but it drops the rest of the file, so say so rather than
+		// doing it silently. configure is still not the advertised remedy for a
+		// bad value; editing the file named in the load error is.
+		fmt.Fprintf(cmd.ErrOrStderr(),
+			"Warning: existing config %s could not be read (%v); rebuilding it from defaults, any favorites in it are lost\n",
+			cfgPath, err)
+		cfg = config.DefaultConfig()
+	}
+	cfg.Profile = "grant"
+	if cfg.Favorites == nil {
+		cfg.Favorites = make(map[string]config.Favorite)
+	}
+	if cfg.DefaultProvider == "" {
+		cfg.DefaultProvider = config.DefaultConfig().DefaultProvider
+	}
+
+	// Save app config
+	log.Info("Saving config...")
 	if err := config.Save(cfg, cfgPath); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
