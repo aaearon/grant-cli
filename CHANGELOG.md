@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-08-17
+
 ### Changed
 
 - An invalid `cache_ttl` (unparseable, zero or negative) now fails the command instead of silently defaulting; the error names the config file, the expected duration syntax and `--refresh`
