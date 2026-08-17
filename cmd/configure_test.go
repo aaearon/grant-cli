@@ -515,21 +515,112 @@ func TestConfigureLongHelpHasNoLegacyPath(t *testing.T) {
 	}
 }
 
-// TestConfigure_OverwritesInvalidCacheTTLAndClobbersFavorites pins what
-// `grant configure` actually does to a config it cannot load: it never reads the
-// old file, it builds a fresh Config from scratch and writes that over the top.
-//
-// That keeps configure reachable with a broken config — the no-lockout property
-// — but it is NOT an endorsed recovery path for a bad cache_ttl, and no error
-// text, doc or help string should point a user at it. runConfigure discards
-// every favorite and resets default_provider, so using it to fix a
-// one-character typo silently destroys unrelated config. The documented remedy
-// is to edit the file named in the load error. The favorites assertion below
-// pins that loss so it stays visible; it is recorded behavior, not desired
-// behavior, and is flagged as a follow-up in CLAUDE.md.
+// TestConfigure_PreservesExistingConfigOnRerun pins that a re-run of
+// `grant configure` over a LOADABLE config keeps everything the user did not
+// answer a prompt for. configure prompts for the username and Identity URL
+// only; favorites, default_provider and cache_ttl live in the same file and
+// must survive untouched.
 //
 // Not parallel: sets GRANT_CONFIG and IDSEC_PROFILES_FOLDER for the process.
-func TestConfigure_OverwritesInvalidCacheTTLAndClobbersFavorites(t *testing.T) {
+func TestConfigure_PreservesExistingConfigOnRerun(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	existing := "profile: grant\ndefault_provider: aws\ncache_ttl: 30m\n" +
+		"favorites:\n  prod:\n    provider: azure\n    target: Prod-EastUS\n    role: Contributor\n"
+	if err := os.WriteFile(cfgPath, []byte(existing), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv("GRANT_CONFIG", cfgPath)
+	t.Setenv("IDSEC_PROFILES_FOLDER", filepath.Join(dir, "profiles"))
+
+	cmd := NewConfigureCommandWithDeps(&mockProfileSaver{}, "https://example.cyberark.cloud", "test.user@example.com")
+	if _, err := executeCommand(cmd); err != nil {
+		t.Fatalf("configure() error = %v, want nil", err)
+	}
+
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load() after configure = %v", err)
+	}
+	if cfg.DefaultProvider != "aws" {
+		t.Errorf("default_provider = %q after configure, want %q preserved", cfg.DefaultProvider, "aws")
+	}
+	if cfg.CacheTTL != "30m" {
+		t.Errorf("cache_ttl = %q after configure, want %q preserved", cfg.CacheTTL, "30m")
+	}
+	fav, ok := cfg.Favorites["prod"]
+	if !ok {
+		t.Fatalf("favorites = %v after configure, want the %q favorite preserved", cfg.Favorites, "prod")
+	}
+	want := config.Favorite{Provider: "azure", Target: "Prod-EastUS", Role: "Contributor"}
+	if fav != want {
+		t.Errorf("favorites[%q] = %+v, want %+v", "prod", fav, want)
+	}
+	if cfg.Profile != "grant" {
+		t.Errorf("profile = %q after configure, want %q", cfg.Profile, "grant")
+	}
+}
+
+// TestConfigure_FirstRunMergesOntoDefaults pins the absent-config case:
+// config.Load reports os.ErrNotExist as a SUCCESS returning DefaultConfig(), so
+// a first run merges onto defaults rather than taking the unloadable fallback.
+//
+// Not parallel: sets GRANT_CONFIG and IDSEC_PROFILES_FOLDER for the process.
+func TestConfigure_FirstRunMergesOntoDefaults(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	t.Setenv("GRANT_CONFIG", cfgPath)
+	t.Setenv("IDSEC_PROFILES_FOLDER", filepath.Join(dir, "profiles"))
+
+	cmd := NewConfigureCommandWithDeps(&mockProfileSaver{}, "https://example.cyberark.cloud", "test.user@example.com")
+	out, err := executeCommand(cmd)
+	if err != nil {
+		t.Fatalf("configure() error = %v, want nil", err)
+	}
+	// The rebuild warning belongs to the unloadable path only; an absent file
+	// is a normal first run, not a recovery.
+	if strings.Contains(out, "could not be read") {
+		t.Errorf("first run warned about an unreadable config\ngot:\n%s", out)
+	}
+
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load() after configure = %v", err)
+	}
+	if cfg.Profile != "grant" {
+		t.Errorf("profile = %q, want %q", cfg.Profile, "grant")
+	}
+	if cfg.DefaultProvider != "azure" {
+		t.Errorf("default_provider = %q, want the default %q", cfg.DefaultProvider, "azure")
+	}
+	if cfg.Favorites == nil {
+		t.Error("favorites = nil, want an initialized map")
+	}
+	if len(cfg.Favorites) != 0 {
+		t.Errorf("favorites = %v, want empty on a first run", cfg.Favorites)
+	}
+	if cfg.CacheTTL != "" {
+		t.Errorf("cache_ttl = %q, want empty on a first run", cfg.CacheTTL)
+	}
+}
+
+// TestConfigure_UnloadableConfigIsRebuiltFromDefaults pins what `grant
+// configure` does to a config it cannot load: it falls back to a fresh Config
+// and writes that over the top.
+//
+// That is what keeps configure reachable with a broken config — the no-lockout
+// property — but it is NOT an endorsed recovery path for a bad cache_ttl, and
+// no error text, doc or help string should point a user at it. On this path the
+// old file cannot be read at all, so favorites and default_provider are lost;
+// the assertions below pin that loss so it stays visible, and configure warns
+// on stderr rather than doing it silently. The documented remedy for a bad
+// value is still to edit the file named in the load error.
+//
+// (A LOADABLE config is preserved instead — see
+// TestConfigure_PreservesExistingConfigOnRerun.)
+//
+// Not parallel: sets GRANT_CONFIG and IDSEC_PROFILES_FOLDER for the process.
+func TestConfigure_UnloadableConfigIsRebuiltFromDefaults(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yaml")
 	broken := "profile: grant\ndefault_provider: aws\ncache_ttl: garbage\n" +
@@ -542,9 +633,20 @@ func TestConfigure_OverwritesInvalidCacheTTLAndClobbersFavorites(t *testing.T) {
 
 	cmd := NewConfigureCommand()
 	cmd.SetOut(&strings.Builder{})
+	stderr := &strings.Builder{}
+	cmd.SetErr(stderr)
 	err := runConfigure(cmd, &mockProfileSaver{}, "https://example.cyberark.cloud", "test.user@example.com")
 	if err != nil {
-		t.Fatalf("runConfigure() error = %v, want nil; configure must not read the broken config", err)
+		t.Fatalf("runConfigure() error = %v, want nil; a broken config must not lock the user out of configure", err)
+	}
+
+	// The rebuild must be announced, not silent: this is the one path that
+	// still drops the user's other settings.
+	if !strings.Contains(stderr.String(), "could not be read") {
+		t.Errorf("stderr missing the rebuild warning\ngot:\n%s", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), cfgPath) {
+		t.Errorf("stderr warning does not name the config path %q\ngot:\n%s", cfgPath, stderr.String())
 	}
 
 	// The broken value must be gone and the rewritten file must now load.
@@ -556,11 +658,11 @@ func TestConfigure_OverwritesInvalidCacheTTLAndClobbersFavorites(t *testing.T) {
 		t.Errorf("cache_ttl = %q after configure, want it rewritten away", cfg.CacheTTL)
 	}
 
-	// The sharp edge: everything else in the file went with it. Pinned so a
-	// future change to runConfigure has to acknowledge this, and so nobody
+	// The remaining sharp edge: on this path the old file cannot be read, so
+	// everything else in it goes with the broken value. Pinned so nobody
 	// mistakes configure for a safe repair tool.
 	if len(cfg.Favorites) != 0 {
-		t.Errorf("favorites = %v after configure, want them clobbered (pinned pre-existing behavior)", cfg.Favorites)
+		t.Errorf("favorites = %v after configure, want them gone (unreadable config cannot be merged)", cfg.Favorites)
 	}
 	if cfg.DefaultProvider != "azure" {
 		t.Errorf("default_provider = %q after configure, want the hardcoded %q (the user's \"aws\" is lost)", cfg.DefaultProvider, "azure")

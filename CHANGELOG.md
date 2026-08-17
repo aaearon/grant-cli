@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- `grant configure` no longer discards your saved favorites, `default_provider` and `cache_ttl` when re-run
 - `grant favorites add` now fails immediately without a terminal instead of authenticating first
 - `grant favorites add`'s non-interactive error now mentions the required favorite name, not only the flags
 - Interactive selectors now elevate the row you picked, not another target or Entra ID group that happens to render the same way
