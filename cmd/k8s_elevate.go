@@ -56,7 +56,11 @@ func NewK8sElevateCommand() *cobra.Command {
 			return err
 		}
 		refresh, _ := cmd.Flags().GetBool("refresh")
-		return runK8sElevate(cmd, args, ispAuth, buildCachedClusterLister(cfg, refresh, svc), svc)
+		lister, err := buildCachedClusterLister(cfg, refresh, svc)
+		if err != nil {
+			return err
+		}
+		return runK8sElevate(cmd, args, ispAuth, lister, svc)
 	})
 }
 

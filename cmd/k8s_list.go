@@ -62,7 +62,11 @@ func NewK8sListCommand() *cobra.Command {
 		}
 
 		refresh, _ := cmd.Flags().GetBool("refresh")
-		return runK8sList(cmd, ispAuth, buildCachedClusterLister(cfg, refresh, svc))
+		lister, err := buildCachedClusterLister(cfg, refresh, svc)
+		if err != nil {
+			return err
+		}
+		return runK8sList(cmd, ispAuth, lister)
 	})
 }
 

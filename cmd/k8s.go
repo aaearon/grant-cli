@@ -90,12 +90,16 @@ func bootstrapK8sService() (*k8s.Service, error) {
 
 // buildCachedClusterLister wraps a cluster lister with the on-disk cache.
 // If the cache directory cannot be resolved it degrades to an always-miss store.
-func buildCachedClusterLister(cfg *config.Config, refresh bool, inner cache.ClusterLister) *cache.CachedClusterLister {
+func buildCachedClusterLister(cfg *config.Config, refresh bool, inner cache.ClusterLister) (*cache.CachedClusterLister, error) {
 	cacheLog := common.GetLogger("grant", -1)
 	cacheDir, err := cache.CacheDir()
 	if err != nil {
-		return cache.NewCachedClusterLister(inner, cache.NewStore("", 0), true, nil)
+		return cache.NewCachedClusterLister(inner, cache.NewStore("", 0), true, nil), nil
 	}
-	store := cache.NewStore(cacheDir, config.ParseCacheTTL(cfg))
-	return cache.NewCachedClusterLister(inner, store, refresh, cacheLog)
+	ttl, err := config.ParseCacheTTL(cfg)
+	if err != nil {
+		return nil, err
+	}
+	store := cache.NewStore(cacheDir, ttl)
+	return cache.NewCachedClusterLister(inner, store, refresh, cacheLog), nil
 }

@@ -3,44 +3,40 @@
 package cmd
 
 import (
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 )
 
-func TestIntegration_K8sHelp(t *testing.T) {
-	cmd := exec.Command(getBinaryPath(), "k8s", "--help")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("grant k8s --help failed: %v\n%s", err, output)
-	}
+// authFailure is the exact error the SDK authenticator emits against the empty
+// sandbox profile directory, before any network call is made.
+const authFailure = "authentication failed: either a profile or a specific auth profile must be supplied"
 
-	outputStr := string(output)
+func TestIntegration_K8sHelp(t *testing.T) {
+	got := runGrant(t, isolatedEnv(t), "k8s", "--help")
+
+	if got.exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0\noutput:\n%s", got.exitCode, got.output)
+	}
 	for _, want := range []string{"list", "elevate", "kubeconfig", "Kubernetes"} {
-		if !strings.Contains(outputStr, want) {
-			t.Errorf("expected %q in `grant k8s --help` output, got:\n%s", want, outputStr)
+		if !got.contains(want) {
+			t.Errorf("output missing %q, got:\n%s", want, got.output)
 		}
 	}
-
 	// exec-credential is Hidden and must not be advertised.
-	if strings.Contains(outputStr, "exec-credential") {
-		t.Errorf("exec-credential must be hidden from help, got:\n%s", outputStr)
+	if got.contains("exec-credential") {
+		t.Errorf("exec-credential must be hidden from help, got:\n%s", got.output)
 	}
 }
 
 func TestIntegration_K8sListHelp(t *testing.T) {
-	cmd := exec.Command(getBinaryPath(), "k8s", "list", "--help")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("grant k8s list --help failed: %v\n%s", err, output)
-	}
+	got := runGrant(t, isolatedEnv(t), "k8s", "list", "--help")
 
-	outputStr := string(output)
+	if got.exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0\noutput:\n%s", got.exitCode, got.output)
+	}
 	for _, want := range []string{"--provider", "--refresh"} {
-		if !strings.Contains(outputStr, want) {
-			t.Errorf("expected %q in `grant k8s list --help` output, got:\n%s", want, outputStr)
+		if !got.contains(want) {
+			t.Errorf("output missing %q, got:\n%s", want, got.output)
 		}
 	}
 }
@@ -49,33 +45,34 @@ func TestIntegration_K8sListHelp(t *testing.T) {
 // makes no network call when there is no authentication. No stub server is
 // contacted: the binary must bail out before any request.
 func TestIntegration_K8sListJSONWithoutLogin(t *testing.T) {
-	tempDir := t.TempDir()
+	got := runGrant(t, isolatedEnv(t), "k8s", "list", "--output", "json")
 
-	cmd := exec.Command(getBinaryPath(), "k8s", "list", "--output", "json")
-	cmd.Env = append(os.Environ(), "GRANT_CONFIG="+filepath.Join(tempDir, "config.yaml"))
-	cmd.Env = append(cmd.Env, "HOME="+tempDir)
-
-	output, err := cmd.CombinedOutput()
-	if err == nil {
-		t.Fatalf("expected `grant k8s list` to fail without authentication, got:\n%s", output)
+	if got.exitCode != 1 {
+		t.Fatalf("exit code = %d, want 1\noutput:\n%s", got.exitCode, got.output)
 	}
-
-	outputStr := strings.ToLower(string(output))
-	if !strings.Contains(outputStr, "auth") && !strings.Contains(outputStr, "profile") && !strings.Contains(outputStr, "error") {
-		t.Errorf("expected an authentication-shaped error, got:\n%s", output)
+	for _, want := range []string{authFailure, "Hint: re-run with --verbose for more details"} {
+		if !got.contains(want) {
+			t.Errorf("output missing %q, got:\n%s", want, got.output)
+		}
+	}
+	// --output json must not emit a partial document alongside the failure.
+	if strings.Contains(got.output, "{") {
+		t.Errorf("k8s list printed JSON despite failing to authenticate:\n%s", got.output)
 	}
 }
 
-func TestIntegration_K8sListRejectsUnsupportedProvider(t *testing.T) {
-	tempDir := t.TempDir()
+// TestIntegration_K8sListUnsupportedProviderStillRequiresAuth pins the current
+// ordering: `k8s list` authenticates before it validates --provider, so an
+// unsupported provider surfaces the authentication error, not a provider one.
+// The assertion is deliberately exact — the previous version accepted "gcp" OR
+// "auth" and so passed without ever proving which error the user actually sees.
+func TestIntegration_K8sListUnsupportedProviderStillRequiresAuth(t *testing.T) {
+	got := runGrant(t, isolatedEnv(t), "k8s", "list", "--provider", "gcp")
 
-	cmd := exec.Command(getBinaryPath(), "k8s", "list", "--provider", "gcp")
-	cmd.Env = append(os.Environ(), "GRANT_CONFIG="+filepath.Join(tempDir, "config.yaml"))
-	cmd.Env = append(cmd.Env, "HOME="+tempDir)
-
-	output, _ := cmd.CombinedOutput()
-	if !strings.Contains(strings.ToLower(string(output)), "gcp") &&
-		!strings.Contains(strings.ToLower(string(output)), "auth") {
-		t.Errorf("expected a provider or auth error, got:\n%s", output)
+	if got.exitCode != 1 {
+		t.Fatalf("exit code = %d, want 1\noutput:\n%s", got.exitCode, got.output)
+	}
+	if !got.contains(authFailure) {
+		t.Errorf("output missing %q, got:\n%s", authFailure, got.output)
 	}
 }
