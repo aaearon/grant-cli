@@ -281,7 +281,18 @@ func NewRootCommandWithDeps(
 //
 // It fails closed: if the override cannot be applied the command never runs,
 // because continuing would walk the user into an unbounded D-Bus hang.
-func executeWithKeyringOverride(cmd *cobra.Command) error {
+//
+// args is the raw command line (os.Args[1:] in production). It is used only to
+// work out, before Cobra runs anything, whether the command being invoked owns
+// stdout as a machine protocol — see installProtocolStdoutGuard. That has to
+// happen here rather than in the command's RunE: PersistentPreRunE runs first
+// and already writes to stdout on the `--verbose` path (the keyring notice
+// below goes through the SDK logger, which is built on os.Stdout), so a guard
+// installed in RunE would let that through.
+func executeWithKeyringOverride(cmd *cobra.Command, args ...string) error {
+	guard := installProtocolStdoutGuard(cmd, args)
+	defer guard.Release()
+
 	applied, reason, err := keyringApply()
 	if err != nil {
 		return fmt.Errorf("could not force the file-based keyring backend: %w (set IDSEC_BASIC_KEYRING=1 manually and retry)", err)
@@ -304,7 +315,7 @@ func shouldShowVerboseHint(verboseOn, argValidationPassed bool) bool {
 
 func Execute() {
 	passedArgValidation = false
-	if err := executeWithKeyringOverride(rootCmd); err != nil {
+	if err := executeWithKeyringOverride(rootCmd, os.Args[1:]...); err != nil {
 		fmt.Fprintln(rootCmd.ErrOrStderr(), err)
 		if shouldShowVerboseHint(verbose, passedArgValidation) {
 			fmt.Fprintln(rootCmd.ErrOrStderr(), "Hint: re-run with --verbose for more details")

@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 
+	"github.com/aaearon/grant-cli/internal/k8s"
 	"github.com/aaearon/grant-cli/internal/sca/models"
 	"github.com/aaearon/grant-cli/internal/workflows"
 	wfmodels "github.com/aaearon/grant-cli/internal/workflows/models"
@@ -89,6 +90,26 @@ type unifiedSelector interface {
 // Returns the latest published version and whether the binary was replaced.
 type selfUpdater interface {
 	UpdateSelf(ctx context.Context, current string) (newVersion string, updated bool, err error)
+}
+
+// clusterLister interface for listing eligible Kubernetes clusters
+type clusterLister interface {
+	ListClusters(ctx context.Context, csp string) ([]k8s.Cluster, error)
+}
+
+// clusterElevator interface for elevating access to a Kubernetes cluster
+type clusterElevator interface {
+	Elevate(ctx context.Context, p k8s.ElevateParams) (*k8s.ElevateResult, error)
+}
+
+// kubeconfigGenerator interface for fetching DPA-generated kubeconfigs
+type kubeconfigGenerator interface {
+	GenerateKubeconfigs(ctx context.Context, csps []string) (map[string]string, []k8s.KubeconfigFailure, error)
+}
+
+// clusterCredentialProvider interface for the kubectl exec-credential flow
+type clusterCredentialProvider interface {
+	ExecCredential(ctx context.Context, p k8s.ExecCredentialParams) (*k8s.ExecCredential, error)
 }
 
 // accessRequestService interface for access request operations

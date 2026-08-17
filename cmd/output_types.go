@@ -1,5 +1,7 @@
 package cmd
 
+import "github.com/aaearon/grant-cli/internal/k8s"
+
 // cloudElevationOutput is the JSON representation of a cloud elevation result.
 type cloudElevationOutput struct {
 	Type        string               `json:"type"`
@@ -102,4 +104,51 @@ type accessRequestOutput struct {
 type accessRequestListOutput struct {
 	Requests   []accessRequestOutput `json:"requests"`
 	TotalCount int                   `json:"totalCount"`
+}
+
+// clusterOutput is the JSON representation of an eligible Kubernetes cluster.
+type clusterOutput struct {
+	Provider       string `json:"provider"`
+	Name           string `json:"name"`
+	ClusterID      string `json:"clusterId"`
+	FQDN           string `json:"fqdn,omitempty"`
+	Region         string `json:"region,omitempty"`
+	Scope          string `json:"scope,omitempty"`
+	Namespace      string `json:"namespace,omitempty"`
+	WorkspaceID    string `json:"workspaceId,omitempty"`
+	WorkspaceName  string `json:"workspaceName,omitempty"`
+	WorkspaceType  string `json:"workspaceType,omitempty"`
+	Role           string `json:"role,omitempty"`
+	RoleID         string `json:"roleId,omitempty"`
+	OrganizationID string `json:"organizationId,omitempty"`
+}
+
+// k8sListOutput is the JSON representation of `grant k8s list`.
+type k8sListOutput struct {
+	Clusters []clusterOutput `json:"clusters"`
+}
+
+// k8sElevateOutput is the JSON representation of `grant k8s elevate`.
+type k8sElevateOutput struct {
+	Provider   string `json:"provider"`
+	Cluster    string `json:"cluster"`
+	FQDN       string `json:"fqdn,omitempty"`
+	Role       string `json:"role,omitempty"`
+	RoleID     string `json:"roleId,omitempty"`
+	SessionID  string `json:"sessionId,omitempty"`
+	ExpiresAt  string `json:"expiresAt,omitempty"`
+	TargetID   string `json:"targetId,omitempty"`
+	Namespace  string `json:"namespace,omitempty"`
+	Kubeconfig string `json:"nextStep,omitempty"`
+}
+
+// kubeconfigOutput is the JSON representation of `grant k8s kubeconfig`.
+type kubeconfigOutput struct {
+	Path          string                  `json:"path"`
+	Added         []string                `json:"added"`
+	Replaced      []string                `json:"replaced"`
+	Contexts      []string                `json:"contexts"`
+	Warnings      []string                `json:"warnings,omitempty"`
+	BackupCreated bool                    `json:"backupCreated"`
+	Failures      []k8s.KubeconfigFailure `json:"failures,omitempty"`
 }

@@ -120,6 +120,7 @@ Running `grant` with no subcommand elevates cloud permissions (the core behavior
 | `favorites` | Manage saved role favorites (`add`/`list`/`remove`) |
 | `revoke` | Revoke sessions (interactive, by ID, or `--all`) — see exit codes below |
 | `request` | Manage access requests through an approval workflow (see subcommands below) |
+| `k8s` | Work with SCA-eligible Kubernetes clusters (see subcommands below) |
 | `update` | Self-update to the latest release from GitHub |
 | `version` | Print version information |
 
@@ -155,12 +156,44 @@ on stdout even on exit 1.
 | `approve [id]` | Approve a pending request (approvers only); omit `<id>` in a TTY to pick from pending requests |
 | `reject [id]` | Reject a pending request (approvers only); omit `<id>` in a TTY to pick from pending requests |
 
+### `grant k8s` subcommands
+
+> **Untested against a live cluster.** The `grant k8s` commands are implemented against the SCA Kubernetes API and SDK but have not been exercised against a real tenant with Kubernetes entitlements — please report issues.
+
+| Subcommand | Description |
+|------------|-------------|
+| `list` | List Kubernetes clusters you are eligible for (`--provider aws\|azure`, `--refresh`, `--output json`) |
+| `elevate [cluster]` | Elevate access for a cluster; omit `<cluster>` in a TTY to open an interactive picker |
+| `kubeconfig` | Fetch a kubeconfig and merge it into `$KUBECONFIG` / `~/.kube/config` |
+
+```bash
+grant k8s list                          # what can I reach?
+grant k8s elevate prod-cluster          # JIT elevation for one cluster
+grant k8s kubeconfig                    # merge into your existing kubeconfig
+kubectl --context grant-aws-prod get ns
+```
+
+`grant k8s kubeconfig` is a **merge**, not an overwrite. Only entries grant owns — named `grant-<provider>-<name>` — are added or replaced; every other cluster, user and context in your kubeconfig is left alone, and `current-context` is not changed unless you pass `--set-current-context`. The file is written atomically, and the first merge into a pre-existing kubeconfig leaves a `<target>.grant.bak` copy behind. Use `--stdout` to print without touching any file, or `--file <path>` to target a different one.
+
+**A note on file permissions.** On Linux and macOS, the kubeconfig and the cached cluster credentials are written at mode `0600` and grant refuses to read a cached credential that is owned by another user or readable beyond you. On Windows none of that applies: Go reports a synthesized `0666` for every file, `chmod` there only toggles the read-only attribute, and grant does **not** inspect ACLs or file ownership. Confidentiality on Windows rests entirely on the default permissions of your user profile directory. Symlinked kubeconfigs and cache entries are refused on every platform.
+
+The generated kubeconfig authenticates through a hidden `grant k8s exec-credential` plugin that kubectl invokes for you.
+
+Supported providers are `aws` (EKS) and `azure` (AKS). GCP is not supported by the SCA Kubernetes API.
+The Azure path additionally requires the [Azure CLI](https://learn.microsoft.com/cli/azure/) to be installed and logged in (`az login`).
+
 ### Flags
 
 **Global:** `--verbose, -v` (detailed output) | `--output, -o` (`text` or `json`)
 
 **Elevation** (`grant`, `env`, `favorites add`):
 `--provider, -p` | `--target, -t` | `--role, -r` | `--favorite, -f` | `--group, -g` | `--groups` | `--refresh`
+
+**`grant k8s list`:** `--provider, -p` | `--refresh`
+
+**`grant k8s elevate`:** `--provider, -p` | `--role-id` | `--refresh`
+
+**`grant k8s kubeconfig`:** `--provider, -p` | `--all` | `--file` (target path) | `--stdout` | `--set-current-context`
 
 **`grant request submit`:**
 `--provider, -p` | `--target, -t` | `--role` | `--role-id` | `--reason` | `--priority` | `--date` | `--timezone` | `--from` | `--to` | `--yes` | `--refresh`
