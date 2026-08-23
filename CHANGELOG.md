@@ -8,7 +8,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
-- An invalid `cache_ttl` (unparseable, zero or negative) now fails the command instead of silently defaulting; the error names the config file, the expected duration syntax and `--refresh`
+- An invalid `cache_ttl` (unparseable, zero or negative) now fails the command instead of silently defaulting; the error names the config file and the expected duration syntax
 
 ### Fixed
 

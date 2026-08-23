@@ -519,21 +519,21 @@ func TestParseCacheTTL(t *testing.T) {
 			},
 		},
 		{
-			name:  "zero is rejected and names the --refresh alternative",
+			name:  "zero is rejected and names the remedy",
 			value: "0s",
 			wantErrContains: []string{
 				`invalid cache_ttl "0s"`,
 				"must be greater than zero",
-				"use --refresh to bypass the cache for a single command",
+				"remove the setting to use the default",
 			},
 		},
 		{
-			name:  "negative is rejected and names the --refresh alternative",
+			name:  "negative is rejected and names the remedy",
 			value: "-1h",
 			wantErrContains: []string{
 				`invalid cache_ttl "-1h"`,
 				"must be greater than zero",
-				"use --refresh to bypass the cache for a single command",
+				"remove the setting to use the default",
 			},
 		},
 	}
