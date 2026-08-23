@@ -55,10 +55,10 @@ premise does not hold).
 | REQ-01 | cmd/request finalize | `cmd/request_finalize.go:100` | `svc.FinalizeRequest(ctx, requestID, decision, reason)` → `svc.FinalizeRequest(ctx, requestID, "APPROVED", reason)` | CONFIRMED | test | `TestRequestReject_SendsRejectedDecision` + `TestRequestApprove_SendsApprovedDecision` | PR4 | done |
 | REQ-02 | cmd/request cancel | `cmd/request_cancel.go:60` | `svc.CancelRequest(ctx, requestID, reason)` → `svc.CancelRequest(ctx, "WRONG-ID", reason)` | CONFIRMED | test | `TestRequestCancel_PassesRequestID` | PR4 | done |
 | REQ-03 | cmd/request get | `cmd/request_get.go:53` | `svc.GetRequest(ctx, requestID)` → `svc.GetRequest(ctx, "WRONG-ID")` | CONFIRMED | test | `TestRequestGet_PassesRequestID` | PR4 | done |
-| REQ-04 | cmd/request list | `cmd/request_list.go:93-98` | Swap the asc/desc branches: `order := "asc"` → `order := "desc"` and `order = "desc"` → `order = "asc"` | CONFIRMED | test | `TestRequestList_ParamsFromFlags` | PR4 | done |
-| REQ-05 | cmd/request list | `cmd/request_list.go:82` | `if role != "CREATOR" && role != "APPROVER" {` → `if false {` | CONFIRMED | test | `TestRequestList_RejectsInvalidRole` | PR4 | done |
-| REQ-06 | cmd/request list | `cmd/request_list.go:78` | `params.FreeText = v` → `params.FreeText = ""` | CONFIRMED | test | `TestRequestList_ParamsFromFlags` | PR4 | done |
-| REQ-07 | cmd/request list | `cmd/request_list.go:58` | Delete `filters = append(filters, fmt.Sprintf("(requestState eq %s)", upper))` | CONFIRMED | test | `TestRequestList_ParamsFromFlags` | PR4 | done |
+| REQ-04 | cmd/request list | `cmd/request_list.go:108-113` | Swap the asc/desc branches: `order := "asc"` → `order := "desc"` and `order = "desc"` → `order = "asc"` | CONFIRMED | test | `TestRequestList_ParamsFromFlags` | PR4 | done |
+| REQ-05 | cmd/request list | `cmd/request_list.go:95` | `if role != "CREATOR" && role != "APPROVER" {` → `if false {` | CONFIRMED | test | `TestRequestList_RejectsInvalidRole` | PR4 | done |
+| REQ-06 | cmd/request list | `cmd/request_list.go:91` | `params.FreeText = v` → `params.FreeText = ""` | CONFIRMED | test | `TestRequestList_ParamsFromFlags` | PR4 | done |
+| REQ-07 | cmd/request list | `cmd/request_list.go:73` | Delete `filters = append(filters, fmt.Sprintf("(requestState eq %s)", upper))` | CONFIRMED | test | `TestRequestList_ParamsFromFlags` | PR4 | done |
 | REQ-08 | cmd/request submit | `cmd/request_submit.go:306` | `TargetCategory: "CLOUD_CONSOLE"` → `TargetCategory: "WRONG"` | CONFIRMED | test | `TestRunRequestSubmit_SubmitPayload` | PR4 | done |
 | REQ-09 | cmd/request submit | `cmd/request_submit.go:507` | `"workspaceId": ws.WorkspaceID,` → `"workspaceId": "",` | CONFIRMED | test | `TestRunRequestSubmit_SubmitPayload` | PR4 | done |
 | REQ-10 | cmd/request submit | `cmd/request_submit.go:511-512` | Swap the two values: `"timeFrom": f.timeTo,` / `"timeTo": f.timeFrom,` | CONFIRMED | test | `TestRunRequestSubmit_SubmitPayload` | PR4 | done |
