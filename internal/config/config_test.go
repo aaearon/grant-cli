@@ -810,3 +810,44 @@ func TestSave_MkdirAllFailure(t *testing.T) {
 		t.Errorf("error op = %q, want %q — the MkdirAll failure must be the one reported", pathErr.Op, "mkdir")
 	}
 }
+
+// TestParseCacheTTL_RejectionMessagesAreExact pins the WHOLE rejection message,
+// not substrings. The substring cases in TestParseCacheTTL prove the message
+// mentions the right things; this proves it still reads as a sentence and that
+// DefaultCacheTTL is genuinely interpolated rather than hardcoded. Deliberately
+// brittle: this text is the user's only instruction for repairing the config by
+// hand, and it has already been wrong once (it used to name --refresh, a flag
+// three cache-consuming commands do not have).
+func TestParseCacheTTL_RejectionMessagesAreExact(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{
+			name:  "zero",
+			value: "0s",
+			want:  `invalid cache_ttl "0s": must be greater than zero; remove the setting to use the default (` + DefaultCacheTTL.String() + `)`,
+		},
+		{
+			name:  "negative",
+			value: "-1h",
+			want:  `invalid cache_ttl "-1h": must be greater than zero; remove the setting to use the default (` + DefaultCacheTTL.String() + `)`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := ParseCacheTTL(&Config{CacheTTL: tt.value})
+			if err == nil {
+				t.Fatalf("ParseCacheTTL(%q) = nil error, want one", tt.value)
+			}
+			if err.Error() != tt.want {
+				t.Errorf("ParseCacheTTL(%q) error:\n got %q\nwant %q", tt.value, err.Error(), tt.want)
+			}
+		})
+	}
+}
