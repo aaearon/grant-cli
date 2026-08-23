@@ -4,11 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-### Fixed
-
-- `grant request list --state`, `--result` and `--priority` now work; every filtered invocation previously failed with HTTP 400
-
-## [0.10.0] - 2026-08-17
+## [0.10.0] - 2026-08-18
 
 ### Changed
 
@@ -16,6 +12,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- `grant request list --state`, `--result` and `--priority` now work; every filtered invocation previously failed with HTTP 400
 - `grant configure` no longer discards your saved favorites, `default_provider` and `cache_ttl` when re-run
 - `grant favorites add` now fails immediately without a terminal instead of authenticating first
 - `grant favorites add`'s non-interactive error now mentions the required favorite name, not only the flags
