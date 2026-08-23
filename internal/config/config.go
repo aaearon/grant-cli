@@ -130,7 +130,7 @@ func ParseCacheTTL(cfg *Config) (time.Duration, error) {
 		return 0, fmt.Errorf("invalid cache_ttl %q: must be a positive Go duration such as 4h or 30m: %w", cfg.CacheTTL, err)
 	}
 	if d <= 0 {
-		return 0, fmt.Errorf("invalid cache_ttl %q: must be greater than zero; use --refresh to bypass the cache for a single command", cfg.CacheTTL)
+		return 0, fmt.Errorf("invalid cache_ttl %q: must be greater than zero; remove the setting to use the default (%s)", cfg.CacheTTL, DefaultCacheTTL)
 	}
 	return d, nil
 }
