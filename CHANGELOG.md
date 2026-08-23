@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- `grant request list --state`, `--result` and `--priority` now work; every filtered invocation previously failed with HTTP 400
+
 ## [0.10.0] - 2026-08-17
 
 ### Changed

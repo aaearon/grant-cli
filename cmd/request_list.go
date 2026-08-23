@@ -44,6 +44,21 @@ var (
 	validSorts      = map[string]bool{"createdAt": true, "updatedAt": true, "calculatedRequestStartTime": true}
 )
 
+// combineFilters joins already-parenthesised conditions into a UAR OData filter.
+// A lone condition is emitted bare: the API rejects the redundant outer wrap
+// (`((requestState eq PENDING))` -> 400) that a single condition would get.
+// Two or more are wrapped once, giving `((a) and (b))`.
+func combineFilters(filters []string) string {
+	switch len(filters) {
+	case 0:
+		return ""
+	case 1:
+		return filters[0]
+	default:
+		return "(" + strings.Join(filters, " and ") + ")"
+	}
+}
+
 func runRequestList(cmd *cobra.Command, svc accessRequestService) error {
 	ctx := cmd.Context()
 
@@ -68,11 +83,9 @@ func runRequestList(cmd *cobra.Command, svc accessRequestService) error {
 		if !validPriorities[v] {
 			return fmt.Errorf("--priority must be one of High, Medium, Low (got %q)", v)
 		}
-		filters = append(filters, fmt.Sprintf("(priority eq '%s')", v))
+		filters = append(filters, fmt.Sprintf("(priority eq %s)", v))
 	}
-	if len(filters) > 0 {
-		params.Filter = "(" + strings.Join(filters, " and ") + ")"
-	}
+	params.Filter = combineFilters(filters)
 
 	if v, _ := cmd.Flags().GetString("search"); v != "" {
 		params.FreeText = v

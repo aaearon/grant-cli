@@ -245,7 +245,7 @@ func TestRequestList_ParamsFromFlags(t *testing.T) {
 			name:     "state becomes a filter",
 			args:     []string{"request", "list", "--state", "pending"},
 			wantSort: "createdAt desc",
-			wantFilt: "((requestState eq PENDING))",
+			wantFilt: "(requestState eq PENDING)",
 		},
 		{
 			name:     "search becomes free text",
@@ -289,6 +289,85 @@ func TestRequestList_ParamsFromFlags(t *testing.T) {
 			}
 			if got.RequestRole != tt.wantRole {
 				t.Errorf("RequestRole = %q, want %q", got.RequestRole, tt.wantRole)
+			}
+		})
+	}
+}
+
+// TestRequestList_FilterSyntaxMatchesLiveAPI pins the exact OData filter
+// strings the UAR API accepts. Measured against the live API:
+//
+//	(requestState eq PENDING)                                 -> 200
+//	((requestState eq PENDING))                               -> 400
+//	(requestState eq 'PENDING')                               -> 400
+//	(priority eq High)                                        -> 200
+//	(priority eq 'High')                                      -> 400
+//	(requestResult eq APPROVED)                               -> 200
+//	((requestState eq FINISHED) and (priority eq High))       -> 200
+//
+// So: operand values are never quoted, and a lone condition is sent bare --
+// the outer wrap is only correct when two or more conditions are combined.
+func TestRequestList_FilterSyntaxMatchesLiveAPI(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		wantFilt string
+	}{
+		{
+			name:     "no filter flags",
+			args:     []string{"request", "list"},
+			wantFilt: "",
+		},
+		{
+			name:     "single state is not double wrapped",
+			args:     []string{"request", "list", "--state", "PENDING"},
+			wantFilt: "(requestState eq PENDING)",
+		},
+		{
+			name:     "single result is not double wrapped",
+			args:     []string{"request", "list", "--result", "APPROVED"},
+			wantFilt: "(requestResult eq APPROVED)",
+		},
+		{
+			name:     "single priority is unquoted and not double wrapped",
+			args:     []string{"request", "list", "--priority", "High"},
+			wantFilt: "(priority eq High)",
+		},
+		{
+			name:     "state and priority combine under one wrap",
+			args:     []string{"request", "list", "--state", "FINISHED", "--priority", "High"},
+			wantFilt: "((requestState eq FINISHED) and (priority eq High))",
+		},
+		{
+			name:     "state and result combine under one wrap",
+			args:     []string{"request", "list", "--state", "FINISHED", "--result", "REJECTED"},
+			wantFilt: "((requestState eq FINISHED) and (requestResult eq REJECTED))",
+		},
+		{
+			name:     "all three combine under one wrap",
+			args:     []string{"request", "list", "--state", "FINISHED", "--result", "APPROVED", "--priority", "Low"},
+			wantFilt: "((requestState eq FINISHED) and (requestResult eq APPROVED) and (priority eq Low))",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &mockAccessRequestService{}
+
+			cmd := NewRequestCommandWithDeps(svc)
+			root := newTestRootCommand()
+			root.AddCommand(cmd)
+
+			output, err := executeCommand(root, tt.args...)
+			if err != nil {
+				t.Fatalf("unexpected error: %v\noutput: %s", err, output)
+			}
+
+			if len(svc.listCalls) != 1 {
+				t.Fatalf("expected exactly 1 ListRequests call, got %d", len(svc.listCalls))
+			}
+			if got := svc.lastListParams().Filter; got != tt.wantFilt {
+				t.Errorf("Filter = %q, want %q", got, tt.wantFilt)
 			}
 		})
 	}
